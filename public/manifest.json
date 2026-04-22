@@ -1,0 +1,8 @@
+{
+  "short_name": "LFC Admin",
+  "name": "LFC Admin GUI",
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#000000",
+  "background_color": "#ffffff"
+}
