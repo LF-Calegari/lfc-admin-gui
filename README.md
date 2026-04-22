@@ -109,7 +109,7 @@ O **Auth Admin GUI** é a camada de apresentação que resolve isso: um painel w
 | Gerenciador de pacotes | `npm` |
 | React | `19.x` |
 | Linguagem | TypeScript |
-| Ferramenta de build | Create React App (`react-scripts`) |
+| Ferramenta de build | Vite |
 | Auth Service acessível | **`lfc-authenticator`** rodando com rotas `/api/v1` expostas e reachable a partir do host onde o SPA é servido (CORS configurado adequadamente). |
 | Docker (opcional) | `docker compose` para ambiente de desenvolvimento local. |
 
@@ -129,10 +129,10 @@ npm install
 
 # 3. Copiar variáveis de ambiente
 cp .env.example .env
-# Ajustar REACT_APP_AUTH_API_BASE_URL para apontar ao lfc-authenticator
+# Ajustar VITE_AUTH_API_BASE_URL para apontar ao lfc-authenticator
 
 # 4. Subir em modo dev
-npm start
+npm run dev
 ```
 
 ### Opção B — Docker
@@ -152,9 +152,9 @@ O SPA **não funciona isoladamente**. Antes de subir, garanta que o `lfc-authent
 
 | Variável | Descrição | Exemplo |
 |----------|-----------|---------|
-| `REACT_APP_AUTH_API_BASE_URL` | URL base do `lfc-authenticator` (inclui `/api/v1` **ou** é concatenado no cliente HTTP — manter consistente). | `https://localhost:8080/api/v1` |
-| `REACT_APP_NAME` | Nome exibido no header do SPA. | `Auth Admin` |
-| `REACT_APP_SESSION_IDLE_MINUTES` | Minutos de inatividade antes de forçar re-login (deve ser **≤** `Auth:Jwt:ExpirationMinutes` do auth-service). | `15` |
+| `VITE_AUTH_API_BASE_URL` | URL base do `lfc-authenticator` (inclui `/api/v1` **ou** é concatenado no cliente HTTP — manter consistente). | `https://localhost:8080/api/v1` |
+| `VITE_APP_NAME` | Nome exibido no header do SPA. | `Auth Admin` |
+| `VITE_SESSION_IDLE_MINUTES` | Minutos de inatividade antes de forçar re-login (deve ser **≤** `Auth:Jwt:ExpirationMinutes` do auth-service). | `15` |
 
 > ⚠️ Por ser uma SPA, **qualquer variável exposta ao bundle é pública**. Nunca coloque segredos, chaves de API privadas ou connection strings aqui.
 
@@ -164,7 +164,7 @@ O SPA **não funciona isoladamente**. Antes de subir, garanta que o `lfc-authent
 
 ```
 lfc-admin-gui/
-├── public/                     # Assets estáticos do CRA
+├── public/                     # Assets estáticos servidos pelo Vite
 ├── src/
 │   ├── App.tsx
 │   ├── App.test.tsx
@@ -245,10 +245,11 @@ lfc-admin-gui/
 
 | Script | Descrição |
 |--------|-----------|
-| `start` | Sobe o servidor de desenvolvimento com HMR |
-| `build` | Build de produção |
-| `test` | Roda suíte de testes com Jest/RTL |
-| `eject` | Ejeta a configuração do `react-scripts` (irreversível) |
+| `dev` | Sobe o servidor de desenvolvimento com HMR |
+| `start` | Alias para `dev` |
+| `build` | Typecheck e build de produção |
+| `preview` | Sobe o bundle de produção localmente |
+| `test` | Executa testes com Vitest |
 
 ---
 
@@ -258,7 +259,7 @@ Setup atual para desenvolvimento:
 
 - `Dockerfile` baseado em `node:24-alpine`
 - Instala dependências com `npm ci`
-- Executa `npm start` e expõe a porta `3000`
+- Executa `npm run dev` e expõe a porta configurada por `PORT` (padrão `3002`)
 - `docker-compose.yml` monta o código-fonte em volume para hot reload
 
 Comandos úteis:

@@ -117,4 +117,38 @@
   --z-overlay: 200;
   --z-modal:   300;
   --z-toast:   400;
+
+  /* ─── Breakpoints (em-based for a11y/zoom) ─────────────── */
+  /* Mobile-first: no media query  = base. min-width scales up. */
+  --bp-sm: 30em;   /*  480px — small phones → large phones  */
+  --bp-md: 48em;   /*  768px — tablets / sidebar drawer → fixed */
+  --bp-lg: 60em;   /*  960px — desktop layout with sidebar  */
+  --bp-xl: 80em;   /* 1280px — wide desktop / large composition */
+
+  /* ─── Fluid Spacing Helpers ─────────────────────────────── */
+  /* Use in container paddings; scales between mobile and desktop. */
+  --pad-inline:    clamp(1.25rem, 5vw, 5rem);   /* 20 → 80 */
+  --pad-block-sm:  clamp(2rem,   5vw, 3rem);    /* 32 → 48 */
+  --pad-block-md:  clamp(2.5rem, 6vw, 5rem);    /* 40 → 80 */
+  --pad-block-lg:  clamp(3.5rem, 8vw, 6rem);    /* 56 → 96 */
+
+  /* ─── Fluid Type Helpers ────────────────────────────────── */
+  --type-h2:   clamp(1.375rem, 1.1rem + 1.4vw, 1.875rem); /* 22 → 30 */
+  --type-h3:   clamp(1.125rem, 0.95rem + 0.9vw, 1.375rem);
+  --type-lead: clamp(0.9375rem, 0.9rem + 0.3vw, 1.125rem);
+
+  /* Grid overlay density — denser on mobile. */
+  --grid-cell: 24px;
+
+  /* Touch target minimum (WCAG 2.5.5 AAA: 44px). */
+  --touch-min: 44px;
+
+  /* Sidebar width on desktop. */
+  --sidebar-w: 220px;
+}
+
+@media (min-width: 60em) {
+  :root {
+    --grid-cell: 40px;
+  }
 }
