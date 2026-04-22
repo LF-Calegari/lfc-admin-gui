@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css" integrity="sha512-z5ZH3pAqXxF0hCdJ/VNjvxFeyPoPSPC/fHaZNRSCLNoFm0fBOhTcEnIsxWxXQjKU/06JDGTsTcixIygXYwmFnA==" crossorigin="anonymous" referrerpolicy="no-referrer"/>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
 <script>
   // Prevent FOUC: apply persisted/system theme before first paint
   (function() {
@@ -279,12 +279,13 @@ body::before {
   display: flex;
   flex-direction: column;
   z-index: 200;
-  transform: translateX(-100%);
-  transition: transform 300ms var(--ease);
+  visibility: hidden;
+  pointer-events: none;
+  --animate-duration: 280ms;
   scrollbar-width: none;
   box-shadow: 0 24px 48px rgba(22,36,15,0.18);
 }
-.sidebar.open { transform: translateX(0); }
+/* .sidebar.open is driven entirely by animate.css classes (JS). */
 
 .sidebar-logo {
   padding: 0 1.25rem 1.25rem;
@@ -411,6 +412,8 @@ body::before {
     width: auto;
     height: 100vh;
     transform: none;
+    visibility: visible;
+    pointer-events: auto;
     padding: 2rem 0;
     box-shadow: none;
   }
@@ -3157,17 +3160,9 @@ function copyColor(hex, el) {
   });
 }
 
-// Active nav on scroll (+ mirror current section label into the mobile topbar)
+// Active nav highlight on scroll
 const sections = document.querySelectorAll('section[id]');
 const navLinks = document.querySelectorAll('.sidebar nav a');
-const topbarSection = document.getElementById('topbarSection');
-
-function labelForSection(id) {
-  const link = document.querySelector('.sidebar nav a[href="#' + id + '"]');
-  if (!link) return id;
-  // Strip the mono numeric prefix (".nav-num") to keep only the human label.
-  return link.textContent.replace(/^\s*\d+\s*/, '').trim();
-}
 
 const observer = new IntersectionObserver((entries) => {
   entries.forEach(entry => {
@@ -3176,14 +3171,13 @@ const observer = new IntersectionObserver((entries) => {
     navLinks.forEach(link => {
       link.classList.toggle('active', link.getAttribute('href') === '#' + id);
     });
-    if (topbarSection) topbarSection.textContent = labelForSection(id);
   });
 }, { rootMargin: '-30% 0px -60% 0px' });
 
 sections.forEach(s => observer.observe(s));
 
 // ────────────────────────────────────────────────
-// Mobile drawer nav
+// Mobile drawer nav — animated with animate.css
 // ────────────────────────────────────────────────
 (function() {
   const sidebar  = document.getElementById('sidebar');
@@ -3193,42 +3187,90 @@ sections.forEach(s => observer.observe(s));
   if (!sidebar || !toggle || !backdrop) return;
 
   const DESKTOP_MQ = window.matchMedia('(min-width: 60em)');
+  let isOpen = false;
+  let closing = false;
+
+  const IN  = 'animate__slideInLeft';
+  const OUT = 'animate__slideOutLeft';
+  const BASE = 'animate__animated';
+  const ANIM_MS = 320; // fallback > --animate-duration: 280ms
+
+  function clearAnimClasses() {
+    sidebar.classList.remove(BASE, IN, OUT);
+  }
 
   function openNav() {
-    if (DESKTOP_MQ.matches) return;
-    sidebar.classList.add('open');
+    if (DESKTOP_MQ.matches || isOpen || closing) return;
+    isOpen = true;
+    clearAnimClasses();
+    sidebar.style.visibility = 'visible';
+    sidebar.style.pointerEvents = 'auto';
+    sidebar.classList.add(BASE, IN);
     backdrop.classList.add('show');
     document.body.classList.add('no-scroll');
     toggle.setAttribute('aria-expanded', 'true');
+
+    let done = false;
+    function finish() {
+      if (done) return;
+      done = true;
+      clearAnimClasses();
+      sidebar.removeEventListener('animationend', onEnd);
+    }
+    function onEnd(e) { if (e.target === sidebar) finish(); }
+    sidebar.addEventListener('animationend', onEnd);
+    setTimeout(finish, ANIM_MS);
   }
 
   function closeNav() {
-    sidebar.classList.remove('open');
+    if (!isOpen || closing) return;
+    closing = true;
+    clearAnimClasses();
+    sidebar.classList.add(BASE, OUT);
     backdrop.classList.remove('show');
     document.body.classList.remove('no-scroll');
     toggle.setAttribute('aria-expanded', 'false');
+
+    let done = false;
+    function finish() {
+      if (done) return;
+      done = true;
+      clearAnimClasses();
+      sidebar.removeEventListener('animationend', onEnd);
+      sidebar.style.visibility = 'hidden';
+      sidebar.style.pointerEvents = 'none';
+      isOpen = false;
+      closing = false;
+    }
+    function onEnd(e) { if (e.target === sidebar) finish(); }
+    sidebar.addEventListener('animationend', onEnd);
+    setTimeout(finish, ANIM_MS);
   }
 
-  toggle.addEventListener('click', () => {
-    sidebar.classList.contains('open') ? closeNav() : openNav();
-  });
+  toggle.addEventListener('click', () => isOpen ? closeNav() : openNav());
   if (closeBtn) closeBtn.addEventListener('click', closeNav);
   backdrop.addEventListener('click', closeNav);
 
-  // Tapping a nav link on mobile closes the drawer.
   sidebar.querySelectorAll('nav a').forEach(a => {
-    a.addEventListener('click', () => {
-      if (!DESKTOP_MQ.matches) closeNav();
-    });
+    a.addEventListener('click', () => { if (!DESKTOP_MQ.matches) closeNav(); });
   });
 
-  // ESC closes the drawer.
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && sidebar.classList.contains('open')) closeNav();
+    if (e.key === 'Escape' && isOpen) closeNav();
   });
 
-  // Viewport grows past desktop breakpoint → force-close the mobile state.
-  DESKTOP_MQ.addEventListener('change', (e) => { if (e.matches) closeNav(); });
+  // Viewport crosses desktop breakpoint — reset mobile state cleanly.
+  DESKTOP_MQ.addEventListener('change', (e) => {
+    if (!e.matches) return;
+    clearAnimClasses();
+    sidebar.style.visibility = '';
+    sidebar.style.pointerEvents = '';
+    backdrop.classList.remove('show');
+    document.body.classList.remove('no-scroll');
+    toggle.setAttribute('aria-expanded', 'false');
+    isOpen = false;
+    closing = false;
+  });
 })();
 
 // Theme toggle (light / dark) — persistence + animate.css burst on icon
