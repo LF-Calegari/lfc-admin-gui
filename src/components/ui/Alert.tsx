@@ -18,24 +18,24 @@ interface AlertProps {
 
 const variantStyles: Record<AlertVariant, ReturnType<typeof css>> = {
   success: css`
-    background: rgba(122, 158, 40, 0.13);
-    border-color: rgba(122, 158, 40, 0.3);
-    color: #3f5a14;
+    background: color-mix(in srgb, var(--success) 13%, transparent);
+    border-color: color-mix(in srgb, var(--success) 30%, transparent);
+    color: color-mix(in srgb, var(--accent-ink) 75%, black);
   `,
   danger: css`
-    background: rgba(217, 95, 95, 0.1);
-    border-color: rgba(217, 95, 95, 0.3);
-    color: #9c2e2e;
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
+    border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+    color: color-mix(in srgb, var(--danger) 60%, black);
   `,
   info: css`
-    background: rgba(74, 159, 217, 0.1);
-    border-color: rgba(74, 159, 217, 0.3);
-    color: #1e5c8a;
+    background: color-mix(in srgb, var(--info) 10%, transparent);
+    border-color: color-mix(in srgb, var(--info) 30%, transparent);
+    color: color-mix(in srgb, var(--info) 65%, black);
   `,
   warning: css`
-    background: rgba(217, 162, 74, 0.1);
-    border-color: rgba(217, 162, 74, 0.3);
-    color: #8a5e1e;
+    background: color-mix(in srgb, var(--warning) 10%, transparent);
+    border-color: color-mix(in srgb, var(--warning) 30%, transparent);
+    color: color-mix(in srgb, var(--warning) 65%, black);
   `,
 };
 

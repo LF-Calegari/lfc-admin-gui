@@ -36,7 +36,7 @@
     "start": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test": "vitest run --globals --environment jsdom --setupFiles src/setupTests.ts",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "lint": "eslint \"src/**/*.{ts,tsx,js,jsx}\" --max-warnings 0",
     "lint:fix": "npm run lint -- --fix",

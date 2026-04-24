@@ -36,10 +36,10 @@ const variantStyles = {
     box-shadow: 0 1px 0 rgba(22, 36, 15, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.25);
 
     &:hover:not(:disabled) {
-      background: #bdd96a;
+      background: color-mix(in srgb, var(--accent) 80%, white);
     }
     &:active:not(:disabled) {
-      background: #8cb139;
+      background: var(--accent-dim);
       box-shadow: inset 0 1px 2px rgba(22, 36, 15, 0.18);
     }
     &:focus-visible {
@@ -56,7 +56,7 @@ const variantStyles = {
       border-color: rgba(22, 36, 15, 0.28);
     }
     &:active:not(:disabled) {
-      background: #e4e9d6;
+      background: var(--bg-overlay);
     }
   `,
   ghost: css`
@@ -74,7 +74,7 @@ const variantStyles = {
   `,
   danger: css`
     background: rgba(217, 95, 95, 0.1);
-    color: #a83a3a;
+    color: color-mix(in srgb, var(--danger) 65%, black);
     border-color: rgba(217, 95, 95, 0.3);
 
     &:hover:not(:disabled) {

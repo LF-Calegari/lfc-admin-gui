@@ -98,6 +98,11 @@ const IconButton = styled.button`
     color: var(--fg1);
     border-color: var(--border-base);
   }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
 `;
 
 const UserSection = styled.div`

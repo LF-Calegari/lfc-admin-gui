@@ -81,7 +81,7 @@ const NavLink = styled.a<{ $active?: boolean }>`
   color: ${({ $active }) => ($active ? 'var(--accent-ink)' : 'var(--fg2)')};
   text-decoration: none;
   border-left: 2px solid ${({ $active }) => ($active ? 'var(--accent-ink)' : 'transparent')};
-  background: ${({ $active }) => ($active ? 'rgba(122,158,40,0.10)' : 'transparent')};
+  background: ${({ $active }) => ($active ? 'color-mix(in srgb, var(--accent) 10%, transparent)' : 'transparent')};
   transition: all 150ms var(--ease-default);
   cursor: pointer;
 
