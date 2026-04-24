@@ -1,0 +1,31 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Radii</title>
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body{margin:0;padding:18px;background:var(--bg-base);font-family:var(--font-sans);color:var(--fg1)}
+  .grid{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}
+  .cell{background:#fff;border:1px solid var(--border-subtle);padding:12px;display:flex;flex-direction:column;align-items:center;gap:8px}
+  .cell:nth-child(1){border-radius:4px}
+  .cell:nth-child(2){border-radius:8px}
+  .cell:nth-child(3){border-radius:12px}
+  .cell:nth-child(4){border-radius:16px}
+  .cell:nth-child(5){border-radius:20px}
+  .cell:nth-child(6){border-radius:9999px}
+  .chip{width:44px;height:44px;background:var(--clr-lime);border:1px solid var(--clr-green)}
+  .cell:nth-child(1) .chip{border-radius:4px}
+  .cell:nth-child(2) .chip{border-radius:8px}
+  .cell:nth-child(3) .chip{border-radius:12px}
+  .cell:nth-child(4) .chip{border-radius:16px}
+  .cell:nth-child(5) .chip{border-radius:20px}
+  .cell:nth-child(6) .chip{border-radius:9999px}
+  .n{font-family:var(--font-mono);font-size:10px;color:var(--accent-ink)}
+  .v{font-family:var(--font-mono);font-size:10px;color:var(--fg3)}
+</style></head><body>
+<div class="grid">
+  <div class="cell"><div class="chip"></div><div class="n">--radius-sm</div><div class="v">4px</div></div>
+  <div class="cell"><div class="chip"></div><div class="n">--radius-md</div><div class="v">8px · default</div></div>
+  <div class="cell"><div class="chip"></div><div class="n">--radius-lg</div><div class="v">12px · cards</div></div>
+  <div class="cell"><div class="chip"></div><div class="n">--radius-xl</div><div class="v">16px</div></div>
+  <div class="cell"><div class="chip"></div><div class="n">--radius-2xl</div><div class="v">20px</div></div>
+  <div class="cell"><div class="chip"></div><div class="n">--radius-full</div><div class="v">pills</div></div>
+</div>
+</body></html>

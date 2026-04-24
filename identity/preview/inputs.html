@@ -1,0 +1,19 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Inputs</title>
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body{margin:0;padding:18px;background:#fff;font-family:var(--font-sans);color:var(--fg1)}
+  .wrap{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;padding:14px;border:1px solid var(--border-subtle);border-radius:12px}
+  .g{display:flex;flex-direction:column;gap:6px}
+  .lab{font-size:12px;font-weight:500;color:#4A5E42}
+  .inp{background:#ECEFE0;border:1px solid rgba(22,36,15,0.16);border-radius:8px;padding:9px 12px;font-family:var(--font-sans);font-size:14px;color:#1B2A12;outline:none}
+  .inp:focus{border-color:#AECA59;box-shadow:0 0 0 3px rgba(174,202,89,0.22)}
+  .err{border-color:#D95F5F;box-shadow:0 0 0 3px rgba(217,95,95,0.1)}
+  .errmsg{font-size:11px;color:#D95F5F}
+  .focus-style{border-color:#AECA59;box-shadow:0 0 0 3px rgba(174,202,89,0.22)}
+</style></head><body>
+<div class="wrap">
+  <div class="g"><label class="lab">E-mail</label><input class="inp" value="admin@lfc.com.br"></div>
+  <div class="g"><label class="lab">Sistema (focus)</label><input class="inp focus-style" value="lfc-authenticator"></div>
+  <div class="g"><label class="lab" style="color:#D95F5F">Senha (erro)</label><input class="inp err" type="password" value="senha123"><span class="errmsg">Senha incorreta</span></div>
+</div>
+</body></html>

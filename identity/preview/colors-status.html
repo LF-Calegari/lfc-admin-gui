@@ -1,0 +1,18 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Status colors</title>
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body{margin:0;padding:16px;background:var(--bg-base);font-family:var(--font-sans);color:var(--fg1)}
+  .row{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border:1px solid var(--border-subtle);border-radius:12px;overflow:hidden}
+  .sw{display:flex;flex-direction:column}
+  .sw .chip{height:72px;display:flex;align-items:flex-end;padding:8px;font-family:var(--font-mono);font-size:10px;color:rgba(255,255,255,.9);letter-spacing:.06em}
+  .sw .meta{padding:8px 10px;background:var(--bg-surface);border-top:1px solid var(--border-subtle)}
+  .sw .n{font-size:11px;font-weight:600}
+  .sw .h{font-family:var(--font-mono);font-size:10px;color:var(--fg3);letter-spacing:.04em;text-transform:uppercase;margin-top:2px}
+</style></head><body>
+<div class="row">
+  <div class="sw"><div class="chip" style="background:#AECA59;color:#16240F">success</div><div class="meta"><div class="n">Success</div><div class="h">#AECA59</div></div></div>
+  <div class="sw"><div class="chip" style="background:#D95F5F">danger</div><div class="meta"><div class="n">Danger</div><div class="h">#D95F5F</div></div></div>
+  <div class="sw"><div class="chip" style="background:#D9A24A">warning</div><div class="meta"><div class="n">Warning</div><div class="h">#D9A24A</div></div></div>
+  <div class="sw"><div class="chip" style="background:#4A9FD9">info</div><div class="meta"><div class="n">Info</div><div class="h">#4A9FD9</div></div></div>
+</div>
+</body></html>

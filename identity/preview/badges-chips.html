@@ -1,0 +1,27 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Badges & Chips</title>
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body{margin:0;padding:18px;background:#fff;font-family:var(--font-sans);color:var(--fg1)}
+  .row{display:flex;flex-wrap:wrap;gap:10px;padding:14px;border:1px solid var(--border-subtle);border-radius:12px;align-items:center}
+  .badge{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;font-family:var(--font-mono);font-size:11px;font-weight:500;border-radius:9999px;border:1px solid;letter-spacing:.02em}
+  .success{background:rgba(122,158,40,0.14);color:#5A7D1F;border-color:rgba(174,202,89,0.25)}
+  .danger{background:rgba(217,95,95,0.1);color:#D95F5F;border-color:rgba(217,95,95,0.25)}
+  .warning{background:rgba(217,162,74,0.1);color:#D9A24A;border-color:rgba(217,162,74,0.25)}
+  .info{background:rgba(74,159,217,0.1);color:#4A9FD9;border-color:rgba(74,159,217,0.25)}
+  .neutral{background:#ECEFE0;color:#4A5E42;border-color:rgba(22,36,15,0.16)}
+  .dot::before{content:'';width:5px;height:5px;border-radius:50%;background:currentColor}
+  .chip{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:rgba(122,158,40,0.13);border:1px solid rgba(174,202,89,0.18);border-radius:4px;font-family:var(--font-mono);font-size:11px;color:#5A7D1F}
+  .chip .p{color:#4A5E42}
+</style></head><body>
+<div class="row">
+  <span class="badge success dot">Ativo</span>
+  <span class="badge danger dot">Inativo</span>
+  <span class="badge warning dot">Pendente</span>
+  <span class="badge info dot">Verificando</span>
+  <span class="badge neutral">admin</span>
+  <span class="badge neutral">root</span>
+  <span class="chip"><span class="p">perm:</span>Systems.Create</span>
+  <span class="chip"><span class="p">perm:</span>Users.Read</span>
+  <span class="chip"><span class="p">perm:</span>Roles.Delete</span>
+</div>
+</body></html>

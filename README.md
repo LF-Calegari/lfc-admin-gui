@@ -105,18 +105,17 @@ O **Auth Admin GUI** é a camada de apresentação que resolve isso: um painel w
 
 | Item | Versão / notas |
 |------|----------------|
-| Node.js | <!-- TODO: fixar versão LTS (ex.: 20.x ou 22.x) quando o projeto for iniciado --> |
-| Gerenciador de pacotes | <!-- TODO: npm, pnpm ou yarn — definir no primeiro commit --> |
-| React | <!-- TODO: definir versão (ex.: 18.x) --> |
-| Ferramenta de build | <!-- TODO: Vite / Next.js / CRA — definir --> |
+| Node.js | `24.x` (alinhado com a imagem Docker `node:24-alpine`) |
+| Gerenciador de pacotes | `npm` |
+| React | `19.x` |
+| Linguagem | TypeScript |
+| Ferramenta de build | Vite |
 | Auth Service acessível | **`lfc-authenticator`** rodando com rotas `/api/v1` expostas e reachable a partir do host onde o SPA é servido (CORS configurado adequadamente). |
-| Docker (opcional) | Para build de imagem de produção e integração à rede `lfc_platform_network` do ecossistema. |
+| Docker (opcional) | `docker compose` para ambiente de desenvolvimento local. |
 
 ---
 
 ## Início rápido
-
-<!-- TODO: preencher conforme a stack de build for escolhida. Abaixo fica um esqueleto para Vite, mas adapte quando a issue de bootstrap for resolvida. -->
 
 ### Opção A — Desenvolvimento local
 
@@ -126,19 +125,22 @@ git clone git@github.com:LF-Calegari/lfc-admin-gui.git
 cd lfc-admin-gui
 
 # 2. Instalar dependências
-# TODO: npm install | pnpm install | yarn
+npm install
 
 # 3. Copiar variáveis de ambiente
 cp .env.example .env
-# Ajustar VITE_AUTH_API_BASE_URL (ou equivalente) para apontar ao lfc-authenticator
+# Ajustar VITE_AUTH_API_BASE_URL para apontar ao lfc-authenticator
 
 # 4. Subir em modo dev
-# TODO: npm run dev
+npm run dev
 ```
 
 ### Opção B — Docker
 
-<!-- TODO: detalhar Dockerfile multi-stage (build com Node + serve com Nginx) e docker-compose de desenvolvimento quando a issue de containerização for aberta. -->
+```bash
+# Sobe o frontend em modo desenvolvimento na porta 3000
+docker compose up --build
+```
 
 ### Pré-requisito: auth-service no ar
 
@@ -148,18 +150,11 @@ O SPA **não funciona isoladamente**. Antes de subir, garanta que o `lfc-authent
 
 ## Configuração e variáveis de ambiente
 
-<!-- TODO: ajustar prefixo das variáveis conforme o bundler escolhido:
-     - Vite:      VITE_*
-     - Next.js:   NEXT_PUBLIC_*
-     - CRA:       REACT_APP_*
--->
-
 | Variável | Descrição | Exemplo |
 |----------|-----------|---------|
 | `VITE_AUTH_API_BASE_URL` | URL base do `lfc-authenticator` (inclui `/api/v1` **ou** é concatenado no cliente HTTP — manter consistente). | `https://localhost:8080/api/v1` |
 | `VITE_APP_NAME` | Nome exibido no header do SPA. | `Auth Admin` |
 | `VITE_SESSION_IDLE_MINUTES` | Minutos de inatividade antes de forçar re-login (deve ser **≤** `Auth:Jwt:ExpirationMinutes` do auth-service). | `15` |
-| <!-- TODO: adicionar variáveis conforme forem necessárias (telemetria, feature flags, etc.) --> | | |
 
 > ⚠️ Por ser uma SPA, **qualquer variável exposta ao bundle é pública**. Nunca coloque segredos, chaves de API privadas ou connection strings aqui.
 
@@ -169,28 +164,20 @@ O SPA **não funciona isoladamente**. Antes de subir, garanta que o `lfc-authent
 
 ```
 lfc-admin-gui/
-├── public/                     # Assets estáticos
+├── public/                     # Assets estáticos servidos pelo Vite
 ├── src/
-│   ├── app/                    # Bootstrap, providers, router
-│   ├── features/               # Um diretório por funcionalidade da tabela acima
-│   │   ├── systems/
-│   │   ├── routes/
-│   │   ├── roles/
-│   │   ├── permissions/
-│   │   ├── clients/
-│   │   └── users/
-│   ├── shared/
-│   │   ├── api/                # Cliente HTTP + interceptors de JWT
-│   │   ├── auth/               # Contexto de sessão, guards, hooks
-│   │   ├── components/         # Design system local (inputs, tabelas, modais)
-│   │   └── utils/
-│   └── main.tsx                # Entry point
+│   ├── App.tsx
+│   ├── App.test.tsx
+│   ├── index.tsx               # Entry point
+│   ├── react-app-env.d.ts
+│   └── ...                     # Demais arquivos base do scaffold
+├── .dockerignore
 ├── .env.example
-├── Dockerfile                  # TODO
-└── package.json
+├── Dockerfile
+├── docker-compose.yml
+├── package.json
+└── tsconfig.json
 ```
-
-<!-- TODO: atualizar esta árvore conforme o projeto ganhar forma. Manter organização por feature slice, não por tipo de arquivo. -->
 
 **Princípios:**
 
@@ -240,34 +227,47 @@ Mapeamento provisório das telas do SPA ↔ endpoints do auth-service. A lista d
 
 ## Estrutura de pastas
 
-<!-- TODO: preencher com `tree -L 3` depois do scaffold inicial. Manter atualizado quando houver mudança estrutural relevante. -->
+Estrutura atual mínima após bootstrap:
+
+```text
+lfc-admin-gui/
+├── public/
+├── src/
+├── docker-compose.yml
+├── Dockerfile
+├── package.json
+└── tsconfig.json
+```
 
 ---
 
 ## Scripts disponíveis
 
-<!-- TODO: preencher com a tabela de scripts do package.json após o scaffold. Exemplo esperado:
-
 | Script | Descrição |
 |--------|-----------|
 | `dev` | Sobe o servidor de desenvolvimento com HMR |
-| `build` | Build de produção |
-| `preview` | Servir o build localmente para smoke test |
-| `lint` | Rodar ESLint |
-| `test` | Rodar suíte de testes |
--->
+| `start` | Alias para `dev` |
+| `build` | Typecheck e build de produção |
+| `preview` | Sobe o bundle de produção localmente |
+| `test` | Executa testes com Vitest |
 
 ---
 
 ## Docker
 
-<!-- TODO: detalhar quando a issue de containerização for aberta. Pontos mínimos a cobrir:
+Setup atual para desenvolvimento:
 
-- Dockerfile multi-stage (node:XX-alpine para build → nginx:alpine para serve)
-- Configuração de Nginx com fallback para SPA (`try_files $uri /index.html`)
-- Injeção de variáveis de ambiente em runtime (padrão env-substituição no entrypoint)
-- Rede `lfc_platform_network` externa, alinhada aos demais serviços do ecossistema
--->
+- `Dockerfile` baseado em `node:24-alpine`
+- Instala dependências com `npm ci`
+- Executa `npm run dev` e expõe a porta configurada por `PORT` (padrão `3002`)
+- `docker-compose.yml` monta o código-fonte em volume para hot reload
+
+Comandos úteis:
+
+```bash
+docker compose up --build
+docker compose down
+```
 
 ---
 

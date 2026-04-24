@@ -1,0 +1,151 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Toasts</title>
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body {
+    margin: 0; padding: 20px;
+    background: var(--bg-base);
+    font-family: var(--font-sans); color: var(--fg1);
+    min-height: 380px; position: relative;
+  }
+
+  .shell {
+    position: relative;
+    background: var(--clr-forest);
+    background-image:
+      linear-gradient(rgba(174,202,89,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(174,202,89,0.04) 1px, transparent 1px);
+    background-size: 32px 32px;
+    border-radius: 12px;
+    padding: 14px 18px;
+    min-height: 340px;
+    overflow: hidden;
+    color: var(--clr-cream);
+  }
+  .shell__label {
+    font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+    letter-spacing: 0.14em; text-transform: uppercase; color: var(--clr-lime);
+    opacity: 0.75;
+  }
+
+  .toast-stack {
+    position: absolute;
+    right: 18px;
+    bottom: 18px;
+    display: flex; flex-direction: column-reverse;
+    gap: 10px;
+    width: 340px; max-width: calc(100% - 36px);
+    pointer-events: none;
+  }
+
+  .toast {
+    pointer-events: auto;
+    display: grid;
+    grid-template-columns: 28px 1fr auto;
+    gap: 10px;
+    padding: 11px 13px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-base);
+    border-radius: 10px;
+    box-shadow:
+      0 14px 28px rgba(22,36,15,0.22),
+      0 4px 10px rgba(22,36,15,0.14),
+      0 0 0 1px var(--border-subtle);
+    color: var(--fg1);
+    font-size: 13px;
+    position: relative;
+    overflow: hidden;
+    animation: toast-in 360ms var(--ease-bounce);
+  }
+  @keyframes toast-in {
+    from { opacity: 0; transform: translateY(10px) scale(0.97); }
+    to   { opacity: 1; transform: translateY(0)  scale(1); }
+  }
+
+  /* progress bar for auto-dismiss */
+  .toast::after {
+    content: '';
+    position: absolute; left: 0; bottom: 0; height: 2px;
+    background: currentColor;
+    opacity: 0.65;
+    animation: progress 5s linear forwards;
+    transform-origin: left;
+  }
+  @keyframes progress { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+
+  .toast__icon {
+    width: 24px; height: 24px; border-radius: 6px;
+    display: grid; place-items: center;
+    background: currentColor; align-self: start;
+  }
+  .toast__icon svg { width: 13px; height: 13px; color: var(--bg-surface); }
+
+  .toast__body { min-width: 0; line-height: 1.4; }
+  .toast__title { font-weight: 600; color: var(--fg1); letter-spacing: -0.005em; }
+  .toast__msg { color: var(--fg2); font-size: 12.5px; margin-top: 1px; }
+  .toast__msg code {
+    font-family: var(--font-mono); font-size: 11px;
+    background: var(--bg-elevated); padding: 1px 5px; border-radius: 3px;
+    color: var(--accent-ink); border: 0;
+  }
+  .toast__action {
+    font-family: var(--font-sans); font-size: 12px; font-weight: 500;
+    background: transparent; border: 0; color: currentColor; cursor: pointer;
+    padding: 2px 6px; border-radius: 4px; align-self: start; white-space: nowrap;
+  }
+  .toast__action:hover { background: rgba(22,36,15,0.06); }
+
+  /* ── Accent color per variant (drives icon tile + progress bar) ── */
+  .toast--success { color: var(--clr-green); }
+  .toast--danger  { color: var(--danger); }
+  .toast--info    { color: var(--info); }
+  .toast--warning { color: var(--warning); }
+  .toast--neutral { color: var(--fg2); }
+
+  /* neutral (terminal-style) variant — mono caption */
+  .toast--neutral .toast__title { font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--fg3); }
+  .toast--neutral .toast__msg { font-family: var(--font-sans); color: var(--fg1); font-size: 13px; margin-top: 3px; }
+</style></head>
+<body>
+
+<div class="shell">
+  <div class="shell__label">Overlay · bottom-right · auto-dismiss 5s</div>
+
+  <div class="toast-stack">
+
+    <div class="toast toast--success">
+      <span class="toast__icon">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5L6.5 11.5L12.5 5"/></svg>
+      </span>
+      <div class="toast__body">
+        <div class="toast__title">Permissão atribuída</div>
+        <div class="toast__msg"><code>perm:Users.Invite</code> adicionada a <strong>ops@lfc.com.br</strong></div>
+      </div>
+      <button class="toast__action">Desfazer</button>
+    </div>
+
+    <div class="toast toast--danger">
+      <span class="toast__icon">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 4v5M8 11.5v.5"/></svg>
+      </span>
+      <div class="toast__body">
+        <div class="toast__title">Falha ao revogar token</div>
+        <div class="toast__msg">Erro 502 ao contatar <code>lfc-kurtto</code>. Tente novamente.</div>
+      </div>
+      <button class="toast__action">Repetir</button>
+    </div>
+
+    <div class="toast toast--neutral">
+      <span class="toast__icon">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l2 2 4-4 4 4"/></svg>
+      </span>
+      <div class="toast__body">
+        <div class="toast__title">tokenVersion: 13</div>
+        <div class="toast__msg">Sessão renovada. Expira em 15 min.</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+</body></html>
