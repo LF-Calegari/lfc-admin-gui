@@ -1,5 +1,8 @@
-import { defineConfig, loadEnv } from 'vite';
+import path from 'path';
+
+import { loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
+import { defineConfig } from 'vitest/config';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
@@ -7,6 +10,11 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    resolve: {
+      alias: {
+        '@': path.resolve(__dirname, 'src'),
+      },
+    },
     server: {
       host: true,
       port,
@@ -14,6 +22,11 @@ export default defineConfig(({ mode }) => {
     preview: {
       host: true,
       port,
+    },
+    test: {
+      globals: true,
+      environment: 'jsdom',
+      setupFiles: ['src/setupTests.ts'],
     },
   };
 });

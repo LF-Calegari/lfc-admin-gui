@@ -1,0 +1,137 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Alerts</title>
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body { margin: 0; padding: 20px; background: var(--bg-base); font-family: var(--font-sans); color: var(--fg1); }
+  .stack { display: flex; flex-direction: column; gap: 10px; }
+
+  .a {
+    display: grid;
+    grid-template-columns: 32px 1fr auto;
+    gap: 10px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid;
+    font-size: 13.5px;
+    line-height: 1.5;
+    background: var(--bg-surface);
+    position: relative;
+    overflow: hidden;
+  }
+  .a::before {
+    content: '';
+    position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: currentColor; opacity: 0.85;
+  }
+  .a__icon {
+    width: 28px; height: 28px;
+    border-radius: 7px;
+    display: grid; place-items: center;
+    background: currentColor;
+    color: inherit;
+    position: relative;
+  }
+  .a__icon svg { width: 14px; height: 14px; color: var(--bg-surface); position: relative; z-index: 1; }
+
+  .a__body { min-width: 0; }
+  .a__title { font-weight: 600; letter-spacing: -0.005em; color: var(--fg1); margin-bottom: 2px; }
+  .a__msg { color: var(--fg2); font-size: 13px; }
+  .a__msg code {
+    font-family: var(--font-mono); font-size: 11.5px;
+    background: rgba(22,36,15,0.06); padding: 1px 5px; border-radius: 3px;
+    color: var(--accent-ink); border: 0;
+  }
+
+  .a__actions { display: flex; gap: 6px; align-items: center; align-self: start; }
+  .a__btn {
+    font-family: var(--font-sans); font-size: 12px; font-weight: 500;
+    background: transparent; border: 1px solid currentColor;
+    color: inherit; opacity: 0.85;
+    padding: 4px 10px; border-radius: 6px; cursor: pointer;
+    transition: opacity 140ms, background 140ms;
+  }
+  .a__btn:hover { opacity: 1; background: rgba(22,36,15,0.04); }
+  .a__x {
+    appearance: none; background: transparent; border: 0;
+    width: 20px; height: 20px; display: grid; place-items: center;
+    cursor: pointer; color: currentColor; opacity: 0.5; border-radius: 4px;
+  }
+  .a__x:hover { opacity: 1; background: rgba(22,36,15,0.06); }
+  .a__x svg { width: 12px; height: 12px; }
+
+  /* ── Variants (accent via CSS var, not color inheritance) ── */
+  .a--success { border-color: rgba(122,158,40,0.28); color: #3F5A14; }
+  .a--success .a__icon { background: var(--clr-green); }
+
+  .a--danger  { border-color: rgba(217,95,95,0.28); color: #9C2E2E; }
+  .a--danger .a__icon { background: var(--danger); }
+
+  .a--warning { border-color: rgba(217,162,74,0.32); color: #8A5E1E; }
+  .a--warning .a__icon { background: var(--warning); }
+
+  .a--info    { border-color: rgba(74,159,217,0.30); color: #1E5C8A; }
+  .a--info .a__icon { background: var(--info); }
+
+  .a--neutral { border-color: var(--border-base); color: var(--fg2); background: var(--bg-elevated); }
+  .a--neutral .a__icon { background: var(--fg2); }
+</style></head>
+<body>
+<div class="stack">
+
+  <div class="a a--success">
+    <span class="a__icon">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5L6.5 11.5L12.5 5"/></svg>
+    </span>
+    <div class="a__body">
+      <div class="a__title">Sistema criado</div>
+      <div class="a__msg"><strong>lfc-authenticator</strong> registrado. ID: <code>sys_a1b2c3</code></div>
+    </div>
+    <div class="a__actions">
+      <button class="a__btn">Ver rotas</button>
+      <button class="a__x"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 3l6 6M9 3l-6 6"/></svg></button>
+    </div>
+  </div>
+
+  <div class="a a--danger">
+    <span class="a__icon">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 4v5M8 11.5v.5"/></svg>
+    </span>
+    <div class="a__body">
+      <div class="a__title">Erro 403 · Permissão negada</div>
+      <div class="a__msg">Você não possui <code>perm:Systems.Delete</code> neste sistema.</div>
+    </div>
+    <div class="a__actions">
+      <button class="a__btn">Solicitar acesso</button>
+      <button class="a__x"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 3l6 6M9 3l-6 6"/></svg></button>
+    </div>
+  </div>
+
+  <div class="a a--warning">
+    <span class="a__icon">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 5v4M8 11.5v.5"/></svg>
+    </span>
+    <div class="a__body">
+      <div class="a__title">Token expira em breve</div>
+      <div class="a__msg">Sessão expira em <strong>14 minutos</strong>. Renovação automática ativa.</div>
+    </div>
+    <div class="a__actions">
+      <button class="a__btn">Renovar agora</button>
+      <button class="a__x"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 3l6 6M9 3l-6 6"/></svg></button>
+    </div>
+  </div>
+
+  <div class="a a--info">
+    <span class="a__icon">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="8" cy="4.5" r="0.5" fill="currentColor"/><path d="M8 7v5"/></svg>
+    </span>
+    <div class="a__body">
+      <div class="a__title">Modo verificação</div>
+      <div class="a__msg">Novas rotas em <strong>lfc-kurtto</strong> aguardam aprovação. <code>tokenVersion: 12</code></div>
+    </div>
+    <div class="a__actions">
+      <button class="a__x"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 3l6 6M9 3l-6 6"/></svg></button>
+    </div>
+  </div>
+
+</div>
+</body></html>

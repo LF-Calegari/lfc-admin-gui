@@ -1,0 +1,20 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Shadows</title>
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body{margin:0;padding:24px;background:var(--bg-base);font-family:var(--font-sans);color:var(--fg1)}
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:18px}
+  .cell{background:#fff;border-radius:12px;padding:18px;display:flex;flex-direction:column;gap:10px;min-height:100px}
+  .cell.sm{box-shadow:0 1px 2px rgba(22,36,15,0.04), 0 0 0 1px rgba(22,36,15,0.08)}
+  .cell.md{box-shadow:0 4px 14px rgba(22,36,15,0.07), 0 0 0 1px rgba(22,36,15,0.08)}
+  .cell.lg{box-shadow:0 20px 48px rgba(22,36,15,0.14), 0 4px 12px rgba(22,36,15,0.05), 0 0 0 1px rgba(22,36,15,0.16)}
+  .cell.glow{box-shadow:0 0 24px rgba(174,202,89,0.30), 0 0 48px rgba(174,202,89,0.12), 0 0 0 1px rgba(91,125,71,0.55)}
+  .n{font-family:var(--font-mono);font-size:11px;color:var(--accent-ink)}
+  .v{font-family:var(--font-mono);font-size:10px;color:var(--fg3)}
+</style></head><body>
+<div class="grid">
+  <div class="cell sm"><div class="n">--shadow-sm</div><div class="v">1px · hairline</div></div>
+  <div class="cell md"><div class="n">--shadow-card</div><div class="v">card on hover</div></div>
+  <div class="cell lg"><div class="n">--shadow-modal</div><div class="v">modal · 24px drop</div></div>
+  <div class="cell glow"><div class="n">--shadow-glow</div><div class="v">accent · focus</div></div>
+</div>
+</body></html>

@@ -1,0 +1,73 @@
+import { RefreshCw, LogOut } from 'lucide-react';
+import React from 'react';
+import styled from 'styled-components';
+
+import { PageHeader } from '../components/layout/PageHeader';
+import { Button, Badge, Card } from '../components/ui';
+
+const KV = styled.div`
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+`;
+
+const KVRow = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border-subtle);
+
+  &:last-child {
+    border-bottom: none;
+  }
+`;
+
+const KVKey = styled.span`
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--fg3);
+  letter-spacing: 0.04em;
+`;
+
+const KVValue = styled.span`
+  font-size: 13.5px;
+  font-weight: var(--weight-medium);
+  font-family: var(--font-mono);
+`;
+
+const Actions = styled.div`
+  margin-top: 16px;
+  display: flex;
+  gap: 8px;
+`;
+
+export const SettingsPage: React.FC = () => (
+  <>
+    <PageHeader
+      eyebrow="07 Configurações"
+      title="Configurações da conta"
+      desc="Tema, idioma e preferências de sessão."
+    />
+    <Card title="Sessão">
+      <KV>
+        <KVRow>
+          <KVKey>tokenVersion</KVKey>
+          <KVValue>12</KVValue>
+        </KVRow>
+        <KVRow>
+          <KVKey>Expira em</KVKey>
+          <KVValue>14 min</KVValue>
+        </KVRow>
+        <KVRow>
+          <KVKey>Refresh automático</KVKey>
+          <Badge variant="success" dot>Ativo</Badge>
+        </KVRow>
+      </KV>
+      <Actions>
+        <Button variant="secondary" icon={<RefreshCw size={14} strokeWidth={1.5} />}>Renovar agora</Button>
+        <Button variant="danger" icon={<LogOut size={14} strokeWidth={1.5} />}>Invalidar todas as sessões</Button>
+      </Actions>
+    </Card>
+  </>
+);

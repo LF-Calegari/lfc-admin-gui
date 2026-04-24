@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lfc-admin-gui · UI Kit</title>
+<link rel="stylesheet" href="../../colors_and_type.css">
+<link rel="stylesheet" href="kit.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/lucide@0.454.0/dist/umd/lucide.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" src="components.jsx"></script>
+<script type="text/babel" src="layout.jsx"></script>
+<script type="text/babel" src="screens.jsx"></script>
+
+<script type="text/babel">
+/* global React, ReactDOM, lucide,
+   Sidebar, Topbar, NAV,
+   LoginScreen, SystemsScreen, CreateSystemModal, RolesScreen, UsersScreen, PermissionsScreen, SettingsScreen, initialSystems,
+   Button, Badge, PermChip, Icon, Alert, Card */
+const { useState, useEffect } = React;
+
+function App() {
+  const [user, setUser]       = useState(null);                // { name }
+  const [screen, setScreen]   = useState('systems');           // NAV id
+  const [systems, setSystems] = useState(initialSystems);
+  const [creating, setCreating] = useState(false);
+  const [openSys, setOpenSys] = useState(null);
+  const [toast, setToast]     = useState(null);
+
+  // Re-render lucide icons whenever DOM changes
+  useEffect(() => { if (window.lucide) lucide.createIcons(); });
+
+  // Auto-dismiss toast
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 4500);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  if (!user) return <LoginScreen onLogin={u => { setUser(u); setToast({ variant: 'success', msg: <>Sessão iniciada. tokenVersion atribuído: <code>13</code>.</> }); }} />;
+
+  const title = NAV.find(n => n.id === screen)?.label || 'Admin';
+
+  let body = null;
+  switch (screen) {
+    case 'systems': body = <SystemsScreen systems={systems} onCreate={() => setCreating(true)} onOpen={setOpenSys} toast={toast} />; break;
+    case 'roles':   body = <RolesScreen />; break;
+    case 'users':   body = <UsersScreen />; break;
+    case 'perms':   body = <PermissionsScreen />; break;
+    case 'settings':body = <SettingsScreen />; break;
+    case 'routes':  body = <RoutesStub systems={systems} />; break;
+    case 'tokens':  body = <TokensStub />; break;
+    default: body = <SystemsScreen systems={systems} onCreate={() => setCreating(true)} onOpen={setOpenSys} />;
+  }
+
+  return (
+    <div className="lfc-app">
+      <Sidebar current={screen} onNav={setScreen} />
+      <div>
+        <Topbar title={title} user={user} onLogout={() => { setUser(null); setScreen('systems'); }} />
+        <main className="lfc-main">{body}</main>
+      </div>
+
+      {creating && (
+        <CreateSystemModal
+          onClose={() => setCreating(false)}
+          onSave={({ name, stack }) => {
+            const id = 'sys_' + Math.random().toString(36).slice(2, 8);
+            setSystems([{ id, name, stack, status: 'pending', routes: 0, tokens: 0 }, ...systems]);
+            setCreating(false);
+            setToast({ variant: 'success', msg: <>Sistema <strong>{name}</strong> criado. ID: <code>{id}</code></> });
+          }}
+        />
+      )}
+
+      {openSys && <SystemDrawer sys={openSys} onClose={() => setOpenSys(null)} onToast={setToast} />}
+    </div>
+  );
+}
+
+function RoutesStub({ systems }) {
+  const rows = [
+    { system: 'lfc-authenticator', method: 'POST',   path: '/api/auth/login',        perm: 'perm:Auth.Login' },
+    { system: 'lfc-authenticator', method: 'POST',   path: '/api/auth/refresh',      perm: 'perm:Auth.Refresh' },
+    { system: 'lfc-authenticator', method: 'GET',    path: '/api/systems',           perm: 'perm:Systems.Read' },
+    { system: 'lfc-authenticator', method: 'DELETE', path: '/api/systems/:id',       perm: 'perm:Systems.Delete' },
+    { system: 'lfc-kurtto',        method: 'GET',    path: '/api/orders',            perm: 'perm:Orders.Read' },
+    { system: 'lfc-reportd',       method: 'POST',   path: '/api/reports/generate',  perm: 'perm:Reports.Create' },
+  ];
+  const methodColor = { GET: 'info', POST: 'success', PUT: 'warning', DELETE: 'danger', PATCH: 'warning' };
+  return (
+    <>
+      <PageHeader eyebrow="02 Rotas" title="Rotas registradas" desc="Endpoints conhecidos por sistema. Cada rota é vinculada a exatamente uma permissão." />
+      <div className="lfc-table-wrap">
+        <table className="lfc-table">
+          <thead><tr><th>Sistema</th><th>Método</th><th>Caminho</th><th>Permissão exigida</th></tr></thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={i}>
+                <td>{r.system}</td>
+                <td><Badge variant={methodColor[r.method]}>{r.method}</Badge></td>
+                <td><span className="lfc-mono" style={{ fontSize: 12 }}>{r.path}</span></td>
+                <td><PermChip>{r.perm}</PermChip></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+function TokensStub() {
+  const tokens = [
+    { jti: 'jti_8Jk2Lm', user: 'admin@lfc.com.br', sys: 'lfc-authenticator', exp: 'há 14 min',  v: 12, active: true  },
+    { jti: 'jti_3Np7Qr', user: 'ops@lfc.com.br',   sys: 'lfc-authenticator', exp: 'há 47 min',  v: 12, active: true  },
+    { jti: 'jti_0Wx9Yz', user: 'dev@lfc.com.br',   sys: 'lfc-kurtto',        exp: 'expirado',   v: 11, active: false },
+  ];
+  return (
+    <>
+      <PageHeader eyebrow="06 Tokens" title="Sessões ativas" desc="JWTs emitidos. Revogar um token incrementa o tokenVersion do usuário." actions={<Button variant="danger" icon="x-circle">Revogar todos</Button>} />
+      <div className="lfc-table-wrap">
+        <table className="lfc-table">
+          <thead><tr><th>JTI</th><th>Usuário</th><th>Sistema</th><th>tokenVersion</th><th>Expira</th><th>Status</th></tr></thead>
+          <tbody>
+            {tokens.map(t => (
+              <tr key={t.jti}>
+                <td><span className="lfc-mono">{t.jti}</span></td>
+                <td>{t.user}</td>
+                <td>{t.sys}</td>
+                <td><span className="lfc-mono">{t.v}</span></td>
+                <td><span className="lfc-mono lfc-muted">{t.exp}</span></td>
+                <td>{t.active ? <Badge variant="success" dot>Ativo</Badge> : <Badge variant="danger" dot>Expirado</Badge>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+function SystemDrawer({ sys, onClose, onToast }) {
+  const [status, setStatus] = useState(sys.status);
+  const deactivate = () => {
+    setStatus('inactive');
+    onToast({ variant: 'danger', msg: <>Sistema <strong>{sys.name}</strong> desativado. Rotas continuam registradas.</> });
+    setTimeout(onClose, 400);
+  };
+  return (
+    <>
+      <div className="lfc-drawer__backdrop" onClick={onClose} />
+      <div className="lfc-drawer">
+        <div className="lfc-drawer__head">
+          <div>
+            <div className="lfc-eyebrow lfc-eyebrow--accent">Sistema</div>
+            <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em' }}>{sys.name}</h2>
+            <span className="lfc-mono lfc-muted" style={{ fontSize: 11 }}>{sys.id}</span>
+          </div>
+          <button className="lfc-icon-btn" onClick={onClose}><Icon name="x" size={16} /></button>
+        </div>
+        <div className="lfc-drawer__body">
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <Badge variant={status === 'active' ? 'success' : status === 'inactive' ? 'danger' : 'info'} dot>
+              {status === 'active' ? 'Ativo' : status === 'inactive' ? 'Inativo' : 'Verificando'}
+            </Badge>
+            <Badge variant="neutral">v1.0</Badge>
+          </div>
+          <Card title="Stack técnica">
+            <div style={{ fontSize: 13.5, color: 'var(--fg2)' }}>{sys.stack}</div>
+          </Card>
+          <Card title="Permissões" right={<span className="lfc-mono lfc-muted">7</span>}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              <PermChip>perm:Systems.Read</PermChip>
+              <PermChip>perm:Systems.Update</PermChip>
+              <PermChip>perm:Systems.Delete</PermChip>
+              <PermChip>perm:Routes.List</PermChip>
+              <PermChip>perm:Routes.Register</PermChip>
+              <PermChip>perm:Tokens.Issue</PermChip>
+              <PermChip>perm:Tokens.Revoke</PermChip>
+            </div>
+          </Card>
+          <Card title="Atividade recente">
+            <div className="lfc-kv">
+              <div><span className="lfc-kv__k">Rotas</span><span className="lfc-kv__v lfc-mono">{sys.routes}</span></div>
+              <div><span className="lfc-kv__k">Tokens ativos</span><span className="lfc-kv__v lfc-mono">{sys.tokens}</span></div>
+              <div><span className="lfc-kv__k">Último token emitido</span><span className="lfc-kv__v lfc-mono">há 2 min</span></div>
+              <div><span className="lfc-kv__k">Criado em</span><span className="lfc-kv__v lfc-mono">2025-09-12</span></div>
+            </div>
+          </Card>
+        </div>
+        <div className="lfc-drawer__foot">
+          <Button variant="danger" onClick={deactivate}>Desativar sistema</Button>
+          <Button variant="primary">Salvar alterações</Button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
