@@ -56,11 +56,11 @@ const StyledInput = styled.input<{ $hasError?: boolean; $hasIcon?: boolean }>`
     color: var(--fg3);
   }
 
-  &:focus {
+  &:focus-visible {
     border-color: ${({ $hasError }) => ($hasError ? 'var(--danger)' : 'var(--accent)')};
     box-shadow: ${({ $hasError }) =>
       $hasError
-        ? '0 0 0 3px rgba(217, 95, 95, 0.1)'
+        ? '0 0 0 3px color-mix(in srgb, var(--danger) 10%, transparent)'
         : '0 0 0 3px rgba(174, 202, 89, 0.22)'};
   }
 `;

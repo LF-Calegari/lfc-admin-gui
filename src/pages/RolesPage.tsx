@@ -89,7 +89,7 @@ const IconBtn = styled.button`
   appearance: none;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   width: 28px;
   height: 28px;
   cursor: pointer;

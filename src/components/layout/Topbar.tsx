@@ -52,6 +52,14 @@ const SearchBox = styled.div`
   padding: 6px 10px;
   width: 320px;
   color: var(--fg3);
+  transition:
+    border-color 150ms var(--ease-default),
+    box-shadow 150ms var(--ease-default);
+
+  &:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(174, 202, 89, 0.22);
+  }
 `;
 
 const SearchInput = styled.input`
@@ -76,7 +84,7 @@ const SearchKbd = styled.kbd`
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   padding: 1px 5px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
 `;
 
 const IconButton = styled.button`

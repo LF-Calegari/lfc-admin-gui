@@ -11,24 +11,24 @@ interface BadgeProps {
 
 const variantStyles: Record<BadgeVariant, ReturnType<typeof css>> = {
   success: css`
-    background: rgba(122, 158, 40, 0.14);
+    background: color-mix(in srgb, var(--success) 14%, transparent);
     color: var(--accent-ink);
-    border-color: rgba(174, 202, 89, 0.25);
+    border-color: color-mix(in srgb, var(--success) 25%, transparent);
   `,
   danger: css`
-    background: rgba(217, 95, 95, 0.1);
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
     color: var(--danger);
-    border-color: rgba(217, 95, 95, 0.25);
+    border-color: color-mix(in srgb, var(--danger) 25%, transparent);
   `,
   warning: css`
-    background: rgba(217, 162, 74, 0.1);
+    background: color-mix(in srgb, var(--warning) 10%, transparent);
     color: var(--warning);
-    border-color: rgba(217, 162, 74, 0.25);
+    border-color: color-mix(in srgb, var(--warning) 25%, transparent);
   `,
   info: css`
-    background: rgba(74, 159, 217, 0.1);
+    background: color-mix(in srgb, var(--info) 10%, transparent);
     color: var(--info);
-    border-color: rgba(74, 159, 217, 0.25);
+    border-color: color-mix(in srgb, var(--info) 25%, transparent);
   `,
   neutral: css`
     background: var(--bg-elevated);

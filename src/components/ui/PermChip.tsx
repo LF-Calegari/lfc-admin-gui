@@ -10,8 +10,8 @@ const StyledPermChip = styled.span`
   align-items: center;
   gap: 3px;
   padding: 3px 9px;
-  background: rgba(122, 158, 40, 0.13);
-  border: 1px solid rgba(174, 202, 89, 0.18);
+  background: color-mix(in srgb, var(--success) 13%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
   border-radius: var(--radius-sm);
   font-family: var(--font-mono);
   font-size: 11px;

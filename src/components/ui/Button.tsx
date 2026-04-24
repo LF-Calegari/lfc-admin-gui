@@ -24,7 +24,7 @@ const sizeStyles = {
   lg: css`
     padding: 11px 18px;
     font-size: 15px;
-    border-radius: 9px;
+    border-radius: var(--radius-md);
   `,
 };
 
@@ -58,6 +58,9 @@ const variantStyles = {
     &:active:not(:disabled) {
       background: var(--bg-overlay);
     }
+    &:focus-visible {
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--border-strong) 60%, transparent);
+    }
   `,
   ghost: css`
     background: transparent;
@@ -70,6 +73,9 @@ const variantStyles = {
     }
     &:active:not(:disabled) {
       background: rgba(22, 36, 15, 0.1);
+    }
+    &:focus-visible {
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--border-strong) 60%, transparent);
     }
   `,
   danger: css`
