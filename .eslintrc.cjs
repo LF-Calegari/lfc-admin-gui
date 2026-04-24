@@ -41,6 +41,7 @@ module.exports = {
         varsIgnorePattern: '^_',
       },
     ],
+    'import/no-named-as-default': 'off',
     'import/order': [
       'error',
       {
