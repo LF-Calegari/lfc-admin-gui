@@ -18,8 +18,8 @@ const GridOverlay = createGlobalStyle`
     position: fixed;
     inset: 0;
     background-image:
-      linear-gradient(rgba(22, 36, 15, 0.04) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(22, 36, 15, 0.04) 1px, transparent 1px);
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
     background-size: var(--grid-cell) var(--grid-cell);
     pointer-events: none;
     z-index: 0;

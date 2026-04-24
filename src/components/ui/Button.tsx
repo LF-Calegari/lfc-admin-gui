@@ -33,27 +33,27 @@ const variantStyles = {
     background: var(--clr-lime);
     color: var(--clr-forest);
     border-color: transparent;
-    box-shadow: 0 1px 0 rgba(22, 36, 15, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+    box-shadow: var(--shadow-button-primary);
 
     &:hover:not(:disabled) {
       background: color-mix(in srgb, var(--accent) 80%, white);
     }
     &:active:not(:disabled) {
       background: var(--accent-dim);
-      box-shadow: inset 0 1px 2px rgba(22, 36, 15, 0.18);
+      box-shadow: var(--shadow-button-primary-active);
     }
     &:focus-visible {
-      box-shadow: 0 0 0 3px rgba(174, 202, 89, 0.28);
+      box-shadow: var(--focus-ring-accent-strong);
     }
   `,
   secondary: css`
     background: var(--bg-surface);
     color: var(--fg1);
-    border-color: rgba(22, 36, 15, 0.14);
+    border-color: var(--border-soft-forest);
 
     &:hover:not(:disabled) {
       background: var(--bg-elevated);
-      border-color: rgba(22, 36, 15, 0.28);
+      border-color: var(--border-medium-forest);
     }
     &:active:not(:disabled) {
       background: var(--bg-overlay);
@@ -69,26 +69,26 @@ const variantStyles = {
 
     &:hover:not(:disabled) {
       color: var(--fg1);
-      background: rgba(22, 36, 15, 0.05);
+      background: var(--bg-ghost-hover);
     }
     &:active:not(:disabled) {
-      background: rgba(22, 36, 15, 0.1);
+      background: var(--bg-ghost-active);
     }
     &:focus-visible {
       box-shadow: 0 0 0 3px color-mix(in srgb, var(--border-strong) 60%, transparent);
     }
   `,
   danger: css`
-    background: rgba(217, 95, 95, 0.1);
-    color: color-mix(in srgb, var(--danger) 65%, black);
-    border-color: rgba(217, 95, 95, 0.3);
+    background: var(--bg-danger-soft);
+    color: var(--danger-ink);
+    border-color: var(--border-danger-soft);
 
     &:hover:not(:disabled) {
-      background: rgba(217, 95, 95, 0.18);
-      border-color: rgba(217, 95, 95, 0.5);
+      background: var(--bg-danger-hover);
+      border-color: var(--border-danger-strong);
     }
     &:focus-visible {
-      box-shadow: 0 0 0 3px rgba(217, 95, 95, 0.22);
+      box-shadow: var(--focus-ring-danger);
     }
   `,
 };

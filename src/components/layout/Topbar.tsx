@@ -58,7 +58,7 @@ const SearchBox = styled.div`
 
   &:focus-within {
     border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgba(174, 202, 89, 0.22);
+    box-shadow: var(--focus-ring-accent);
   }
 `;
 
