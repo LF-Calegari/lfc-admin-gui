@@ -1,23 +1,9 @@
-import logo from './logo.svg';
-import './App.css';
+import logoDark from './assets/logo-dark.svg';
 
 function App() {
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.tsx</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <img src={logoDark} alt="LFC Admin" style={{ height: 40 }} />
     </div>
   );
 }

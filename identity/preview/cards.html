@@ -1,0 +1,29 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Cards</title>
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body{margin:0;padding:18px;background:var(--bg-base);font-family:var(--font-sans);color:var(--fg1)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .card{background:#fff;border:1px solid var(--border-subtle);border-radius:12px;overflow:hidden}
+  .h{padding:14px 18px;border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;justify-content:space-between}
+  .t{font-size:15px;font-weight:600;letter-spacing:-0.01em}
+  .b{padding:16px 18px}
+  .m{font-size:12px;color:var(--fg3);margin-bottom:10px}
+  .chips{display:flex;gap:6px;flex-wrap:wrap}
+  .chip{display:inline-flex;gap:4px;padding:4px 10px;background:rgba(122,158,40,0.13);border:1px solid rgba(174,202,89,0.18);border-radius:4px;font-family:var(--font-mono);font-size:11px;color:#5A7D1F}
+  .chip .p{color:#4A5E42}
+  .bd{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;font-family:var(--font-mono);font-size:11px;border-radius:9999px;border:1px solid}
+  .bd::before{content:'';width:5px;height:5px;border-radius:50%;background:currentColor}
+  .success{background:rgba(122,158,40,0.14);color:#5A7D1F;border-color:rgba(174,202,89,0.25)}
+  .info{background:rgba(74,159,217,0.1);color:#4A9FD9;border-color:rgba(74,159,217,0.25)}
+</style></head><body>
+<div class="grid">
+  <div class="card">
+    <div class="h"><span class="t">lfc-authenticator</span><span class="bd success">Ativo</span></div>
+    <div class="b"><div class="m">ASP.NET Core 10 · PostgreSQL</div><div class="chips"><span class="chip"><span class="p">perm:</span>Systems.Read</span></div></div>
+  </div>
+  <div class="card">
+    <div class="h"><span class="t">lfc-kurtto</span><span class="bd info">Verificando</span></div>
+    <div class="b"><div class="m">Node.js · TypeScript · PostgreSQL</div><div class="chips"><span class="chip"><span class="p">perm:</span>Systems.Read</span></div></div>
+  </div>
+</div>
+</body></html>

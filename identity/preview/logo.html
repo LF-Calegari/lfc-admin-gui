@@ -1,0 +1,18 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Logo</title>
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body{margin:0;padding:16px;background:var(--bg-base);font-family:var(--font-sans);color:var(--fg1)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .v{border:1px solid var(--border-subtle);border-radius:12px;overflow:hidden}
+  .prev{height:120px;display:flex;align-items:center;justify-content:center;padding:18px}
+  .dark{background:#16240F}
+  .light{background:#fff}
+  .meta{background:#fff;padding:10px 14px;border-top:1px solid var(--border-subtle);display:flex;justify-content:space-between;align-items:center}
+  .n{font-size:12px;font-weight:500}
+  .bg{font-family:var(--font-mono);font-size:10px;color:var(--fg3);background:#ECEFE0;padding:3px 8px;border-radius:9999px;border:1px solid var(--border-subtle)}
+</style></head><body>
+<div class="grid">
+  <div class="v"><div class="prev dark"><img src="../assets/logo-white.svg" height="38"/></div><div class="meta"><span class="n">Logo White</span><span class="bg">bg: #16240F</span></div></div>
+  <div class="v"><div class="prev light"><img src="../assets/logo-dark.svg" height="38"/></div><div class="meta"><span class="n">Logo Dark</span><span class="bg">bg: #FFFFFF</span></div></div>
+</div>
+</body></html>

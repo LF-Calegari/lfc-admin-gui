@@ -1,0 +1,20 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Text colors</title>
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body{margin:0;padding:16px;background:#fff;font-family:var(--font-sans)}
+  .row{display:flex;flex-direction:column;gap:0;border:1px solid var(--border-subtle);border-radius:12px;overflow:hidden}
+  .r{display:grid;grid-template-columns:120px 1fr 110px;gap:14px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border-subtle)}
+  .r:last-child{border-bottom:none}
+  .tok{font-family:var(--font-mono);font-size:11px;color:var(--accent-ink)}
+  .sample{font-size:15px;font-weight:500}
+  .hex{font-family:var(--font-mono);font-size:10px;color:var(--fg3);text-align:right}
+  .dot{width:12px;height:12px;border-radius:3px;display:inline-block;margin-right:8px;vertical-align:middle}
+</style></head><body>
+<div class="row">
+  <div class="r"><span class="tok">--fg1 / primary</span><span class="sample" style="color:#1B2A12"><span class="dot" style="background:#1B2A12"></span>Conteúdo principal do sistema</span><span class="hex">#1B2A12</span></div>
+  <div class="r"><span class="tok">--fg2 / secondary</span><span class="sample" style="color:#4A5E42"><span class="dot" style="background:#4A5E42"></span>Labels e suporte</span><span class="hex">#4A5E42</span></div>
+  <div class="r"><span class="tok">--fg3 / muted</span><span class="sample" style="color:#6E8164"><span class="dot" style="background:#6E8164"></span>Placeholders, hints, meta</span><span class="hex">#6E8164</span></div>
+  <div class="r"><span class="tok">--fg4 / disabled</span><span class="sample" style="color:#B5BEA8"><span class="dot" style="background:#B5BEA8"></span>Estado desabilitado</span><span class="hex">#B5BEA8</span></div>
+  <div class="r"><span class="tok">--accent-ink</span><span class="sample" style="color:#5A7D1F"><span class="dot" style="background:#5A7D1F"></span>Link / acento AA</span><span class="hex">#5A7D1F</span></div>
+</div>
+</body></html>

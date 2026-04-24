@@ -1,0 +1,282 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Buttons</title>
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  :root {
+    --btn-primary-bg: var(--clr-lime);
+    --btn-primary-bg-hover: #BDD96A;
+    --btn-primary-bg-press: #8CB139;
+    --btn-primary-ink: var(--clr-forest);
+    --btn-primary-shadow: 0 1px 0 rgba(22,36,15,0.08), inset 0 1px 0 rgba(255,255,255,0.25);
+    --btn-primary-glow: 0 0 0 3px rgba(174,202,89,0.28);
+
+    --btn-secondary-bg: var(--bg-surface);
+    --btn-secondary-bg-hover: var(--bg-elevated);
+    --btn-secondary-border: rgba(22,36,15,0.14);
+    --btn-secondary-border-hover: rgba(22,36,15,0.28);
+
+    --btn-ghost-bg-hover: rgba(22,36,15,0.05);
+    --btn-danger-bg: rgba(217,95,95,0.10);
+    --btn-danger-bg-hover: rgba(217,95,95,0.18);
+    --btn-danger-ink: #A83A3A;
+    --btn-danger-border: rgba(217,95,95,0.30);
+  }
+
+  body {
+    margin: 0; padding: 20px;
+    background: var(--bg-base);
+    font-family: var(--font-sans); color: var(--fg1);
+  }
+
+  .stack { display: flex; flex-direction: column; gap: 12px; }
+  .row {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    padding: 14px 16px; background: var(--bg-surface);
+    border: 1px solid var(--border-subtle); border-radius: 10px;
+    align-items: center;
+  }
+  .row .label {
+    font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+    letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--fg3); margin-right: 4px; min-width: 68px;
+  }
+
+  /* ── Base button ───────────────────────────── */
+  .btn {
+    --pad-y: 8px; --pad-x: 14px; --fs: 13.5px; --radius: 8px;
+    display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+    padding: var(--pad-y) var(--pad-x);
+    font-family: var(--font-sans);
+    font-size: var(--fs);
+    font-weight: 500;
+    letter-spacing: -0.005em;
+    line-height: 1.2;
+    border-radius: var(--radius);
+    border: 1px solid transparent;
+    cursor: pointer;
+    white-space: nowrap;
+    user-select: none;
+    transition:
+      background 140ms var(--ease-default),
+      border-color 140ms var(--ease-default),
+      color 140ms var(--ease-default),
+      transform 80ms var(--ease-default),
+      box-shadow 140ms var(--ease-default);
+    position: relative;
+  }
+  .btn:focus-visible { outline: none; box-shadow: var(--btn-primary-glow); }
+  .btn:active { transform: translateY(1px); }
+  .btn[disabled] { opacity: 0.42; cursor: not-allowed; pointer-events: none; }
+  .btn svg { width: 14px; height: 14px; flex-shrink: 0; }
+
+  /* ── Sizes ─────────────────────────────────── */
+  .btn--sm { --pad-y: 5px;  --pad-x: 10px; --fs: 12.5px; --radius: 6px; }
+  .btn--md { /* default */ }
+  .btn--lg { --pad-y: 11px; --pad-x: 18px; --fs: 15px;   --radius: 9px; }
+
+  /* ── Primary ───────────────────────────────── */
+  .btn--primary {
+    background: var(--btn-primary-bg);
+    color: var(--btn-primary-ink);
+    border-color: transparent;
+    box-shadow: var(--btn-primary-shadow);
+  }
+  .btn--primary:hover {
+    background: var(--btn-primary-bg-hover);
+  }
+  .btn--primary:active { background: var(--btn-primary-bg-press); box-shadow: inset 0 1px 2px rgba(22,36,15,0.18); }
+
+  /* ── Secondary (outlined) ─────────────────── */
+  .btn--secondary {
+    background: var(--btn-secondary-bg);
+    color: var(--fg1);
+    border-color: var(--btn-secondary-border);
+  }
+  .btn--secondary:hover {
+    background: var(--btn-secondary-bg-hover);
+    border-color: var(--btn-secondary-border-hover);
+  }
+  .btn--secondary:active { background: #E4E9D6; }
+
+  /* ── Ghost ─────────────────────────────────── */
+  .btn--ghost {
+    background: transparent;
+    color: var(--fg2);
+  }
+  .btn--ghost:hover { background: var(--btn-ghost-bg-hover); color: var(--fg1); }
+  .btn--ghost:active { background: rgba(22,36,15,0.10); }
+
+  /* ── Link (text button) ────────────────────── */
+  .btn--link {
+    background: transparent;
+    color: var(--accent-ink);
+    padding-left: 0; padding-right: 0;
+    border-radius: 0;
+    font-weight: 500;
+  }
+  .btn--link::after {
+    content: '';
+    position: absolute;
+    left: 0; right: 0; bottom: 2px; height: 1px;
+    background: currentColor; opacity: 0.35;
+    transition: opacity 140ms var(--ease-default);
+  }
+  .btn--link:hover::after { opacity: 0.9; }
+  .btn--link:focus-visible { box-shadow: none; outline: 2px solid var(--accent-ink); outline-offset: 3px; border-radius: 2px; }
+
+  /* ── Danger ────────────────────────────────── */
+  .btn--danger {
+    background: var(--btn-danger-bg);
+    color: var(--btn-danger-ink);
+    border-color: var(--btn-danger-border);
+  }
+  .btn--danger:hover { background: var(--btn-danger-bg-hover); border-color: rgba(217,95,95,0.5); }
+  .btn--danger:focus-visible { box-shadow: 0 0 0 3px rgba(217,95,95,0.22); }
+
+  /* ── Danger solid (destructive confirm) ───── */
+  .btn--danger-solid {
+    background: #C24848;
+    color: #fff;
+    border-color: #B03C3C;
+    box-shadow: 0 1px 0 rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.15);
+  }
+  .btn--danger-solid:hover { background: #B03C3C; }
+
+  /* ── Icon-only ─────────────────────────────── */
+  .btn--icon {
+    --pad-x: 8px; --pad-y: 8px;
+    width: 32px; height: 32px;
+  }
+  .btn--icon.btn--sm { width: 26px; height: 26px; }
+  .btn--icon.btn--lg { width: 40px; height: 40px; }
+  .btn--icon svg { width: 15px; height: 15px; }
+
+  /* ── Loading ───────────────────────────────── */
+  .btn--loading { color: transparent; pointer-events: none; }
+  .btn--loading::before {
+    content: '';
+    position: absolute;
+    width: 14px; height: 14px;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 700ms linear infinite;
+    color: var(--btn-primary-ink);
+    opacity: 0.9;
+  }
+  .btn--secondary.btn--loading::before { color: var(--fg1); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Split button ──────────────────────────── */
+  .split { display: inline-flex; }
+  .split .btn:first-child {
+    border-top-right-radius: 0; border-bottom-right-radius: 0;
+  }
+  .split .btn:last-child {
+    border-top-left-radius: 0; border-bottom-left-radius: 0;
+    margin-left: -1px;
+    padding-left: 8px; padding-right: 8px;
+    border-left-color: rgba(22,36,15,0.22);
+  }
+  .split .btn--primary:last-child { border-left-color: rgba(22,36,15,0.18); }
+
+  /* ── Kbd hint slot ─────────────────────────── */
+  .btn .kbd {
+    margin-left: 4px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: rgba(22,36,15,0.10);
+    border: 1px solid rgba(22,36,15,0.10);
+    color: inherit; opacity: 0.8;
+  }
+  .btn--primary .kbd { background: rgba(22,36,15,0.18); border-color: rgba(22,36,15,0.08); }
+
+</style></head>
+<body>
+<div class="stack">
+
+  <div class="row">
+    <span class="label">Primary</span>
+    <button class="btn btn--primary btn--sm">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
+      Novo
+    </button>
+    <button class="btn btn--primary">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
+      Criar sistema
+    </button>
+    <button class="btn btn--primary btn--lg">
+      Atribuir permissão
+      <span class="kbd">⏎</span>
+    </button>
+    <button class="btn btn--primary btn--loading">Salvando</button>
+  </div>
+
+  <div class="row">
+    <span class="label">Secondary</span>
+    <button class="btn btn--secondary btn--sm">Filtrar</button>
+    <button class="btn btn--secondary">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h12M4 8h8M6 12h4"/></svg>
+      Filtrar por role
+    </button>
+    <button class="btn btn--secondary btn--lg">Cancelar</button>
+    <button class="btn btn--secondary" disabled>Indisponível</button>
+  </div>
+
+  <div class="row">
+    <span class="label">Ghost · Link</span>
+    <button class="btn btn--ghost">Ver detalhes</button>
+    <button class="btn btn--ghost btn--sm">Mais opções</button>
+    <button class="btn btn--link">Esqueci minha senha</button>
+    <button class="btn btn--link">perm:Systems.Read →</button>
+  </div>
+
+  <div class="row">
+    <span class="label">Danger</span>
+    <button class="btn btn--danger">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h10M6 5V3h4v2M5 5v8a1 1 0 001 1h4a1 1 0 001-1V5"/></svg>
+      Desativar usuário
+    </button>
+    <button class="btn btn--danger-solid">Confirmar deleção</button>
+    <button class="btn btn--ghost" style="color:var(--danger)">Revogar token</button>
+  </div>
+
+  <div class="row">
+    <span class="label">Icon-only</span>
+    <button class="btn btn--secondary btn--icon btn--sm" title="Editar">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2.5l3.5 3.5L6 13.5l-4 1 1-4 7-8z"/></svg>
+    </button>
+    <button class="btn btn--secondary btn--icon" title="Configurações">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.5 1.5M11.5 11.5L13 13M3 13l1.5-1.5M11.5 4.5L13 3"/></svg>
+    </button>
+    <button class="btn btn--ghost btn--icon" title="Menu">
+      <svg viewBox="0 0 16 16" fill="currentColor"><circle cx="3" cy="8" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="13" cy="8" r="1.3"/></svg>
+    </button>
+    <button class="btn btn--primary btn--icon" title="Adicionar">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
+    </button>
+    <button class="btn btn--danger btn--icon" title="Deletar">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h10M6 5V3h4v2M5 5v8a1 1 0 001 1h4a1 1 0 001-1V5"/></svg>
+    </button>
+  </div>
+
+  <div class="row">
+    <span class="label">Split</span>
+    <div class="split">
+      <button class="btn btn--primary">Criar sistema</button>
+      <button class="btn btn--primary" title="Mais opções">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4 4-4"/></svg>
+      </button>
+    </div>
+    <div class="split">
+      <button class="btn btn--secondary">Exportar</button>
+      <button class="btn btn--secondary">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4 4-4"/></svg>
+      </button>
+    </div>
+  </div>
+
+</div>
+</body></html>
