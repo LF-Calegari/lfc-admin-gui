@@ -10,6 +10,7 @@ services:
       PORT: ${PORT:-3002}
       HOST: 0.0.0.0
       CHOKIDAR_USEPOLLING: "true"
+    command: sh -c "npm ci --include=dev && npm run dev -- --host 0.0.0.0 --port ${PORT:-3002}"
     volumes:
       - .:/app
       - /app/node_modules
