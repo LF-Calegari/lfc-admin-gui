@@ -21,6 +21,11 @@ const StyledCard = styled.div<{ $clickable?: boolean }>`
     box-shadow: var(--shadow-card);
     transform: translateY(-1px);
   }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
 `;
 
 const CardHead = styled.div`
@@ -43,14 +48,35 @@ const CardBody = styled.div`
   padding: 16px 18px;
 `;
 
-export const Card: React.FC<CardProps> = ({ title, right, children, onClick }) => (
-  <StyledCard $clickable={!!onClick} onClick={onClick}>
-    {(title || right) && (
-      <CardHead>
-        {title && <CardTitle>{title}</CardTitle>}
-        {right}
-      </CardHead>
-    )}
-    <CardBody>{children}</CardBody>
-  </StyledCard>
-);
+export const Card: React.FC<CardProps> = ({ title, right, children, onClick }) => {
+  const clickable = !!onClick;
+
+  const handleKeyDown = clickable
+    ? (e: React.KeyboardEvent<HTMLDivElement>) => {
+        if (e.key === 'Enter') {
+          onClick();
+        } else if (e.key === ' ') {
+          e.preventDefault();
+          onClick();
+        }
+      }
+    : undefined;
+
+  return (
+    <StyledCard
+      $clickable={clickable}
+      onClick={onClick}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={handleKeyDown}
+    >
+      {(title || right) && (
+        <CardHead>
+          {title && <CardTitle>{title}</CardTitle>}
+          {right}
+        </CardHead>
+      )}
+      <CardBody>{children}</CardBody>
+    </StyledCard>
+  );
+};

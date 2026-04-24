@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useId } from 'react';
 import styled from 'styled-components';
 
 interface InputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onChange'> {
@@ -75,19 +75,30 @@ export const Input: React.FC<InputProps> = ({
   error,
   icon,
   onChange,
+  id: idProp,
   ...props
-}) => (
-  <InputGroup>
-    {label && <InputLabel $hasError={!!error}>{label}</InputLabel>}
-    <InputWrap>
-      {icon && <IconSlot>{icon}</IconSlot>}
-      <StyledInput
-        $hasError={!!error}
-        $hasIcon={!!icon}
-        onChange={e => onChange?.(e.target.value)}
-        {...props}
-      />
-    </InputWrap>
-    {error && <ErrorMsg>{error}</ErrorMsg>}
-  </InputGroup>
-);
+}) => {
+  const generatedId = useId();
+  const inputId = idProp ?? generatedId;
+
+  return (
+    <InputGroup>
+      {label && (
+        <InputLabel htmlFor={inputId} $hasError={!!error}>
+          {label}
+        </InputLabel>
+      )}
+      <InputWrap>
+        {icon && <IconSlot>{icon}</IconSlot>}
+        <StyledInput
+          id={inputId}
+          $hasError={!!error}
+          $hasIcon={!!icon}
+          onChange={e => onChange?.(e.target.value)}
+          {...props}
+        />
+      </InputWrap>
+      {error && <ErrorMsg>{error}</ErrorMsg>}
+    </InputGroup>
+  );
+};

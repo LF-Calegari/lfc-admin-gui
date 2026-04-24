@@ -64,10 +64,17 @@ const DismissButton = styled.button`
   opacity: 0.6;
   cursor: pointer;
   padding: 2px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
 
   &:hover {
+    opacity: 1;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
     opacity: 1;
   }
 `;

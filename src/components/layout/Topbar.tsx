@@ -101,7 +101,7 @@ const IconButton = styled.button`
   justify-content: center;
   transition: all 150ms var(--ease-default);
 
-  &:hover {
+  &:hover:not(:disabled) {
     background: var(--bg-elevated);
     color: var(--fg1);
     border-color: var(--border-base);
@@ -110,6 +110,11 @@ const IconButton = styled.button`
   &:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
   }
 `;
 
@@ -159,10 +164,19 @@ export const Topbar: React.FC<TopbarProps> = ({ title, user, onLogout }) => {
       <TopbarRight>
         <SearchBox>
           <Search size={14} strokeWidth={1.5} />
-          <SearchInput placeholder="Buscar sistemas, usuários, permissões…" />
+          <SearchInput
+            placeholder="Buscar sistemas, usuários, permissões…"
+            aria-label="Buscar no painel"
+          />
           <SearchKbd>⌘K</SearchKbd>
         </SearchBox>
-        <IconButton title="Notificações">
+        <IconButton
+          type="button"
+          aria-label="Notificações (em breve)"
+          title="Notificações (em breve)"
+          disabled
+          aria-disabled="true"
+        >
           <Bell size={16} strokeWidth={1.5} />
         </IconButton>
         <UserSection>
@@ -171,7 +185,7 @@ export const Topbar: React.FC<TopbarProps> = ({ title, user, onLogout }) => {
             <UserName>{user?.name ?? 'admin@lfc'}</UserName>
             <UserRole>{roleLabel}</UserRole>
           </UserMeta>
-          <IconButton onClick={onLogout} title="Sair">
+          <IconButton type="button" onClick={onLogout} title="Sair" aria-label="Sair">
             <LogOut size={16} strokeWidth={1.5} />
           </IconButton>
         </UserSection>
