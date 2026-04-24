@@ -56,6 +56,10 @@ const StyledInput = styled.input<{ $hasError?: boolean; $hasIcon?: boolean }>`
     color: var(--fg3);
   }
 
+  &:hover:not(:disabled) {
+    border-color: ${({ $hasError }) => ($hasError ? 'var(--danger)' : 'var(--border-soft-forest)')};
+  }
+
   &:focus-visible {
     border-color: ${({ $hasError }) => ($hasError ? 'var(--danger)' : 'var(--accent)')};
     box-shadow: ${({ $hasError }) =>

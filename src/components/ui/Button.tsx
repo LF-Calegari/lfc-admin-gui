@@ -36,7 +36,7 @@ const variantStyles = {
     box-shadow: var(--shadow-button-primary);
 
     &:hover:not(:disabled) {
-      background: color-mix(in srgb, var(--accent) 80%, white);
+      background: color-mix(in srgb, var(--accent) 80%, var(--clr-white));
     }
     &:active:not(:disabled) {
       background: var(--accent-dim);
