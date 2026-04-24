@@ -56,9 +56,13 @@ const SearchBox = styled.div`
     border-color 150ms var(--ease-default),
     box-shadow 150ms var(--ease-default);
 
+  &:hover {
+    border-color: var(--border-base);
+  }
+
   &:focus-within {
     border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgba(174, 202, 89, 0.22);
+    box-shadow: var(--focus-ring-accent);
   }
 `;
 

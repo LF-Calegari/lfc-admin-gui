@@ -1,5 +1,7 @@
-@import './styles/design.css';
+@import './tokens.css';
+@import './design.css';
 
+/* Reset base */
 *,
 *::before,
 *::after {
@@ -19,6 +21,13 @@ body {
   line-height: var(--leading-base);
   color: var(--text-primary);
   background-color: var(--bg-base);
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
 }
 
 @media (prefers-reduced-motion: reduce) {
