@@ -48,6 +48,12 @@
   --border-soft-forest: rgba(22, 36, 15, 0.14);
   --border-medium-forest: rgba(22, 36, 15, 0.28);
 
+  /* Border widths — usados por componentes com bordas estruturais */
+  --border-thin: 1px;
+  --border-medium: 1.5px;
+  --border-thick: 2px;
+  --border-thicker: 2.5px;
+
   /* ── Foreground / text ───────────────────────────────────── */
   --fg1: #1b2a12;
   --fg2: #4a5e42;
@@ -160,6 +166,9 @@
   --space-12: 3rem;
   --space-16: 4rem;
   --space-20: 5rem;
+
+  /* Press offset — deslocamento de :active para feedback tátil */
+  --press-offset: 1px;
 
   /* ── Z-index ─────────────────────────────────────────────── */
   --z-base: 0;
