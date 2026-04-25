@@ -21,6 +21,7 @@
     "@typescript-eslint/eslint-plugin": "^5.62.0",
     "@typescript-eslint/parser": "^5.62.0",
     "@vitejs/plugin-react": "^5.0.4",
+    "@vitest/coverage-v8": "^3.2.4",
     "eslint": "^8.57.1",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-import": "^2.32.0",
@@ -42,7 +43,9 @@
     "lint": "eslint \"{src,tests}/**/*.{ts,tsx,js,jsx}\" --max-warnings 0",
     "lint:fix": "npm run lint -- --fix",
     "format": "prettier --write \"{src,public}/**/*.{ts,tsx,js,jsx,json,css,md}\"",
-    "format:check": "prettier --check \"{src,public}/**/*.{ts,tsx,js,jsx,json,css,md}\""
+    "format:check": "prettier --check \"{src,public}/**/*.{ts,tsx,js,jsx,json,css,md}\"",
+    "audit:high": "npm audit --audit-level=high --omit=dev",
+    "audit:guard": "node scripts/audit-guard.cjs"
   },
   "browserslist": {
     "production": [
