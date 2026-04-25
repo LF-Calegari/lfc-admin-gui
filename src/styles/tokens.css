@@ -257,6 +257,27 @@
   --shadow-modal: 0 24px 48px rgba(22, 36, 15, 0.16), 0 4px 12px rgba(22, 36, 15, 0.06),
     0 0 0 1px var(--border-base);
   --shadow-glow: 0 0 24px rgba(174, 202, 89, 0.3), 0 0 48px rgba(174, 202, 89, 0.12);
+
+  /* ── Login glows ─────────────────────────────────────────────
+   * Camadas de gradiente radial usadas como atmosfera de fundo na
+   * tela de autenticação. Espelham o padrão `.lfc-login__grid` do
+   * identity kit. No light, o lime predomina (glow-1) com forest
+   * sutil em diagonal oposta (glow-2); o conjunto produz uma
+   * superfície leve e arejada sem competir com o card central.
+   *
+   * As funções `radial-gradient(...)` ficam embutidas no token
+   * porque o consumidor (`LoginPage`) usa-as diretamente em
+   * `background: var(--login-glow-1), var(--login-glow-2);`. */
+  --login-glow-1: radial-gradient(
+    circle at 70% 30%,
+    rgba(174, 202, 89, 0.14),
+    transparent 55%
+  );
+  --login-glow-2: radial-gradient(
+    circle at 20% 80%,
+    rgba(91, 125, 71, 0.1),
+    transparent 55%
+  );
 }
 
 /* ── Dark theme ─────────────────────────────────────────────
@@ -341,4 +362,21 @@
   --shadow-modal: 0 24px 48px rgba(0, 0, 0, 0.55), 0 4px 12px rgba(0, 0, 0, 0.35),
     0 0 0 1px var(--border-base);
   --shadow-glow: 0 0 24px rgba(174, 202, 89, 0.4), 0 0 48px rgba(174, 202, 89, 0.18);
+
+  /* ── Login glows (dark) ──────────────────────────────────────
+   * No dark, o glow lime fica mais sutil para não competir com a
+   * superfície escura do card; em compensação, o glow forest é
+   * amplificado (alpha 0.20) para criar uma "halo" verde-profundo
+   * em diagonal oposta — a leitura final é de um card flutuando
+   * sobre uma cena com profundidade, não sobre um plano achatado. */
+  --login-glow-1: radial-gradient(
+    circle at 70% 30%,
+    rgba(174, 202, 89, 0.1),
+    transparent 55%
+  );
+  --login-glow-2: radial-gradient(
+    circle at 20% 80%,
+    rgba(91, 125, 71, 0.2),
+    transparent 55%
+  );
 }
