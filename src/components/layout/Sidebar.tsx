@@ -65,7 +65,7 @@ const NAV_ITEMS: NavItem[] = ALL_NAV_ITEMS.filter(
 const Backdrop = styled.div<{ $open: boolean }>`
   position: fixed;
   inset: 0;
-  background: rgba(22, 36, 15, 0.42);
+  background: var(--bg-backdrop-modal);
   backdrop-filter: blur(2px);
   z-index: var(--z-overlay);
   opacity: ${({ $open }) => ($open ? 1 : 0)};
@@ -298,6 +298,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ open, onClose }) => {
       <SidebarWrapper
         ref={wrapperRef}
         $open={open}
+        id="sidebar-drawer"
         role="navigation"
         aria-label="Navegação principal"
         aria-modal="true"

@@ -30,6 +30,13 @@ describe('Sidebar', () => {
     expect(backdrop).toHaveAttribute('aria-hidden', 'true');
   });
 
+  it('aside expõe id="sidebar-drawer" para vincular com aria-controls do hamburger', () => {
+    renderSidebar(false);
+
+    const nav = screen.getByRole('navigation', { name: 'Navegação principal' });
+    expect(nav).toHaveAttribute('id', 'sidebar-drawer');
+  });
+
   it('chama onClose ao clicar no backdrop', () => {
     const onClose = vi.fn();
     renderSidebar(true, onClose);
