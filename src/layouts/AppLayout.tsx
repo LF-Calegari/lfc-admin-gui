@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Outlet, useLocation, matchPath } from 'react-router-dom';
 import styled, { createGlobalStyle } from 'styled-components';
 
 import { Sidebar } from '../components/layout/Sidebar';
 import { Topbar } from '../components/layout/Topbar';
+import { useAuth } from '../shared/auth';
 
 interface AuthUser {
   name: string;
@@ -118,12 +119,29 @@ export const AppLayout: React.FC = () => {
   const location = useLocation();
   const title = resolveTitle(location.pathname);
 
-  // Sessão estática enquanto não há integração com lfc-authenticator.
-  const [user] = useState<AuthUser>({
-    name: 'admin@lfc.com.br',
-    role: 'root',
-    permCount: 12,
-  });
+  const auth = useAuth();
+
+  /**
+   * Sessão exposta para a Topbar. Derivada do `useAuth()` quando há
+   * usuário autenticado; cai em fallback genérico até o Provider terminar
+   * de hidratar (apenas se a rota privada for pintada antes da splash, o
+   * que não acontece em fluxo normal — defesa contra corner case).
+   */
+  const user = useMemo<AuthUser>(() => {
+    if (auth.user) {
+      const roleLabel = auth.user.roles?.[0] ?? 'user';
+      return {
+        name: auth.user.email,
+        role: roleLabel,
+        permCount: auth.permissions.length,
+      };
+    }
+    return {
+      name: 'admin@lfc.com.br',
+      role: 'root',
+      permCount: 12,
+    };
+  }, [auth.user, auth.permissions]);
 
   // Drawer mobile da Sidebar — fechado por padrão.
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -137,10 +155,17 @@ export const AppLayout: React.FC = () => {
   const handleOpenDrawer = useCallback(() => setDrawerOpen(true), []);
   const handleCloseDrawer = useCallback(() => setDrawerOpen(false), []);
 
-  const handleLogout = () => {
-    // Sessão invalidada — placeholder para integração com lfc-authenticator.
-    globalThis.location.reload();
-  };
+  /**
+   * Encerra a sessão via `useAuth().logout()`. O Provider já cuida de:
+   * (1) chamar `GET /auth/logout` para invalidar `tokenVersion` no
+   * backend; (2) limpar storage/estado; (3) redirecionar para `/login`.
+   *
+   * `void` é intencional: o handler do botão não precisa aguardar a
+   * Promise — a navegação é disparada de dentro do `logout`.
+   */
+  const handleLogout = useCallback(() => {
+    void auth.logout();
+  }, [auth]);
 
   return (
     <>
