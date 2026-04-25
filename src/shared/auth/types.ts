@@ -76,7 +76,14 @@ export interface VerifyTokenResponse {
 export interface AuthContextValue extends AuthState {
   /** Autentica via `POST /auth/login` e atualiza o estado. */
   login(email: string, password: string): Promise<void>;
-  /** Encerra a sessão local (Epic #44 #55 fará a chamada remota). */
+  /**
+   * Encerra a sessão.
+   *
+   * Best-effort: chama `GET /auth/logout` para incrementar
+   * `tokenVersion` no backend (invalidando JWTs emitidos antes); falha
+   * remota não bloqueia a limpeza local. Sempre limpa storage/estado e
+   * redireciona para `/login`.
+   */
   logout(): Promise<void>;
   /** Retorna `true` quando `code` está presente em `permissions`. */
   hasPermission(code: string): boolean;

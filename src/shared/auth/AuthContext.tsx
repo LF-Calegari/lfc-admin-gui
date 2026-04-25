@@ -430,10 +430,35 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
   );
 
   const logout = useCallback(async (): Promise<void> => {
-    // Epic #44 #55: chamar `POST /auth/logout` antes de limpar localmente
-    // (best-effort; falha de rede não impede o clear).
+    // Issue #55: notifica o backend para incrementar `tokenVersion`,
+    // invalidando todos os JWTs emitidos antes — o `auth-service` expõe
+    // `GET /api/v1/auth/logout` (com `Authorization: Bearer`).
+    //
+    // A chamada é best-effort: falha de rede ou 401 (já deslogado de
+    // qualquer forma) não impede a limpeza local. O usuário pediu
+    // logout; o estado local sempre cai. Errar no remoto e manter sessão
+    // local presa é UX inaceitável.
+    //
+    // O `clearSession` zera ref, storage e state em uma única passagem,
+    // e o `redirectToLogin` cobre o critério "em qualquer caso,
+    // redireciona para /login" (Issue #55). Curto-circuitamos em
+    // `/login` lá dentro para não fazer push redundante.
+    if (tokenRef.current) {
+      try {
+        await client.get('/auth/logout');
+      } catch (error) {
+        if (!isUnauthorizedError(error)) {
+          // Falha de rede ou 5xx — apenas logamos um warning para
+          // diagnóstico. Não expomos `error` em console para evitar
+          // vazar metadados de request em logs do navegador.
+          // eslint-disable-next-line no-console
+          console.warn('[auth] logout remoto falhou; sessão local foi encerrada.');
+        }
+      }
+    }
     clearSession();
-  }, [clearSession]);
+    redirectToLogin();
+  }, [client, clearSession, redirectToLogin]);
 
   const hasPermission = useCallback(
     (code: string): boolean => state.permissions.includes(code),
