@@ -8,7 +8,12 @@
 
 /**
  * Representação do usuário autenticado tal como devolvido pelo
- * `lfc-authenticator` no payload de login.
+ * `lfc-authenticator` no payload de `verify-token`.
+ *
+ * `identity` é o discriminador numérico do registro do usuário no
+ * backend — necessário para chamadas que referenciam o usuário por
+ * número (ex.: auditoria/admin) e mantido como `number` por simetria
+ * com o contrato real do `auth-service`.
  *
  * Campos opcionais (`avatarUrl`, `roles`) são tolerados para evitar
  * acoplamento prematuro a um shape exato — a UI sempre deve degradar
@@ -18,6 +23,7 @@ export interface User {
   id: string;
   name: string;
   email: string;
+  identity: number;
   avatarUrl?: string;
   roles?: ReadonlyArray<string>;
 }
@@ -38,32 +44,44 @@ export interface AuthState {
 }
 
 /**
- * Payload retornado pelo endpoint de login.
+ * Payload retornado pelo endpoint `POST /auth/login`.
  *
- * Mantido como tipo exportado para que mocks/testes e a futura
- * integração com `Auth API` compartilhem o mesmo contrato.
+ * O `lfc-authenticator` retorna apenas `{ token }`; o perfil do usuário
+ * e o catálogo de permissões vêm em uma chamada subsequente a
+ * `GET /auth/verify-token`. Manter este tipo enxuto evita que call sites
+ * passem a depender de campos que o backend nunca enviou.
  */
 export interface LoginResponse {
   token: string;
-  user: User;
-  permissions: ReadonlyArray<string>;
 }
 
 /**
  * Payload retornado pelo endpoint `GET /auth/verify-token`.
  *
- * O token continua sendo o mesmo já enviado em `Authorization`; o backend
- * apenas confirma sua validade e devolve o snapshot atual de `user` e
- * `permissions` — permitindo que o frontend reaja a mudanças server-side
- * (role atualizada, permissões revogadas) sem exigir novo login.
+ * Shape achatado, espelhando exatamente o contrato real do
+ * `auth-service`:
  *
- * O contrato é deliberadamente um subset de `LoginResponse`: caso o
- * backend evolua para incluir `token` (rotacionado), bastará trocar o
- * tipo abaixo sem impactar a forma como o Provider consome.
+ * - `id`, `name`, `email`, `identity` formam o perfil completo do
+ *   usuário autenticado (mapeados para `User` antes de armazenar);
+ * - `permissions` é uma lista de **GUIDs** internos do backend —
+ *   carregamos no tipo por simetria e diagnóstico, mas o frontend
+ *   nunca os usa diretamente em `hasPermission`;
+ * - `routeCodes` é a lista de códigos semânticos usados por
+ *   `hasPermission()` (ex.: `Systems.Read`). É essa lista que o
+ *   Provider persiste como `permissions` no estado/storage.
+ *
+ * O token continua sendo o mesmo já enviado em `Authorization`; o
+ * backend apenas confirma sua validade e devolve o snapshot atual do
+ * usuário — permitindo que o frontend reaja a mudanças server-side
+ * (role atualizada, permissões revogadas) sem exigir novo login.
  */
 export interface VerifyTokenResponse {
-  user: User;
+  id: string;
+  name: string;
+  email: string;
+  identity: number;
   permissions: ReadonlyArray<string>;
+  routeCodes: ReadonlyArray<string>;
 }
 
 /**

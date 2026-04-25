@@ -92,22 +92,60 @@ function lastCall<T>(mockCalls: ReadonlyArray<T>): T | undefined {
 
 const SAMPLE_LOGIN: LoginResponse = {
   token: 'jwt-xyz',
-  user: {
-    id: 'u-1',
-    name: 'Ada Lovelace',
-    email: 'ada@lfc.com.br',
-  },
-  permissions: ['Systems.Read', 'Systems.Create'],
 };
 
-const VERIFY_RESPONSE: VerifyTokenResponse = {
-  user: {
-    id: 'u-1',
-    name: 'Ada Lovelace',
-    email: 'ada@lfc.com.br',
-  },
-  permissions: ['Systems.Read', 'Systems.Create', 'Systems.Update'],
+/**
+ * Perfil retornado por `verify-token` logo após o login feliz —
+ * espelha o contrato real do `auth-service` (id/name/email/identity +
+ * permissions/Guid[] + routeCodes/string[]).
+ *
+ * Usado também em testes de hidratação otimista após reload.
+ */
+const SAMPLE_VERIFY: VerifyTokenResponse = {
+  id: 'u-1',
+  name: 'Ada Lovelace',
+  email: 'ada@lfc.com.br',
+  identity: 42,
+  permissions: ['11111111-1111-1111-1111-111111111111'],
+  routeCodes: ['Systems.Read', 'Systems.Create'],
 };
+
+/**
+ * Espelho do `User` projetado pelo Provider a partir de `SAMPLE_VERIFY`.
+ * Centraliza o shape esperado pela maioria dos asserts.
+ */
+const SAMPLE_USER = {
+  id: SAMPLE_VERIFY.id,
+  name: SAMPLE_VERIFY.name,
+  email: SAMPLE_VERIFY.email,
+  identity: SAMPLE_VERIFY.identity,
+};
+
+const SAMPLE_PERMISSIONS = SAMPLE_VERIFY.routeCodes;
+
+/**
+ * Resposta de `verify-token` para a revalidação periódica — simula o
+ * cenário em que o backend acrescentou um `routeCode` (por exemplo, uma
+ * permissão recém-concedida) e o Provider precisa refletir o snapshot
+ * atualizado.
+ */
+const VERIFY_RESPONSE: VerifyTokenResponse = {
+  id: 'u-1',
+  name: 'Ada Lovelace',
+  email: 'ada@lfc.com.br',
+  identity: 42,
+  permissions: ['11111111-1111-1111-1111-111111111111'],
+  routeCodes: ['Systems.Read', 'Systems.Create', 'Systems.Update'],
+};
+
+const VERIFY_USER = {
+  id: VERIFY_RESPONSE.id,
+  name: VERIFY_RESPONSE.name,
+  email: VERIFY_RESPONSE.email,
+  identity: VERIFY_RESPONSE.identity,
+};
+
+const VERIFY_PERMISSIONS = VERIFY_RESPONSE.routeCodes;
 
 const UNAUTHORIZED_ERROR: ApiError = {
   kind: 'http',
@@ -124,14 +162,18 @@ const NETWORK_ERROR: ApiError = {
 /**
  * Pré-popula `localStorage` para simular sessão persistida — usado nos
  * testes de hidratação remota.
+ *
+ * O shape gravado espelha o `PersistedSession` real (User com `identity`
+ * + permissions = routeCodes), de modo que os testes leiam exatamente
+ * o que o Provider gravou em sessões anteriores.
  */
 function seedPersistedSession(): void {
   window.localStorage.setItem(STORAGE_KEYS.token, 'jwt-persistido');
   window.localStorage.setItem(
     STORAGE_KEYS.user,
     JSON.stringify({
-      user: SAMPLE_LOGIN.user,
-      permissions: SAMPLE_LOGIN.permissions,
+      user: SAMPLE_USER,
+      permissions: SAMPLE_PERMISSIONS,
     }),
   );
 }
@@ -194,9 +236,10 @@ describe('AuthProvider — estado inicial', () => {
 });
 
 describe('AuthProvider — login', () => {
-  test('caminho feliz: atualiza estado e dispara POST /auth/login', async () => {
+  test('caminho feliz: encadeia POST /auth/login + GET /auth/verify-token e popula estado', async () => {
     const client = createClientStub();
     client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
+    client.get.mockResolvedValueOnce(SAMPLE_VERIFY);
     const { result } = renderHook(() => useAuth(), {
       wrapper: makeWrapper(client),
     });
@@ -210,8 +253,11 @@ describe('AuthProvider — login', () => {
       email: 'ada@lfc.com.br',
       password: 'secret',
     });
-    expect(result.current.user).toEqual(SAMPLE_LOGIN.user);
-    expect(result.current.permissions).toEqual(SAMPLE_LOGIN.permissions);
+    expect(client.get).toHaveBeenCalledWith('/auth/verify-token');
+    // `permissions` no estado é o catálogo de `routeCodes`, não os GUIDs
+    // brutos retornados em `verify-token.permissions`.
+    expect(result.current.user).toEqual(SAMPLE_USER);
+    expect(result.current.permissions).toEqual(SAMPLE_PERMISSIONS);
     expect(result.current.isAuthenticated).toBe(true);
     expect(result.current.isLoading).toBe(false);
   });
@@ -219,6 +265,7 @@ describe('AuthProvider — login', () => {
   test('após login, getToken injetado no client retorna o token recebido', async () => {
     const client = createClientStub();
     client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
+    client.get.mockResolvedValueOnce(SAMPLE_VERIFY);
     const { result } = renderHook(() => useAuth(), {
       wrapper: makeWrapper(client),
     });
@@ -230,6 +277,32 @@ describe('AuthProvider — login', () => {
 
     const latest = lastCall(client.setAuth.mock.calls)?.[0];
     expect(latest?.getToken?.()).toBe('jwt-xyz');
+  });
+
+  test('tokenRef é setado ANTES do verify-token (header Authorization presente)', async () => {
+    // Asserção crítica do contrato: o `verify-token` precisa ler o token
+    // recém-recebido via `getToken()` para que o cliente HTTP injete
+    // `Authorization: Bearer ...`. Capturamos o valor de `getToken()` no
+    // momento exato da chamada `client.get`.
+    const client = createClientStub();
+    client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
+
+    let tokenAtVerify: string | null | undefined;
+    client.get.mockImplementationOnce(async () => {
+      tokenAtVerify = lastCall(client.setAuth.mock.calls)?.[0]?.getToken?.();
+      return SAMPLE_VERIFY;
+    });
+
+    const { result } = renderHook(() => useAuth(), {
+      wrapper: makeWrapper(client),
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    await act(async () => {
+      await result.current.login('ada@lfc.com.br', 'secret');
+    });
+
+    expect(tokenAtVerify).toBe('jwt-xyz');
   });
 
   test('falha de credenciais propaga ApiError e mantém estado deslogado', async () => {
@@ -255,6 +328,78 @@ describe('AuthProvider — login', () => {
     expect(result.current.isAuthenticated).toBe(false);
     expect(result.current.user).toBeNull();
     expect(result.current.isLoading).toBe(false);
+    // `verify-token` nunca chega a ser chamado quando o login rejeita.
+    expect(client.get).not.toHaveBeenCalled();
+  });
+
+  test('falha no verify-token pós-login limpa sessão parcial e propaga erro', async () => {
+    // Cenário: backend aceitou as credenciais mas a chamada subsequente
+    // a `verify-token` falhou (ex.: rede caiu, 5xx, payload corrompido).
+    // O Provider já tinha aceitado o token em `tokenRef`; precisa
+    // limpar tudo (storage + ref + state) para não deixar um header
+    // `Authorization` pendurado em chamadas seguintes.
+    const apiError: ApiError = {
+      kind: 'network',
+      message: 'Falha de conexão com o servidor.',
+    };
+    const client = createClientStub();
+    client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
+    client.get.mockRejectedValueOnce(apiError);
+    const { result } = renderHook(() => useAuth(), {
+      wrapper: makeWrapper(client),
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    // Capturamos a rejection diretamente — `await expect(act(..)).rejects`
+    // pode liberar antes do bloco `finally` interno do Provider rodar
+    // sob certas timings, gerando race com asserts subsequentes em
+    // `tokenRef`.
+    let captured: unknown;
+    await act(async () => {
+      try {
+        await result.current.login('ada@lfc.com.br', 'secret');
+      } catch (e) {
+        captured = e;
+      }
+    });
+
+    expect(captured).toMatchObject({ kind: 'network' });
+    expect(result.current.isAuthenticated).toBe(false);
+    expect(result.current.user).toBeNull();
+    expect(result.current.permissions).toEqual([]);
+    expect(result.current.isLoading).toBe(false);
+
+    // Storage limpo — a sessão parcial (token sem perfil) foi descartada.
+    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
+    expect(window.localStorage.getItem(STORAGE_KEYS.user)).toBeNull();
+
+    // Token injetado no client também foi zerado.
+    const latest = lastCall(client.setAuth.mock.calls)?.[0];
+    expect(latest?.getToken?.()).toBeNull();
+  });
+
+  test('verify-token com payload inválido pós-login limpa sessão e propaga ApiError(parse)', async () => {
+    const client = createClientStub();
+    client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
+    // Resposta sem campos obrigatórios — o type guard deve rejeitar.
+    client.get.mockResolvedValueOnce({ permissions: [] } as unknown);
+    const { result } = renderHook(() => useAuth(), {
+      wrapper: makeWrapper(client),
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    let captured: unknown;
+    await act(async () => {
+      try {
+        await result.current.login('ada@lfc.com.br', 'secret');
+      } catch (e) {
+        captured = e;
+      }
+    });
+
+    expect(captured).toMatchObject({ kind: 'parse' });
+    expect(result.current.isAuthenticated).toBe(false);
+    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
   });
 });
 
@@ -262,7 +407,10 @@ describe('AuthProvider — logout', () => {
   test('limpa estado e zera token após logout', async () => {
     const client = createClientStub();
     client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
-    client.get.mockResolvedValueOnce({ message: 'Sessão encerrada.' });
+    // 1ª chamada: verify-token do login encadeado; 2ª: logout remoto.
+    client.get
+      .mockResolvedValueOnce(SAMPLE_VERIFY)
+      .mockResolvedValueOnce({ message: 'Sessão encerrada.' });
     const { result } = renderHook(() => useAuth(), {
       wrapper: makeWrapper(client),
     });
@@ -286,7 +434,9 @@ describe('AuthProvider — logout', () => {
   test('chama GET /auth/logout para invalidar tokenVersion remoto (Issue #55)', async () => {
     const client = createClientStub();
     client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
-    client.get.mockResolvedValueOnce({ message: 'Sessão encerrada.' });
+    client.get
+      .mockResolvedValueOnce(SAMPLE_VERIFY)
+      .mockResolvedValueOnce({ message: 'Sessão encerrada.' });
     const { result } = renderHook(() => useAuth(), {
       wrapper: makeWrapper(client),
     });
@@ -323,7 +473,10 @@ describe('AuthProvider — logout', () => {
   test('falha de rede no logout remoto ainda limpa estado e storage', async () => {
     const client = createClientStub();
     client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
-    client.get.mockRejectedValueOnce(NETWORK_ERROR);
+    // 1ª chamada: verify-token (login feliz); 2ª: logout falha por rede.
+    client.get
+      .mockResolvedValueOnce(SAMPLE_VERIFY)
+      .mockRejectedValueOnce(NETWORK_ERROR);
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
     const { result } = renderHook(() => useAuth(), {
@@ -339,7 +492,7 @@ describe('AuthProvider — logout', () => {
       await result.current.logout();
     });
 
-    expect(client.get).toHaveBeenCalledWith('/auth/logout');
+    expect(client.get).toHaveBeenLastCalledWith('/auth/logout');
     expect(result.current.isAuthenticated).toBe(false);
     expect(result.current.user).toBeNull();
     expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
@@ -352,13 +505,16 @@ describe('AuthProvider — logout', () => {
   test('logout em 401 (já deslogado no backend) limpa local sem warning', async () => {
     const client = createClientStub();
     client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
-    // Simula o comportamento real do client HTTP em 401: dispara
-    // `onUnauthorized` (que limpa sessão) e rejeita com ApiError.
-    client.get.mockImplementationOnce(async () => {
-      const config = lastCall(client.setAuth.mock.calls)?.[0];
-      config?.onUnauthorized?.();
-      throw UNAUTHORIZED_ERROR;
-    });
+    // 1ª chamada: verify-token do login feliz; 2ª: logout em 401.
+    client.get
+      .mockResolvedValueOnce(SAMPLE_VERIFY)
+      .mockImplementationOnce(async () => {
+        // Simula o comportamento real do client HTTP em 401: dispara
+        // `onUnauthorized` (que limpa sessão) e rejeita com ApiError.
+        const config = lastCall(client.setAuth.mock.calls)?.[0];
+        config?.onUnauthorized?.();
+        throw UNAUTHORIZED_ERROR;
+      });
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
     const { result } = renderHook(() => useAuth(), {
@@ -373,7 +529,7 @@ describe('AuthProvider — logout', () => {
       await result.current.logout();
     });
 
-    expect(client.get).toHaveBeenCalledWith('/auth/logout');
+    expect(client.get).toHaveBeenLastCalledWith('/auth/logout');
     expect(result.current.isAuthenticated).toBe(false);
     expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
     // 401 é silencioso: o usuário já estava deslogado de qualquer forma.
@@ -526,6 +682,7 @@ describe('AuthProvider — hasPermission', () => {
   test('retorna true para permissões presentes após login', async () => {
     const client = createClientStub();
     client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
+    client.get.mockResolvedValueOnce(SAMPLE_VERIFY);
     const { result } = renderHook(() => useAuth(), {
       wrapper: makeWrapper(client),
     });
@@ -544,6 +701,7 @@ describe('AuthProvider — onUnauthorized', () => {
   test('callback injetado no client limpa sessão quando disparado', async () => {
     const client = createClientStub();
     client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
+    client.get.mockResolvedValueOnce(SAMPLE_VERIFY);
     const { result } = renderHook(() => useAuth(), {
       wrapper: makeWrapper(client),
     });
@@ -608,6 +766,7 @@ describe('AuthProvider — persistência (Issue #53)', () => {
   test('login persiste token e user em localStorage', async () => {
     const client = createClientStub();
     client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
+    client.get.mockResolvedValueOnce(SAMPLE_VERIFY);
     const { result } = renderHook(() => useAuth(), {
       wrapper: makeWrapper(client),
     });
@@ -620,18 +779,23 @@ describe('AuthProvider — persistência (Issue #53)', () => {
     expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBe('jwt-xyz');
     const userJson = window.localStorage.getItem(STORAGE_KEYS.user);
     expect(userJson).not.toBeNull();
+    // Storage espelha a projeção que o Provider faz: User com `identity`
+    // e permissions = routeCodes (nunca os GUIDs brutos).
     expect(JSON.parse(userJson as string)).toEqual({
-      user: SAMPLE_LOGIN.user,
-      permissions: SAMPLE_LOGIN.permissions,
+      user: SAMPLE_USER,
+      permissions: SAMPLE_PERMISSIONS,
     });
   });
 
   test('logout limpa ambas as chaves do localStorage', async () => {
-    // Estado inicial: sessão já hidratada do storage.
+    // Estado inicial: sessão já hidratada do storage. A 1ª chamada
+    // a `client.get` é a hidratação otimista; a 2ª, o logout remoto.
     seedPersistedSession();
 
     const client = createClientStub();
-    client.get.mockResolvedValueOnce(VERIFY_RESPONSE);
+    client.get
+      .mockResolvedValueOnce(VERIFY_RESPONSE)
+      .mockResolvedValueOnce({ message: 'Sessão encerrada.' });
     const { result } = renderHook(() => useAuth(), {
       wrapper: makeWrapper(client),
     });
@@ -650,6 +814,7 @@ describe('AuthProvider — persistência (Issue #53)', () => {
   test('callback onUnauthorized (401) limpa localStorage', async () => {
     const client = createClientStub();
     client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
+    client.get.mockResolvedValueOnce(SAMPLE_VERIFY);
     const { result } = renderHook(() => useAuth(), {
       wrapper: makeWrapper(client),
     });
@@ -685,16 +850,18 @@ describe('AuthProvider — verify-token (Issue #54)', () => {
     // e isLoading=true sinalizando revalidação em curso.
     expect(result.current.isAuthenticated).toBe(true);
     expect(result.current.isLoading).toBe(true);
-    expect(result.current.permissions).toEqual(SAMPLE_LOGIN.permissions);
+    expect(result.current.permissions).toEqual(SAMPLE_PERMISSIONS);
 
-    // Após o verify-token resolver, permissões são atualizadas.
+    // Após o verify-token resolver, permissões são atualizadas com o
+    // snapshot fresco — `routeCodes` é a fonte da verdade para o que
+    // o frontend chama de `permissions`.
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(client.get).toHaveBeenCalledWith(
       '/auth/verify-token',
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
-    expect(result.current.permissions).toEqual(VERIFY_RESPONSE.permissions);
-    expect(result.current.user).toEqual(VERIFY_RESPONSE.user);
+    expect(result.current.permissions).toEqual(VERIFY_PERMISSIONS);
+    expect(result.current.user).toEqual(VERIFY_USER);
   });
 
   test('sem sessão local, NÃO chama verify-token no mount', async () => {
@@ -745,8 +912,8 @@ describe('AuthProvider — verify-token (Issue #54)', () => {
     // Sessão local preservada — usuário continua autenticado com último
     // snapshot conhecido.
     expect(result.current.isAuthenticated).toBe(true);
-    expect(result.current.user).toEqual(SAMPLE_LOGIN.user);
-    expect(result.current.permissions).toEqual(SAMPLE_LOGIN.permissions);
+    expect(result.current.user).toEqual(SAMPLE_USER);
+    expect(result.current.permissions).toEqual(SAMPLE_PERMISSIONS);
     expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBe('jwt-persistido');
     expect(warnSpy).toHaveBeenCalled();
 
@@ -756,7 +923,8 @@ describe('AuthProvider — verify-token (Issue #54)', () => {
   test('verify-token com payload inválido mantém sessão local', async () => {
     seedPersistedSession();
     const client = createClientStub();
-    // Resposta sem `user` válido — Provider deve descartar silenciosamente.
+    // Resposta sem `id`/`name`/`email`/`identity`/`routeCodes` válidos —
+    // Provider deve descartar silenciosamente e manter sessão local.
     client.get.mockResolvedValueOnce({ permissions: [] } as unknown);
 
     const { result } = renderHook(() => useAuth(), {
@@ -765,8 +933,8 @@ describe('AuthProvider — verify-token (Issue #54)', () => {
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.isAuthenticated).toBe(true);
-    expect(result.current.user).toEqual(SAMPLE_LOGIN.user);
-    expect(result.current.permissions).toEqual(SAMPLE_LOGIN.permissions);
+    expect(result.current.user).toEqual(SAMPLE_USER);
+    expect(result.current.permissions).toEqual(SAMPLE_PERMISSIONS);
   });
 
   test('revalidação periódica chama verify-token a cada tick', async () => {
