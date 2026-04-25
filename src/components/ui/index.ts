@@ -13,3 +13,5 @@ export { Icon } from './Icon';
 export type { IconProps, IconSize, IconTone } from './Icon';
 export { Spinner } from './Spinner';
 export type { SpinnerProps, SpinnerSize, SpinnerTone } from './Spinner';
+export { ThemeToggle } from './ThemeToggle';
+export type { ThemeToggleProps } from './ThemeToggle';
