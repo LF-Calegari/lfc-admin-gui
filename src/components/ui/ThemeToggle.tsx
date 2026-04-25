@@ -71,6 +71,17 @@ const ToggleButton = styled.button`
     min-width: 0;
     min-height: 0;
   }
+
+  /* Acessibilidade: usuários que preferem movimento reduzido não devem
+     ter transitions (background/border/color/transform) animadas. Espelha
+     o tratamento já adotado em Spinner.tsx e globals.css. */
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+
+    &:active:not(:disabled) {
+      transform: none;
+    }
+  }
 `;
 
 /**
