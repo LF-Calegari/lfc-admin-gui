@@ -1,0 +1,9 @@
+{
+  "generatedAt": "2026-04-25",
+  "policy": {
+    "description": "Exceções temporárias para vulnerabilidades high/critical do lfc-admin-gui (Vite + Vitest + React 19).",
+    "owner": "calegariluisfernando",
+    "reviewCadence": "quinzenal"
+  },
+  "exceptions": []
+}

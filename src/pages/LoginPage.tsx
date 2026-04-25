@@ -5,7 +5,7 @@ import styled from 'styled-components';
 
 import logoForLightTheme from '../assets/logo-dark.svg';
 import logoForDarkTheme from '../assets/logo-white.svg';
-import { Alert, Button, Input, ThemeToggle } from '../components/ui';
+import { Alert, Button, Input, ThemeToggle, useToast } from '../components/ui';
 import { useTheme } from '../hooks/useTheme';
 import { isApiError } from '../shared/api';
 import { useAuth } from '../shared/auth';
@@ -39,6 +39,21 @@ const INVALID_CREDENTIALS_MESSAGE = 'E-mail ou senha inválidos.';
  */
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/**
+ * Eyebrow exibido acima do título principal — espelha o padrão do
+ * identity kit (`identity/ui_kits/admin-spa/screens.jsx:20`). Mantemos
+ * a string como constante para facilitar evolução futura (ex.: trocar
+ * versão ao subir release).
+ */
+const EYEBROW_TEXT = 'Authenticator · v1.0';
+
+/**
+ * Mensagem do toast disparado pelo botão "Esqueci a senha". Por agora
+ * o fluxo real não está implementado (fora do escopo da #105); o toast
+ * informa o usuário e direciona para o canal humano.
+ */
+const FORGOT_PASSWORD_TOAST = 'Funcionalidade em breve. Contate o administrador.';
+
 interface FormState {
   email: string;
   password: string;
@@ -49,6 +64,11 @@ interface FieldErrors {
   password?: string;
 }
 
+/**
+ * Container raiz — `position: relative` para servir de âncora para a
+ * camada de glow absoluta. `overflow: hidden` corta os gradientes que
+ * vazam fora do viewport.
+ */
 const PageRoot = styled.div`
   min-height: 100vh;
   width: 100%;
@@ -57,24 +77,51 @@ const PageRoot = styled.div`
   align-items: center;
   justify-content: center;
   background: var(--bg-base);
-  padding: var(--space-6) var(--space-4);
+  padding: var(--space-8) var(--space-4);
   position: relative;
+  overflow: hidden;
+`;
+
+/**
+ * Camada decorativa com os dois gradientes radiais. Fica em `inset:
+ * -10%` para que os gradientes "sangrem" para fora do viewport visível
+ * (espelha a referência `.lfc-login__grid` do identity kit).
+ *
+ * `pointer-events: none` é crítico — esta camada é puramente
+ * decorativa e não pode interceptar cliques no card central.
+ */
+const GlowLayer = styled.div`
+  position: absolute;
+  inset: -10%;
+  pointer-events: none;
+  background: var(--login-glow-1), var(--login-glow-2);
+  z-index: var(--z-base);
 `;
 
 /**
  * Toggle de tema posicionado no canto superior direito. Mantém o
  * controle visível antes do login para que o usuário possa ajustar
  * preferência mesmo sem sessão ativa.
+ *
+ * `z-index: var(--z-raised)` garante que fica acima da `GlowLayer`.
  */
 const ThemeSlot = styled.div`
   position: absolute;
   top: var(--space-4);
   right: var(--space-4);
+  z-index: var(--z-raised);
 `;
 
+/**
+ * Wrapper do conteúdo principal. `z-index: var(--z-raised)` mantém o
+ * card e a marca acima da `GlowLayer`. `width: 440px` espelha o kit;
+ * `max-width: 100%` mantém responsividade em telas estreitas.
+ */
 const Container = styled.div`
+  position: relative;
+  z-index: var(--z-raised);
   width: 100%;
-  max-width: var(--measure-cta);
+  max-width: 440px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -85,7 +132,7 @@ const Brand = styled.div`
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-2);
 `;
 
 const Logo = styled.img`
@@ -94,37 +141,80 @@ const Logo = styled.img`
   display: block;
 `;
 
-const BrandTitle = styled.h1`
-  font-family: var(--font-display);
-  font-size: var(--text-lg);
-  font-weight: var(--weight-semibold);
-  color: var(--fg1);
-  letter-spacing: var(--tracking-tight);
-  line-height: var(--leading-tight);
-  margin: 0;
-  text-align: center;
-`;
-
-const BrandSubtitle = styled.p`
-  font-size: var(--text-sm);
-  color: var(--fg2);
-  margin: 0;
-  text-align: center;
-  line-height: var(--leading-snug);
-`;
-
 /**
  * Card customizado em vez do `Card` compartilhado: o componente padrão
  * traz hover/transform que é desejável em listas, mas estranho em uma
  * tela de autenticação onde o foco deve estar 100% no formulário.
+ *
+ * `box-shadow: var(--shadow-modal)` confere a profundidade pedida pela
+ * issue — espelha exatamente o `.lfc-login__card` do identity kit.
  */
 const FormCard = styled.section`
   width: 100%;
   background: var(--bg-surface);
   border: var(--border-thin) solid var(--border-subtle);
   border-radius: var(--radius-lg);
-  padding: var(--space-6);
-  box-shadow: var(--shadow-sm);
+  padding: var(--space-8);
+  box-shadow: var(--shadow-modal);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+
+  /* Em mobile estreito reduz padding interno para não comprimir o
+     conteudo. Threshold espelha --bp-sm (30em, ~480px). */
+  @media (max-width: 30em) {
+    padding: var(--space-6);
+  }
+`;
+
+/**
+ * Eyebrow mono-uppercase tracking-wide acima do `<h1>`. Replica o
+ * `.lfc-eyebrow--accent` do kit (`identity/ui_kits/admin-spa/kit.css:115`).
+ */
+const Eyebrow = styled.span`
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  color: var(--accent-ink);
+`;
+
+/**
+ * Título principal — semântica `<h1>` (preserva o critério "h1 único").
+ * Tipografia segue o kit: `--text-3xl`, peso 700, tracking-tight.
+ */
+const BrandTitle = styled.h1`
+  font-family: var(--font-display);
+  font-size: var(--text-3xl);
+  font-weight: var(--weight-bold);
+  color: var(--fg1);
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--leading-tight);
+  margin: 0;
+
+  /* Em telas pequenas reduz para --text-2xl para evitar quebra
+     desconfortavel de linha. */
+  @media (max-width: 30em) {
+    font-size: var(--text-2xl);
+  }
+`;
+
+const BrandSubtitle = styled.p`
+  font-size: var(--text-sm);
+  color: var(--fg2);
+  margin: 0;
+  line-height: var(--leading-snug);
+`;
+
+/**
+ * Bloco de cabeçalho dentro do card — agrupa eyebrow, título e
+ * subtítulo com hierarquia visual coerente.
+ */
+const CardHeader = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
 `;
 
 const Form = styled.form`
@@ -133,16 +223,52 @@ const Form = styled.form`
   gap: var(--space-4);
 `;
 
-const SubmitButton = styled(Button)`
-  width: 100%;
+/**
+ * Linha de ações com os dois botões lado a lado. Em mobile estreito
+ * (< `--bp-sm`) os botões empilham para preservar touch target ≥ 44px.
+ */
+const Actions = styled.div`
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+
+  @media (max-width: 30em) {
+    flex-direction: column;
+    align-items: stretch;
+  }
 `;
 
-const Footer = styled.p`
+const PrimaryButton = styled(Button)`
+  flex: 1;
+  min-width: 0;
+`;
+
+const SecondaryButton = styled(Button)`
+  flex-shrink: 0;
+`;
+
+/**
+ * Footer mono que espelha `.lfc-login__meta`. Linha divisória sutil no
+ * topo, fonte mono uppercase tracking-wide, dois itens em
+ * `space-between`. Em mobile empilha para evitar truncamento.
+ */
+const MetaFooter = styled.div`
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: var(--border-thin) solid var(--border-subtle);
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
   color: var(--fg3);
-  margin: 0;
-  text-align: center;
-  line-height: var(--leading-snug);
+  letter-spacing: var(--tracking-wide);
+
+  @media (max-width: 30em) {
+    flex-direction: column;
+    gap: var(--space-1);
+  }
 `;
 
 /**
@@ -199,28 +325,41 @@ function buildErrorMessage(error: unknown): string {
 }
 
 /**
+ * Retorna a data corrente em ISO `YYYY-MM-DD`. Mantida como função
+ * separada para ser substituível em testes (vi.spyOn) sem precisar
+ * forçar `vi.useFakeTimers` no caller.
+ */
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/**
  * Tela de autenticação do painel administrativo.
  *
  * Decisões importantes:
  *
  * 1. **Layout dedicado** — fora do `AppLayout` para esconder Sidebar/
  *    Topbar; o foco visual fica concentrado no Card central.
- * 2. **Redirect-if-authenticated** — quando `isAuthenticated`, evita
+ * 2. **Atmosfera por gradientes radiais** — `GlowLayer` cobre o
+ *    viewport com os tokens `--login-glow-*` (definidos por tema);
+ *    o card flutua sobre essa cena com `--shadow-modal`.
+ * 3. **Redirect-if-authenticated** — quando `isAuthenticated`, evita
  *    flash do form retornando `<Navigate />` antes do JSX principal.
- * 3. **Validação client-side mínima** — o objetivo é evitar requests
+ * 4. **Validação client-side mínima** — o objetivo é evitar requests
  *    obviamente inválidos. A validação canônica é do backend.
- * 4. **Mensagem 401 fixa** — "e-mail ou senha inválidos" sem detalhar,
+ * 5. **Mensagem 401 fixa** — "e-mail ou senha inválidos" sem detalhar,
  *    para não revelar se o e-mail existe (boa prática de segurança).
- * 5. **Foco automático** — primeiro campo recebe foco no mount; melhora
+ * 6. **Foco automático** — primeiro campo recebe foco no mount; melhora
  *    UX em desktop sem prejudicar mobile (foco não abre teclado virtual
  *    automaticamente nos browsers atuais sem interação prévia).
- * 6. **Token em memória** — esta página apenas dispara `useAuth().login`;
- *    a persistência (localStorage + sync entre abas) é feita na Issue
- *    #53.
+ * 7. **"Esqueci a senha"** — placeholder com toast informativo. O
+ *    fluxo real está fora do escopo da #105; o toast direciona para
+ *    contato humano até a feature ser implementada.
  */
 export const LoginPage: React.FC = () => {
   const { login, isAuthenticated, isLoading: isAuthLoading } = useAuth();
   const { resolvedTheme } = useTheme();
+  const { show: showToast } = useToast();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -299,24 +438,33 @@ export const LoginPage: React.FC = () => {
     }
   };
 
+  const handleForgotPassword = (): void => {
+    showToast(FORGOT_PASSWORD_TOAST, { variant: 'info' });
+  };
+
   const logoSrc = resolvedTheme === 'dark' ? logoForDarkTheme : logoForLightTheme;
 
   return (
     <PageRoot>
+      <GlowLayer aria-hidden="true" />
       <ThemeSlot>
         <ThemeToggle />
       </ThemeSlot>
       <Container>
         <Brand>
           <Logo src={logoSrc} alt="LF Calegari Admin" />
-          <div>
-            <BrandTitle>Acesse sua conta</BrandTitle>
-            <BrandSubtitle>Entre para gerenciar o catálogo do autenticador.</BrandSubtitle>
-          </div>
         </Brand>
 
         <FormCard aria-labelledby="login-form-title">
           <VisuallyHidden id="login-form-title">Formulário de login</VisuallyHidden>
+          <CardHeader>
+            <Eyebrow data-testid="login-eyebrow">{EYEBROW_TEXT}</Eyebrow>
+            <BrandTitle>Entrar no painel</BrandTitle>
+            <BrandSubtitle>
+              Acesso restrito a administradores do ecossistema LFC.
+            </BrandSubtitle>
+          </CardHeader>
+
           <Form onSubmit={handleSubmit} noValidate>
             <Input
               label="E-mail"
@@ -357,20 +505,32 @@ export const LoginPage: React.FC = () => {
               </div>
             )}
 
-            <SubmitButton
-              type="submit"
-              loading={isSubmitting}
-              disabled={isSubmitting}
-              data-testid="login-submit"
-            >
-              {isSubmitting ? 'Entrando…' : 'Entrar'}
-            </SubmitButton>
+            <Actions>
+              <PrimaryButton
+                type="submit"
+                loading={isSubmitting}
+                disabled={isSubmitting}
+                data-testid="login-submit"
+              >
+                {isSubmitting ? 'Entrando…' : 'Entrar'}
+              </PrimaryButton>
+              <SecondaryButton
+                type="button"
+                variant="ghost"
+                onClick={handleForgotPassword}
+                disabled={isSubmitting}
+                data-testid="login-forgot"
+              >
+                Esqueci a senha
+              </SecondaryButton>
+            </Actions>
           </Form>
-        </FormCard>
 
-        <Footer>
-          Acesso restrito a administradores autorizados.
-        </Footer>
+          <MetaFooter data-testid="login-meta">
+            <span>JWT · tokenVersion assinado</span>
+            <span>v1.0 · {todayIso()}</span>
+          </MetaFooter>
+        </FormCard>
       </Container>
     </PageRoot>
   );
