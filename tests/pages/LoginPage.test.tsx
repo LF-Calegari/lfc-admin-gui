@@ -43,8 +43,9 @@ const SAMPLE_LOGIN: LoginResponse = {
 
 /**
  * Resposta de `verify-token` usada nos cenários de submit feliz —
- * espelha o contrato real do `auth-service` (achatado, com `routeCodes`
- * separado de `permissions`/Guid[]).
+ * espelha o contrato real do `auth-service` (achatado, com
+ * `permissionCodes` consumido por `hasPermission()` e `routeCodes`
+ * separado, ambos paralelos a `permissions`/Guid[]).
  */
 const SAMPLE_VERIFY: VerifyTokenResponse = {
   id: 'u-1',
@@ -52,7 +53,8 @@ const SAMPLE_VERIFY: VerifyTokenResponse = {
   email: 'ada@lfc.com.br',
   identity: 42,
   permissions: ['11111111-1111-1111-1111-111111111111'],
-  routeCodes: ['Systems.Read'],
+  permissionCodes: ['perm:Systems.Read'],
+  routeCodes: ['KURTTO_V1_URLS_HOME'],
 };
 
 type ClientStub = ReturnType<typeof createClientStub>;

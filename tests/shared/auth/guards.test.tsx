@@ -42,10 +42,11 @@ function createClientStub(): ApiClient & {
 
 /**
  * Espelha o contrato real do `auth-service`: payload achatado com
- * `id/name/email/identity` + `permissions: Guid[]` + `routeCodes: string[]`.
- * Mantemos o tipo aqui apenas para documentar o shape; nenhum teste
- * deste arquivo dispara o verify-token de fato (o stub de `client.get`
- * devolve Promise pendente por padrão para evitar setState pós-assert).
+ * `id/name/email/identity` + `permissions: Guid[]` +
+ * `permissionCodes: string[]` + `routeCodes: string[]`. Mantemos o tipo
+ * aqui apenas para documentar o shape; nenhum teste deste arquivo
+ * dispara o verify-token de fato (o stub de `client.get` devolve
+ * Promise pendente por padrão para evitar setState pós-assert).
  */
 const VERIFY_RESPONSE: VerifyTokenResponse = {
   id: 'u-1',
@@ -53,7 +54,8 @@ const VERIFY_RESPONSE: VerifyTokenResponse = {
   email: 'ada@lfc.com.br',
   identity: 42,
   permissions: ['11111111-1111-1111-1111-111111111111'],
-  routeCodes: ['Systems.Read'],
+  permissionCodes: ['perm:Systems.Read'],
+  routeCodes: ['KURTTO_V1_URLS_HOME'],
 };
 
 /**
@@ -73,7 +75,7 @@ const VERIFY_USER = {
  * em `tests/shared/auth/AuthProvider.test.tsx` para os cenários de
  * hidratação otimista.
  */
-function seedSession(permissions: ReadonlyArray<string> = ['Systems.Read']): void {
+function seedSession(permissions: ReadonlyArray<string> = ['perm:Systems.Read']): void {
   window.localStorage.setItem(STORAGE_KEYS.token, 'jwt-test');
   window.localStorage.setItem(
     STORAGE_KEYS.user,
@@ -225,12 +227,12 @@ describe('RequireAuth', () => {
     // produção; aqui usamos `disableSplash` para testar o guard isolado).
     const value: AuthContextValue = {
       user: { id: 'u-1', name: 'Ada', email: 'ada@lfc.com.br', identity: 42 },
-      permissions: ['Systems.Read'],
+      permissions: ['perm:Systems.Read'],
       isAuthenticated: true,
       isLoading: true,
       login: vi.fn().mockResolvedValue(undefined),
       logout: vi.fn().mockResolvedValue(undefined),
-      hasPermission: (code: string) => code === 'Systems.Read',
+      hasPermission: (code: string) => code === 'perm:Systems.Read',
     };
 
     render(
@@ -294,7 +296,7 @@ describe('RequireAuth', () => {
 
 describe('RequirePermission', () => {
   it('renderiza children quando a permissão exigida está presente', () => {
-    seedSession(['Systems.Read', 'Users.Read']);
+    seedSession(['perm:Systems.Read', 'perm:Users.Read']);
     const client = createClientStub();
 
     render(
@@ -304,7 +306,7 @@ describe('RequirePermission', () => {
             <Route
               path="/users"
               element={
-                <RequirePermission code="Users.Read">
+                <RequirePermission code="perm:Users.Read">
                   <div data-testid="users-page">users</div>
                 </RequirePermission>
               }
@@ -323,7 +325,7 @@ describe('RequirePermission', () => {
   });
 
   it('redireciona para /error/403 quando o code não está presente', () => {
-    seedSession(['Systems.Read']);
+    seedSession(['perm:Systems.Read']);
     const client = createClientStub();
 
     const captured = { current: null as CapturedLocation | null };
@@ -336,7 +338,7 @@ describe('RequirePermission', () => {
             <Route
               path="/users"
               element={
-                <RequirePermission code="Users.Read">
+                <RequirePermission code="perm:Users.Read">
                   <div data-testid="users-page">users</div>
                 </RequirePermission>
               }
@@ -372,7 +374,7 @@ describe('RequirePermission', () => {
             <Route
               path="/permissions"
               element={
-                <RequirePermission code="Permissions.Read">
+                <RequirePermission code="perm:Permissions.Read">
                   <div data-testid="permissions-page">permissões</div>
                 </RequirePermission>
               }
@@ -388,6 +390,80 @@ describe('RequirePermission', () => {
 
     expect(screen.queryByTestId('permissions-page')).not.toBeInTheDocument();
     expect(screen.getByTestId('error-page')).toBeInTheDocument();
+  });
+
+  it('renderiza children com o code exato presente em permissionCodes', () => {
+    // Caso explícito do contrato pós-#116: o code precisa bater
+    // exatamente com o item em `permissions` (alimentado por
+    // `permissionCodes` do verify-token). Usar o nome `SystemsRoutes`
+    // do backend valida que os codes não-óbvios também são respeitados.
+    seedSession(['perm:SystemsRoutes.Read', 'perm:Systems.Read']);
+    const client = createClientStub();
+
+    render(
+      <MemoryRouter initialEntries={['/routes']}>
+        <AuthProvider client={client} verifyIntervalMs={0} disableSplash>
+          <Routes>
+            <Route
+              path="/routes"
+              element={
+                <RequirePermission code="perm:SystemsRoutes.Read">
+                  <div data-testid="routes-page">rotas</div>
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="/error/:code"
+              element={<div data-testid="error-page">erro</div>}
+            />
+          </Routes>
+        </AuthProvider>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByTestId('routes-page')).toBeInTheDocument();
+    expect(screen.queryByTestId('error-page')).not.toBeInTheDocument();
+  });
+
+  it('redireciona para /error/403 quando o code com prefixo perm: não existe em permissionCodes', () => {
+    // Cenário do bug original (#116): se o catálogo `permissions` no
+    // estado vier sem o code exato esperado pelo guard, o usuário cai
+    // em 403 — confirmando que o match continua estritamente por igualdade.
+    seedSession(['perm:Systems.Read']);
+    const client = createClientStub();
+
+    const captured = { current: null as CapturedLocation | null };
+    const ErrorProbe = makeLocationProbe(captured);
+
+    render(
+      <MemoryRouter initialEntries={['/tokens']}>
+        <AuthProvider client={client} verifyIntervalMs={0} disableSplash>
+          <Routes>
+            <Route
+              path="/tokens"
+              element={
+                <RequirePermission code="perm:SystemTokensTypes.Read">
+                  <div data-testid="tokens-page">tokens</div>
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="/error/:code"
+              element={
+                <>
+                  <ErrorProbe />
+                  <div data-testid="error-page">erro</div>
+                </>
+              }
+            />
+          </Routes>
+        </AuthProvider>
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByTestId('tokens-page')).not.toBeInTheDocument();
+    expect(screen.getByTestId('error-page')).toBeInTheDocument();
+    expect(captured.current?.pathname).toBe('/error/403');
   });
 });
 
@@ -405,7 +481,7 @@ describe('RequireAuth + RequirePermission combinados', () => {
               path="/users"
               element={
                 <RequireAuth>
-                  <RequirePermission code="Users.Read">
+                  <RequirePermission code="perm:Users.Read">
                     <div data-testid="users-page">users</div>
                   </RequirePermission>
                 </RequireAuth>
