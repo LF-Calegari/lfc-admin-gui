@@ -1,34 +1,55 @@
 import React from 'react';
 import styled, { css } from 'styled-components';
 
+import { Spinner } from './Spinner';
+
+/**
+ * Variantes visuais do Button.
+ *
+ * - `primary`: ação principal (CTA), destaque máximo.
+ * - `secondary`: ação secundária neutra.
+ * - `ghost`: ação terciária sem fundo.
+ * - `danger`: legado — preservado por compat com páginas existentes
+ *   (ex.: `SettingsPage`). Para novas telas, prefira combinar
+ *   `secondary` com confirmação por modal.
+ */
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
 type ButtonSize = 'sm' | 'md' | 'lg';
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  /**
+   * Variante visual do botão.
+   *
+   * `danger` é tratado como legado — ver JSDoc de `ButtonVariant`.
+   */
   variant?: ButtonVariant;
   size?: ButtonSize;
   icon?: React.ReactNode;
+  loading?: boolean;
 }
 
-const sizeStyles = {
+const sizeStyles: Record<ButtonSize, ReturnType<typeof css>> = {
   sm: css`
-    padding: 5px 10px;
-    font-size: 12.5px;
+    padding: var(--space-1) var(--space-3);
+    font-size: var(--text-xs);
     border-radius: var(--radius-sm);
+    min-height: var(--space-8);
   `,
   md: css`
-    padding: 8px 14px;
-    font-size: 13.5px;
+    padding: var(--space-2) var(--space-4);
+    font-size: var(--text-sm);
     border-radius: var(--radius-md);
+    min-height: var(--space-10);
   `,
   lg: css`
-    padding: 11px 18px;
-    font-size: 15px;
+    padding: var(--space-3) var(--space-5);
+    font-size: var(--text-base);
     border-radius: var(--radius-md);
+    min-height: var(--space-12);
   `,
 };
 
-const variantStyles = {
+const variantStyles: Record<ButtonVariant, ReturnType<typeof css>> = {
   primary: css`
     background: var(--clr-lime);
     color: var(--clr-forest);
@@ -59,7 +80,7 @@ const variantStyles = {
       background: var(--bg-overlay);
     }
     &:focus-visible {
-      box-shadow: 0 0 0 3px color-mix(in srgb, var(--border-strong) 60%, transparent);
+      box-shadow: var(--focus-ring-border);
     }
   `,
   ghost: css`
@@ -75,7 +96,7 @@ const variantStyles = {
       background: var(--bg-ghost-active);
     }
     &:focus-visible {
-      box-shadow: 0 0 0 3px color-mix(in srgb, var(--border-strong) 60%, transparent);
+      box-shadow: var(--focus-ring-border);
     }
   `,
   danger: css`
@@ -93,33 +114,37 @@ const variantStyles = {
   `,
 };
 
-const StyledButton = styled.button<{ $variant: ButtonVariant; $size: ButtonSize }>`
+const StyledButton = styled.button<{
+  $variant: ButtonVariant;
+  $size: ButtonSize;
+  $loading: boolean;
+}>`
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
+  gap: var(--space-2);
   font-family: var(--font-sans);
   font-weight: var(--weight-medium);
-  border: 1px solid transparent;
+  border: var(--border-thin) solid transparent;
   cursor: pointer;
-  letter-spacing: -0.005em;
-  line-height: 1.2;
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--leading-tight);
   white-space: nowrap;
   user-select: none;
   position: relative;
   transition:
-    background 140ms var(--ease-default),
-    border-color 140ms var(--ease-default),
-    color 140ms var(--ease-default),
-    transform 80ms var(--ease-default),
-    box-shadow 140ms var(--ease-default);
+    background var(--duration-fast) var(--ease-default),
+    border-color var(--duration-fast) var(--ease-default),
+    color var(--duration-fast) var(--ease-default),
+    transform var(--duration-fast) var(--ease-default),
+    box-shadow var(--duration-fast) var(--ease-default);
 
   &:focus-visible {
     outline: none;
   }
 
   &:active:not(:disabled) {
-    transform: translateY(1px);
+    transform: translateY(var(--press-offset));
   }
 
   &:disabled {
@@ -128,19 +153,80 @@ const StyledButton = styled.button<{ $variant: ButtonVariant; $size: ButtonSize 
     pointer-events: none;
   }
 
+  ${({ $loading }) =>
+    $loading &&
+    css`
+      cursor: progress;
+    `}
+
   ${({ $size }) => sizeStyles[$size]}
   ${({ $variant }) => variantStyles[$variant]}
 `;
+
+const ContentLayer = styled.span<{ $hidden: boolean }>`
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  visibility: ${({ $hidden }) => ($hidden ? 'hidden' : 'visible')};
+  pointer-events: none;
+`;
+
+const SpinnerLayer = styled.span`
+  position: absolute;
+  inset: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+`;
+
+const spinnerToneByVariant: Record<ButtonVariant, 'inverse' | 'accent' | 'currentColor'> = {
+  primary: 'currentColor',
+  secondary: 'accent',
+  ghost: 'currentColor',
+  danger: 'currentColor',
+};
+
+const spinnerSizeByButton: Record<ButtonSize, 'sm' | 'md'> = {
+  sm: 'sm',
+  md: 'sm',
+  lg: 'md',
+};
 
 export const Button: React.FC<ButtonProps> = ({
   variant = 'primary',
   size = 'md',
   icon,
+  loading = false,
+  disabled,
   children,
+  type = 'button',
   ...props
-}) => (
-  <StyledButton $variant={variant} $size={size} {...props}>
-    {icon}
-    {children}
-  </StyledButton>
-);
+}) => {
+  const isDisabled = disabled || loading;
+
+  return (
+    <StyledButton
+      $variant={variant}
+      $size={size}
+      $loading={loading}
+      type={type}
+      disabled={isDisabled}
+      aria-busy={loading || undefined}
+      aria-disabled={isDisabled || undefined}
+      {...props}
+    >
+      <ContentLayer $hidden={loading}>
+        {icon}
+        {children}
+      </ContentLayer>
+      {loading && (
+        <SpinnerLayer>
+          <Spinner size={spinnerSizeByButton[size]} tone={spinnerToneByVariant[variant]} />
+        </SpinnerLayer>
+      )}
+    </StyledButton>
+  );
+};
+
+export type { ButtonProps, ButtonVariant, ButtonSize };
