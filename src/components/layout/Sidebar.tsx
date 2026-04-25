@@ -9,48 +9,39 @@ import {
   Component,
 } from 'lucide-react';
 import React from 'react';
+import { NavLink } from 'react-router-dom';
 import styled from 'styled-components';
 
 import logoDark from '../../assets/logo-dark.svg';
 
-export type NavId =
-  | 'systems'
-  | 'routes'
-  | 'roles'
-  | 'perms'
-  | 'users'
-  | 'tokens'
-  | 'settings'
-  | 'showcase';
-
 interface NavItem {
-  id: NavId;
+  to: string;
   num: string;
   label: string;
   icon: React.ReactNode;
+  /**
+   * Quando `true`, o item só é exibido em build de desenvolvimento. Usado
+   * para vitrines internas que não devem aparecer em produção.
+   */
+  devOnly?: boolean;
 }
 
 const ALL_NAV_ITEMS: NavItem[] = [
-  { id: 'systems',  num: '01', label: 'Sistemas',       icon: <Monitor size={15} strokeWidth={1.5} /> },
-  { id: 'routes',   num: '02', label: 'Rotas',          icon: <Shuffle size={15} strokeWidth={1.5} /> },
-  { id: 'roles',    num: '03', label: 'Roles',          icon: <Users size={15} strokeWidth={1.5} /> },
-  { id: 'perms',    num: '04', label: 'Permissões',     icon: <Lock size={15} strokeWidth={1.5} /> },
-  { id: 'users',    num: '05', label: 'Usuários',       icon: <User size={15} strokeWidth={1.5} /> },
-  { id: 'tokens',   num: '06', label: 'Tokens',         icon: <Activity size={15} strokeWidth={1.5} /> },
-  { id: 'settings', num: '07', label: 'Configurações',  icon: <Settings size={15} strokeWidth={1.5} /> },
-  { id: 'showcase', num: '08', label: 'Showcase UI',     icon: <Component size={15} strokeWidth={1.5} /> },
+  { to: '/systems',     num: '01', label: 'Sistemas',       icon: <Monitor size={15} strokeWidth={1.5} /> },
+  { to: '/routes',      num: '02', label: 'Rotas',          icon: <Shuffle size={15} strokeWidth={1.5} /> },
+  { to: '/roles',       num: '03', label: 'Roles',          icon: <Users size={15} strokeWidth={1.5} /> },
+  { to: '/permissions', num: '04', label: 'Permissões',     icon: <Lock size={15} strokeWidth={1.5} /> },
+  { to: '/users',       num: '05', label: 'Usuários',       icon: <User size={15} strokeWidth={1.5} /> },
+  { to: '/tokens',      num: '06', label: 'Tokens',         icon: <Activity size={15} strokeWidth={1.5} /> },
+  { to: '/settings',    num: '07', label: 'Configurações',  icon: <Settings size={15} strokeWidth={1.5} /> },
+  { to: '/showcase',    num: '08', label: 'Showcase UI',    icon: <Component size={15} strokeWidth={1.5} />, devOnly: true },
 ];
 
-// Showcase UI eh pagina de demonstracao interna do design system —
-// expor apenas em build de desenvolvimento para nao poluir producao.
+// Showcase UI é página de demonstração interna do design system —
+// expor apenas em build de desenvolvimento para não poluir produção.
 const NAV_ITEMS: NavItem[] = ALL_NAV_ITEMS.filter(
-  item => item.id !== 'showcase' || import.meta.env.DEV,
+  item => !item.devOnly || import.meta.env.DEV,
 );
-
-interface SidebarProps {
-  current: NavId;
-  onNav: (id: NavId) => void;
-}
 
 const SidebarWrapper = styled.aside`
   background: var(--bg-surface);
@@ -88,16 +79,16 @@ const Nav = styled.nav`
   gap: 1px;
 `;
 
-const NavLink = styled.a<{ $active?: boolean }>`
+const NavItemLink = styled(NavLink)`
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 9px 22px;
   font-size: 13.5px;
-  color: ${({ $active }) => ($active ? 'var(--accent-ink)' : 'var(--fg2)')};
+  color: var(--fg2);
   text-decoration: none;
-  border-left: 2px solid ${({ $active }) => ($active ? 'var(--accent-ink)' : 'transparent')};
-  background: ${({ $active }) => ($active ? 'color-mix(in srgb, var(--accent) 10%, transparent)' : 'transparent')};
+  border-left: var(--border-thick) solid transparent;
+  background: transparent;
   transition: all 150ms var(--ease-default);
   cursor: pointer;
 
@@ -106,14 +97,29 @@ const NavLink = styled.a<{ $active?: boolean }>`
     background: var(--bg-elevated);
     border-left-color: var(--border-base);
   }
+
+  &:focus-visible {
+    outline: var(--border-thick) solid var(--accent);
+    outline-offset: -2px;
+  }
+
+  &.active {
+    color: var(--accent-ink);
+    border-left-color: var(--accent-ink);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
 `;
 
-const NavNum = styled.span<{ $active?: boolean }>`
+const NavNum = styled.span`
   font-family: var(--font-mono);
   font-size: 10.5px;
-  color: ${({ $active }) => ($active ? 'var(--accent-ink)' : 'var(--fg3)')};
+  color: var(--fg3);
   width: 18px;
   flex-shrink: 0;
+
+  ${NavItemLink}.active & {
+    color: var(--accent-ink);
+  }
 `;
 
 const SidebarFoot = styled.div`
@@ -132,7 +138,7 @@ const FootVersion = styled.div`
   font-family: var(--font-mono);
 `;
 
-export const Sidebar: React.FC<SidebarProps> = ({ current, onNav }) => (
+export const Sidebar: React.FC = () => (
   <SidebarWrapper>
     <LogoArea>
       <img src={logoDark} alt="LFC Admin" height={28} />
@@ -140,19 +146,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ current, onNav }) => (
     <PanelLabel>Admin Panel</PanelLabel>
     <Nav>
       {NAV_ITEMS.map(item => (
-        <NavLink
-          key={item.id}
-          href={`#${item.id}`}
-          $active={current === item.id}
-          onClick={e => {
-            e.preventDefault();
-            onNav(item.id);
-          }}
+        <NavItemLink
+          key={item.to}
+          to={item.to}
+          className={({ isActive }) => (isActive ? 'active' : undefined)}
         >
-          <NavNum $active={current === item.id}>{item.num}</NavNum>
+          <NavNum>{item.num}</NavNum>
           {item.icon}
           <span>{item.label}</span>
-        </NavLink>
+        </NavItemLink>
       ))}
     </Nav>
     <SidebarFoot>
