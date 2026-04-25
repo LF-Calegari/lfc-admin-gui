@@ -1,0 +1,84 @@
+name: SonarCloud
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+      - development
+
+jobs:
+  sonarqube:
+    name: SonarCloud analysis
+    runs-on: ubuntu-latest
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION != '' && vars.SONAR_ORGANIZATION || secrets.SONAR_ORGANIZATION }}
+      SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY != '' && vars.SONAR_PROJECT_KEY || secrets.SONAR_PROJECT_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate SonarCloud configuration
+        run: |
+          set -eu
+          missing=0
+          if [ -z "$SONAR_TOKEN" ]; then
+            echo "::error title=SonarCloud::Configure o secret SONAR_TOKEN em Settings → Secrets and variables → Actions (token de análise no SonarCloud)."
+            missing=1
+          fi
+          if [ -z "$SONAR_ORGANIZATION" ]; then
+            echo "::error title=SonarCloud::Configure SONAR_ORGANIZATION em Settings → Secrets and variables → Actions (Variables ou Secrets)."
+            missing=1
+          fi
+          if [ -z "$SONAR_PROJECT_KEY" ]; then
+            echo "::error title=SonarCloud::Configure SONAR_PROJECT_KEY em Settings → Secrets and variables → Actions (Variables ou Secrets)."
+            missing=1
+          fi
+          exit "$missing"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Tests with coverage
+        run: npm test -- --coverage
+
+      - name: Cache SonarQube packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar
+          restore-keys: ${{ runner.os }}-sonar
+
+      - name: SonarCloud Scan (PR)
+        if: github.event_name == 'pull_request'
+        uses: SonarSource/sonarqube-scan-action@v7
+        with:
+          args: >
+            -Dsonar.organization=${{ env.SONAR_ORGANIZATION }}
+            -Dsonar.projectKey=${{ env.SONAR_PROJECT_KEY }}
+            -Dsonar.pullrequest.key=${{ github.event.pull_request.number }}
+            -Dsonar.pullrequest.branch=${{ github.head_ref }}
+            -Dsonar.pullrequest.base=${{ github.base_ref }}
+            -Dsonar.pullrequest.provider=GitHub
+            -Dsonar.pullrequest.github.repository=${{ github.repository }}
+
+      - name: SonarCloud Scan (branch)
+        if: github.event_name == 'push'
+        uses: SonarSource/sonarqube-scan-action@v7
+        with:
+          args: >
+            -Dsonar.organization=${{ env.SONAR_ORGANIZATION }}
+            -Dsonar.projectKey=${{ env.SONAR_PROJECT_KEY }}
