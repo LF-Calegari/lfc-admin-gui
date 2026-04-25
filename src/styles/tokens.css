@@ -238,9 +238,20 @@
   --shadow-button-primary: 0 1px 0 rgba(22, 36, 15, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.25);
   --shadow-button-primary-active: inset 0 1px 2px rgba(22, 36, 15, 0.18);
 
-  /* ── Shadows ─────────────────────────────────────────────── */
+  /* ── Shadows ─────────────────────────────────────────────────
+   * Escala completa xs→xl. Os tokens semânticos pré-existentes
+   * `--shadow-card`, `--shadow-modal` e `--shadow-glow` permanecem
+   * para uso por componentes específicos; os tokens xs/sm/md/lg/xl
+   * formam a régua incremental usada quando a elevação do componente
+   * deve crescer com o nível visual (hairline → page-level overlay).
+   */
+  --shadow-xs: 0 1px 1px rgba(22, 36, 15, 0.03), 0 0 0 1px var(--border-subtle);
   --shadow-sm: 0 1px 2px rgba(22, 36, 15, 0.04), 0 0 0 1px var(--border-subtle);
   --shadow-md: 0 4px 14px rgba(22, 36, 15, 0.07), 0 0 0 1px var(--border-subtle);
+  --shadow-lg: 0 12px 28px rgba(22, 36, 15, 0.12), 0 4px 10px rgba(22, 36, 15, 0.06),
+    0 0 0 1px var(--border-subtle);
+  --shadow-xl: 0 24px 48px rgba(22, 36, 15, 0.16), 0 8px 20px rgba(22, 36, 15, 0.08),
+    0 0 0 1px var(--border-base);
   --shadow-card: 0 1px 2px rgba(22, 36, 15, 0.04), 0 2px 12px rgba(22, 36, 15, 0.06),
     0 0 0 1px var(--border-subtle);
   --shadow-modal: 0 24px 48px rgba(22, 36, 15, 0.16), 0 4px 12px rgba(22, 36, 15, 0.06),
@@ -318,8 +329,13 @@
   --shadow-button-primary-active: inset 0 1px 2px rgba(0, 0, 0, 0.45);
 
   /* ── Shadows — pretas puras com alpha maior ──────────────── */
+  --shadow-xs: 0 1px 1px rgba(0, 0, 0, 0.25), 0 0 0 1px var(--border-subtle);
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3), 0 0 0 1px var(--border-subtle);
   --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--border-subtle);
+  --shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.5), 0 4px 10px rgba(0, 0, 0, 0.35),
+    0 0 0 1px var(--border-subtle);
+  --shadow-xl: 0 24px 48px rgba(0, 0, 0, 0.6), 0 8px 20px rgba(0, 0, 0, 0.4),
+    0 0 0 1px var(--border-base);
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 2px 12px rgba(0, 0, 0, 0.35),
     0 0 0 1px var(--border-subtle);
   --shadow-modal: 0 24px 48px rgba(0, 0, 0, 0.55), 0 4px 12px rgba(0, 0, 0, 0.35),

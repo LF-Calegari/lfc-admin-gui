@@ -1,4 +1,4 @@
-import { ArrowRight, Check, Plus, Search, Settings as SettingsIcon, Trash2 } from 'lucide-react';
+import { ArrowRight, Plus, Search, Trash2 } from 'lucide-react';
 import React, { useState } from 'react';
 import styled from 'styled-components';
 
@@ -13,6 +13,25 @@ import {
   ThemeToggle,
 } from '../components/ui';
 import { useTheme } from '../hooks/useTheme';
+
+import { Alerts } from './showcase/Alerts';
+import { BadgesChips } from './showcase/BadgesChips';
+import { Cards } from './showcase/Cards';
+import { ColorsBrand } from './showcase/ColorsBrand';
+import { ColorsStatus } from './showcase/ColorsStatus';
+import { ColorsSurfaces } from './showcase/ColorsSurfaces';
+import { ColorsText } from './showcase/ColorsText';
+import { Icons } from './showcase/Icons';
+import { Inputs } from './showcase/Inputs';
+import { Logo } from './showcase/Logo';
+import { Radii } from './showcase/Radii';
+import { Shadows } from './showcase/Shadows';
+import { Spacing } from './showcase/Spacing';
+import { TableSection } from './showcase/TableSection';
+import { Toasts } from './showcase/Toasts';
+import { TypeDisplay } from './showcase/TypeDisplay';
+import { TypeMono } from './showcase/TypeMono';
+import { TypeScale } from './showcase/TypeScale';
 
 const Page = styled.div`
   display: flex;
@@ -69,13 +88,6 @@ const Swatch = styled.div<{ $dark?: boolean }>`
   background: ${({ $dark }) => ($dark ? 'var(--clr-forest)' : 'var(--bg-elevated)')};
 `;
 
-const Tones = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-4);
-`;
-
 /**
  * Linha que evidencia o estado atual do tema. Expõe a preferência
  * persistida (`theme`) e o valor resolvido (`resolvedTheme`) para
@@ -113,7 +125,7 @@ export const ShowcasePage: React.FC = () => {
 
   const triggerLoading = () => {
     setLoadingDemo(true);
-    window.setTimeout(() => setLoadingDemo(false), 1600);
+    globalThis.setTimeout(() => setLoadingDemo(false), 1600);
   };
 
   return (
@@ -122,8 +134,9 @@ export const ShowcasePage: React.FC = () => {
         <Caption>00 Showcase</Caption>
         <Heading level={1}>Componentes base</Heading>
         <Body muted>
-          Vitrine isolada de Button, Typography, Icon e Spinner — todos consumindo
-          tokens do design system.
+          Vitrine isolada do design system: tokens visuais (cores, raios,
+          sombras, espaçamento, logo), tipografia e componentes base — todos
+          consumindo tokens definidos em <code>src/styles/tokens.css</code>.
         </Body>
       </SectionHead>
 
@@ -152,32 +165,28 @@ export const ShowcasePage: React.FC = () => {
         </ThemeRow>
       </Section>
 
-      {/* ─── Typography ─────────────────────────────────────────── */}
-      <Section aria-label="Typography">
-        <SectionHead>
-          <Caption>Typography</Caption>
-          <Heading level={3}>Hierarquia tipográfica</Heading>
-        </SectionHead>
-        <Stack>
-          <Heading level={1}>Heading nível 1</Heading>
-          <Heading level={2}>Heading nível 2</Heading>
-          <Heading level={3}>Heading nível 3</Heading>
-          <Heading level={4}>Heading nível 4</Heading>
-          <Body>
-            Body é o estilo padrão para parágrafos. Mantém leitura confortável em
-            blocos longos consumindo a fonte de body e o leading base.
-          </Body>
-          <Body muted>Body muted aplica `--text-muted` para texto secundário.</Body>
-          <Caption>Caption — uso em metadados, descrições compactas e legendas.</Caption>
-          <Label>Label · campos de formulário</Label>
-        </Stack>
-      </Section>
+      {/* ─── Tokens visuais (Epic #22 / PR-A1) ──────────────────── */}
+      <ColorsBrand />
+      <ColorsStatus />
+      <ColorsSurfaces />
+      <ColorsText />
+      <Radii />
+      <Shadows />
+      <Spacing />
+      <Logo />
 
-      {/* ─── Button ─────────────────────────────────────────────── */}
+      {/* ─── Typography (Epic #22 / PR-A2) ──────────────────────── */}
+      <TypeDisplay />
+      <TypeScale />
+      <TypeMono />
+
+      {/* ─── Components (Epic #22 / PR-A3) ──────────────────────── */}
+
+      {/* Button (existente) */}
       <Section aria-label="Button">
         <SectionHead>
-          <Caption>Button</Caption>
-          <Heading level={3}>Variantes, tamanhos e estados</Heading>
+          <Caption>Components</Caption>
+          <Heading level={3}>Buttons · variantes, tamanhos e estados</Heading>
         </SectionHead>
 
         <Stack>
@@ -232,44 +241,32 @@ export const ShowcasePage: React.FC = () => {
         </Stack>
       </Section>
 
-      {/* ─── Icon ───────────────────────────────────────────────── */}
-      <Section aria-label="Icon">
-        <SectionHead>
-          <Caption>Icon</Caption>
-          <Heading level={3}>Wrapper sobre lucide-react</Heading>
-        </SectionHead>
+      {/* Icons (#40 — expandido) */}
+      <Icons />
 
-        <Stack>
-          <Label>Tamanhos</Label>
-          <Row>
-            <Icon icon={SettingsIcon} size="xs" />
-            <Icon icon={SettingsIcon} size="sm" />
-            <Icon icon={SettingsIcon} size="md" />
-            <Icon icon={SettingsIcon} size="lg" />
-            <Icon icon={SettingsIcon} size="xl" />
-          </Row>
-        </Stack>
+      {/* Alerts (#34) */}
+      <Alerts />
 
-        <Stack>
-          <Label>Tones semânticas</Label>
-          <Tones>
-            <Icon icon={Check} tone="primary" title="Primary" />
-            <Icon icon={Check} tone="secondary" title="Secondary" />
-            <Icon icon={Check} tone="muted" title="Muted" />
-            <Icon icon={Check} tone="accent" title="Accent" />
-            <Icon icon={Check} tone="success" title="Success" />
-            <Icon icon={Check} tone="warning" title="Warning" />
-            <Icon icon={Check} tone="danger" title="Danger" />
-            <Icon icon={Check} tone="info" title="Info" />
-          </Tones>
-        </Stack>
-      </Section>
+      {/* Badges & Chips (#35) */}
+      <BadgesChips />
 
-      {/* ─── Spinner ────────────────────────────────────────────── */}
+      {/* Cards (#36) */}
+      <Cards />
+
+      {/* Inputs (#37) */}
+      <Inputs />
+
+      {/* Table (#38) */}
+      <TableSection />
+
+      {/* Toasts (#39) */}
+      <Toasts />
+
+      {/* ─── Spinner (existente) ────────────────────────────────── */}
       <Section aria-label="Spinner">
         <SectionHead>
-          <Caption>Spinner</Caption>
-          <Heading level={3}>Indicador de carregamento</Heading>
+          <Caption>Components</Caption>
+          <Heading level={3}>Spinner · indicador de carregamento</Heading>
         </SectionHead>
 
         <Stack>

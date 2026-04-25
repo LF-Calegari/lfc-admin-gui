@@ -1,4 +1,4 @@
-import path from 'path';
+import path from 'node:path';
 
 import { loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
@@ -26,7 +26,14 @@ export default defineConfig(({ mode }) => {
     test: {
       globals: true,
       environment: 'jsdom',
-      setupFiles: ['src/setupTests.ts'],
+      setupFiles: ['tests/setupTests.ts'],
+      include: ['tests/**/*.{test,spec}.{ts,tsx}'],
+      // Default 5s do Vitest fica apertado para a primeira renderização
+      // da árvore real (Routes + AppLayout + AuthProvider + styled-components)
+      // sob jsdom, especialmente em CI quando a JIT ainda está fria.
+      // 10s mantém latência confortável sem deixar testes presos
+      // verdadeiramente quebrados rodando indefinidamente.
+      testTimeout: 10000,
     },
   };
 });
