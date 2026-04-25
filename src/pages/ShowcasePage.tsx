@@ -22,6 +22,9 @@ import { Logo } from './showcase/Logo';
 import { Radii } from './showcase/Radii';
 import { Shadows } from './showcase/Shadows';
 import { Spacing } from './showcase/Spacing';
+import { TypeDisplay } from './showcase/TypeDisplay';
+import { TypeMono } from './showcase/TypeMono';
+import { TypeScale } from './showcase/TypeScale';
 
 const Page = styled.div`
   display: flex;
@@ -172,26 +175,10 @@ export const ShowcasePage: React.FC = () => {
       <Spacing />
       <Logo />
 
-      {/* ─── Typography ─────────────────────────────────────────── */}
-      <Section aria-label="Typography">
-        <SectionHead>
-          <Caption>Typography</Caption>
-          <Heading level={3}>Hierarquia tipográfica</Heading>
-        </SectionHead>
-        <Stack>
-          <Heading level={1}>Heading nível 1</Heading>
-          <Heading level={2}>Heading nível 2</Heading>
-          <Heading level={3}>Heading nível 3</Heading>
-          <Heading level={4}>Heading nível 4</Heading>
-          <Body>
-            Body é o estilo padrão para parágrafos. Mantém leitura confortável em
-            blocos longos consumindo a fonte de body e o leading base.
-          </Body>
-          <Body muted>Body muted aplica `--text-muted` para texto secundário.</Body>
-          <Caption>Caption — uso em metadados, descrições compactas e legendas.</Caption>
-          <Label>Label · campos de formulário</Label>
-        </Stack>
-      </Section>
+      {/* ─── Typography (Epic #22 / PR-A2) ──────────────────────── */}
+      <TypeDisplay />
+      <TypeScale />
+      <TypeMono />
 
       {/* ─── Button ─────────────────────────────────────────────── */}
       <Section aria-label="Button">
