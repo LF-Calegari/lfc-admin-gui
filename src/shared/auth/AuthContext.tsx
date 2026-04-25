@@ -9,20 +9,24 @@ import React, {
 
 import { apiClient } from '../api';
 
+import { sessionStorage } from './storage';
+
 import type { AuthContextValue, AuthState, LoginResponse } from './types';
 import type { ApiClient } from '../api';
 
 /**
- * Estado inicial do Provider antes da hidratação.
+ * Estado inicial usado quando não há sessão persistida.
  *
- * `isLoading: true` evita flicker — guardas de rota observam `isLoading`
- * para decidir entre splash e redirect-to-login na Epic #44.
+ * `isLoading: false` aqui — a Issue #53 entrega apenas hidratação
+ * síncrona a partir de `localStorage`. A revalidação remota via
+ * `verify-token` (Issue #54) é quem voltará a sinalizar `true` durante
+ * a checagem inicial.
  */
-const INITIAL_STATE: AuthState = {
+const UNAUTHENTICATED_STATE: AuthState = {
   user: null,
   permissions: [],
   isAuthenticated: false,
-  isLoading: true,
+  isLoading: false,
 };
 
 /**
@@ -44,7 +48,7 @@ interface AuthProviderProps {
 }
 
 /**
- * Provider que mantém token, usuário e permissões em memória.
+ * Provider que mantém token, usuário e permissões.
  *
  * Decisões importantes:
  *
@@ -54,24 +58,50 @@ interface AuthProviderProps {
  * 2. **Sem `useNavigate`** — Provider pode ser montado fora do
  *    `<BrowserRouter>` em testes; redirect em 401 é responsabilidade do
  *    consumidor (componente de guards na Epic #44 #56).
- * 3. **Sem persistência** — token vive apenas em memória nesta Epic;
- *    Epic #44 #53 adicionará localStorage com sincronização entre abas.
- * 4. **Hidratação placeholder** — Epic #44 #54 substituirá pelo
- *    `verify-token`. Aqui apenas finaliza `isLoading: false`.
+ * 3. **Hidratação síncrona via `sessionStorage`** — o `useState` lazy
+ *    initializer carrega a sessão de `localStorage` antes do primeiro
+ *    render, evitando flash da tela de login ao recarregar a página
+ *    (Issue #53). A revalidação remota fica para Issue #54.
+ * 4. **Persistência em login feliz** — `sessionStorage.save` é chamado
+ *    antes de atualizar o estado, garantindo que mesmo um crash
+ *    síncrono entre `save` e `setState` ainda preserve a sessão.
+ * 5. **Limpeza tripla** — `clearSession` zera storage, ref e state em
+ *    um único ponto, reusado por `logout` e por `onUnauthorized`.
  */
 export const AuthProvider: React.FC<AuthProviderProps> = ({
   children,
   client = apiClient,
 }) => {
-  const [state, setState] = useState<AuthState>(INITIAL_STATE);
-  const tokenRef = useRef<string | null>(null);
+  // Hidratação inicial: leitura síncrona em `localStorage`. Se houver
+  // sessão válida, montamos já autenticado para evitar flash de redirect
+  // para `/login` em rotas protegidas após reload.
+  const [state, setState] = useState<AuthState>(() => {
+    const persisted = sessionStorage.load();
+    if (!persisted) {
+      return UNAUTHENTICATED_STATE;
+    }
+    return {
+      user: persisted.user,
+      permissions: persisted.permissions,
+      isAuthenticated: true,
+      isLoading: false,
+    };
+  });
+
+  // Token também precisa estar disponível no primeiro `getToken()` que o
+  // cliente HTTP venha a fazer — por isso lemos novamente o storage no
+  // initializer do `useRef`. A leitura é barata (duas chaves) e mantém
+  // os dois caminhos (state e ref) consistentes desde o mount.
+  const tokenRef = useRef<string | null>(sessionStorage.load()?.token ?? null);
 
   /**
-   * Limpa estado e token. Centraliza a transição "autenticado →
-   * deslogado" para que `logout` e o handler de 401 reusem.
+   * Limpa estado, token e storage. Centraliza a transição
+   * "autenticado → deslogado" para que `logout` e o handler de 401
+   * reusem exatamente o mesmo passo a passo.
    */
   const clearSession = useCallback(() => {
     tokenRef.current = null;
+    sessionStorage.clear();
     setState({
       user: null,
       permissions: [],
@@ -96,13 +126,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
     };
   }, [client, clearSession]);
 
-  // Hidratação inicial (placeholder).
-  useEffect(() => {
-    // TODO Epic #44 #54: substituir por chamada a `verify-token` quando
-    // houver token persistido em localStorage.
-    setState(prev => ({ ...prev, isLoading: false }));
-  }, []);
-
   const login = useCallback(
     async (email: string, password: string): Promise<void> => {
       setState(prev => ({ ...prev, isLoading: true }));
@@ -110,6 +133,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
         const data = await client.post<LoginResponse>('/auth/login', {
           email,
           password,
+        });
+        // Persiste antes de atualizar o estado: assim qualquer falha
+        // posterior (ainda que improvável) não deixa a sessão "viva em
+        // memória, morta em disco".
+        sessionStorage.save({
+          token: data.token,
+          user: data.user,
+          permissions: data.permissions,
         });
         tokenRef.current = data.token;
         setState({

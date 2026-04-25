@@ -1,12 +1,13 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import React from 'react';
-import { describe, expect, test, vi } from 'vitest';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 
 import type { ApiClient, ApiError } from '@/shared/api';
 import type { LoginResponse } from '@/shared/auth';
 
 import { AuthProvider, useAuth } from '@/shared/auth';
+import { STORAGE_KEYS } from '@/shared/auth/storage';
 
 /**
  * Constrói um stub de `ApiClient` que registra chamadas e devolve
@@ -65,6 +66,15 @@ const SAMPLE_LOGIN: LoginResponse = {
   },
   permissions: ['Systems.Read', 'Systems.Create'],
 };
+
+/**
+ * Garante storage limpo antes de cada teste — evita vazar sessão
+ * persistida entre cenários, especialmente nos testes de hidratação
+ * que dependem do estado de `localStorage` no momento do mount.
+ */
+beforeEach(() => {
+  window.localStorage.clear();
+});
 
 describe('useAuth fora do Provider', () => {
   test('lança erro descritivo', () => {
@@ -250,5 +260,120 @@ describe('AuthProvider — onUnauthorized', () => {
     expect(result.current.isAuthenticated).toBe(false);
     expect(result.current.user).toBeNull();
     expect(result.current.permissions).toEqual([]);
+  });
+});
+
+describe('AuthProvider — persistência (Issue #53)', () => {
+  test('hidrata estado a partir de localStorage no mount', () => {
+    // Pré-condição: storage já contém uma sessão válida (simula reload
+    // após login bem-sucedido em sessão anterior).
+    window.localStorage.setItem(STORAGE_KEYS.token, 'jwt-persistido');
+    window.localStorage.setItem(
+      STORAGE_KEYS.user,
+      JSON.stringify({
+        user: SAMPLE_LOGIN.user,
+        permissions: SAMPLE_LOGIN.permissions,
+      }),
+    );
+
+    const client = createClientStub();
+    const { result } = renderHook(() => useAuth(), {
+      wrapper: makeWrapper(client),
+    });
+
+    // Render inicial já é autenticado — sem flicker, sem isLoading=true.
+    expect(result.current.isAuthenticated).toBe(true);
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.user).toEqual(SAMPLE_LOGIN.user);
+    expect(result.current.permissions).toEqual(SAMPLE_LOGIN.permissions);
+
+    // Token persistido também alimenta o getToken injetado no client.
+    const latest = lastCall(client.setAuth.mock.calls)?.[0];
+    expect(latest?.getToken?.()).toBe('jwt-persistido');
+  });
+
+  test('ignora dados corrompidos em storage e mantém estado deslogado', () => {
+    window.localStorage.setItem(STORAGE_KEYS.token, 'jwt-persistido');
+    window.localStorage.setItem(STORAGE_KEYS.user, '{json-quebrado');
+
+    const client = createClientStub();
+    const { result } = renderHook(() => useAuth(), {
+      wrapper: makeWrapper(client),
+    });
+
+    expect(result.current.isAuthenticated).toBe(false);
+    expect(result.current.user).toBeNull();
+    const latest = lastCall(client.setAuth.mock.calls)?.[0];
+    expect(latest?.getToken?.()).toBeNull();
+  });
+
+  test('login persiste token e user em localStorage', async () => {
+    const client = createClientStub();
+    client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
+    const { result } = renderHook(() => useAuth(), {
+      wrapper: makeWrapper(client),
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    await act(async () => {
+      await result.current.login('ada@lfc.com.br', 'secret');
+    });
+
+    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBe('jwt-xyz');
+    const userJson = window.localStorage.getItem(STORAGE_KEYS.user);
+    expect(userJson).not.toBeNull();
+    expect(JSON.parse(userJson as string)).toEqual({
+      user: SAMPLE_LOGIN.user,
+      permissions: SAMPLE_LOGIN.permissions,
+    });
+  });
+
+  test('logout limpa ambas as chaves do localStorage', async () => {
+    // Estado inicial: sessão já hidratada do storage.
+    window.localStorage.setItem(STORAGE_KEYS.token, 'jwt-persistido');
+    window.localStorage.setItem(
+      STORAGE_KEYS.user,
+      JSON.stringify({
+        user: SAMPLE_LOGIN.user,
+        permissions: SAMPLE_LOGIN.permissions,
+      }),
+    );
+
+    const client = createClientStub();
+    const { result } = renderHook(() => useAuth(), {
+      wrapper: makeWrapper(client),
+    });
+    expect(result.current.isAuthenticated).toBe(true);
+
+    await act(async () => {
+      await result.current.logout();
+    });
+
+    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
+    expect(window.localStorage.getItem(STORAGE_KEYS.user)).toBeNull();
+    expect(result.current.isAuthenticated).toBe(false);
+  });
+
+  test('callback onUnauthorized (401) limpa localStorage', async () => {
+    const client = createClientStub();
+    client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
+    const { result } = renderHook(() => useAuth(), {
+      wrapper: makeWrapper(client),
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    await act(async () => {
+      await result.current.login('ada@lfc.com.br', 'secret');
+    });
+    // Confirma pré-condição: storage está populado.
+    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBe('jwt-xyz');
+
+    const onUnauthorized = lastCall(client.setAuth.mock.calls)?.[0]
+      ?.onUnauthorized as () => void;
+    act(() => {
+      onUnauthorized();
+    });
+
+    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
+    expect(window.localStorage.getItem(STORAGE_KEYS.user)).toBeNull();
   });
 });
