@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
-import { AppRoutes } from './routes';
+import { AppRoutes } from '@/routes';
 
 function renderAt(path: string) {
   return render(

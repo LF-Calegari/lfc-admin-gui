@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { Check } from 'lucide-react';
 import { describe, expect, it } from 'vitest';
 
-import { Icon } from './Icon';
+import { Icon } from '@/components/ui/Icon';
 
 describe('Icon', () => {
   it('renderiza decorativo (aria-hidden) quando não há title', () => {

@@ -1,9 +1,8 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { THEME_STORAGE_KEY } from '../../hooks/useTheme';
-
-import { ThemeToggle } from './ThemeToggle';
+import { ThemeToggle } from '@/components/ui/ThemeToggle';
+import { THEME_STORAGE_KEY } from '@/hooks/useTheme';
 
 const installMatchMedia = (initialDark: boolean) => {
   vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({

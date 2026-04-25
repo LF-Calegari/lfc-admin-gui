@@ -42,6 +42,12 @@ module.exports = {
       },
     ],
     'import/no-named-as-default': 'off',
+    // Aliases TS (`@/...`) são resolvidos pelo `tsc --noEmit`; o resolver
+    // `node` do `eslint-plugin-import` não interpreta `paths` do tsconfig,
+    // por isso ignoramos esse padrão para evitar falso-positivo no lint
+    // sem precisar adicionar `eslint-import-resolver-typescript` (que tem
+    // conflito de peer deps com a versão atual do `@typescript-eslint`).
+    'import/no-unresolved': ['error', { ignore: ['^@/'] }],
     'import/order': [
       'error',
       {

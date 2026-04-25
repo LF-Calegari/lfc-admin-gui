@@ -1,7 +1,7 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { THEME_STORAGE_KEY, useTheme } from './useTheme';
+import { THEME_STORAGE_KEY, useTheme } from '@/hooks/useTheme';
 
 /**
  * Helper para construir um mock determinístico de `matchMedia` que
