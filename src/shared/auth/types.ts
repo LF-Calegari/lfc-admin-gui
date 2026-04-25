@@ -50,6 +50,23 @@ export interface LoginResponse {
 }
 
 /**
+ * Payload retornado pelo endpoint `GET /auth/verify-token`.
+ *
+ * O token continua sendo o mesmo já enviado em `Authorization`; o backend
+ * apenas confirma sua validade e devolve o snapshot atual de `user` e
+ * `permissions` — permitindo que o frontend reaja a mudanças server-side
+ * (role atualizada, permissões revogadas) sem exigir novo login.
+ *
+ * O contrato é deliberadamente um subset de `LoginResponse`: caso o
+ * backend evolua para incluir `token` (rotacionado), bastará trocar o
+ * tipo abaixo sem impactar a forma como o Provider consome.
+ */
+export interface VerifyTokenResponse {
+  user: User;
+  permissions: ReadonlyArray<string>;
+}
+
+/**
  * Valor exposto pelo `useAuth()`.
  *
  * Combina o estado atual com as ações disponíveis. Todas as ações são
