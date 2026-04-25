@@ -40,13 +40,32 @@ function createClientStub(): ApiClient & {
   };
 }
 
+/**
+ * Espelha o contrato real do `auth-service`: payload achatado com
+ * `id/name/email/identity` + `permissions: Guid[]` + `routeCodes: string[]`.
+ * Mantemos o tipo aqui apenas para documentar o shape; nenhum teste
+ * deste arquivo dispara o verify-token de fato (o stub de `client.get`
+ * devolve Promise pendente por padrão para evitar setState pós-assert).
+ */
 const VERIFY_RESPONSE: VerifyTokenResponse = {
-  user: {
-    id: 'u-1',
-    name: 'Ada Lovelace',
-    email: 'ada@lfc.com.br',
-  },
-  permissions: ['Systems.Read'],
+  id: 'u-1',
+  name: 'Ada Lovelace',
+  email: 'ada@lfc.com.br',
+  identity: 42,
+  permissions: ['11111111-1111-1111-1111-111111111111'],
+  routeCodes: ['Systems.Read'],
+};
+
+/**
+ * Projeção de `User` derivada do verify (id/name/email/identity) — usada
+ * nos asserts e no seed do `localStorage` para garantir que o shape
+ * gravado bate com o que o Provider espera ler na hidratação.
+ */
+const VERIFY_USER = {
+  id: VERIFY_RESPONSE.id,
+  name: VERIFY_RESPONSE.name,
+  email: VERIFY_RESPONSE.email,
+  identity: VERIFY_RESPONSE.identity,
 };
 
 /**
@@ -59,7 +78,7 @@ function seedSession(permissions: ReadonlyArray<string> = ['Systems.Read']): voi
   window.localStorage.setItem(
     STORAGE_KEYS.user,
     JSON.stringify({
-      user: VERIFY_RESPONSE.user,
+      user: VERIFY_USER,
       permissions,
     }),
   );
@@ -205,7 +224,7 @@ describe('RequireAuth', () => {
     // não bloquear a árvore (a splash do Provider cobre o intervalo em
     // produção; aqui usamos `disableSplash` para testar o guard isolado).
     const value: AuthContextValue = {
-      user: { id: 'u-1', name: 'Ada', email: 'ada@lfc.com.br' },
+      user: { id: 'u-1', name: 'Ada', email: 'ada@lfc.com.br', identity: 42 },
       permissions: ['Systems.Read'],
       isAuthenticated: true,
       isLoading: true,

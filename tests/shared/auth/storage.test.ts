@@ -15,6 +15,7 @@ const SAMPLE_SESSION: PersistedSession = {
     id: 'u-1',
     name: 'Ada Lovelace',
     email: 'ada@lfc.com.br',
+    identity: 42,
   },
   permissions: ['Systems.Read', 'Systems.Create'],
 };

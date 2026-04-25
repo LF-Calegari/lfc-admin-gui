@@ -18,6 +18,7 @@ import type {
   AuthContextValue,
   AuthState,
   LoginResponse,
+  User,
   VerifyTokenResponse,
 } from './types';
 
@@ -74,9 +75,16 @@ function resolveVerifyInterval(): number {
 /**
  * Type guard mínimo para o payload do endpoint `verify-token`.
  *
- * Garante que `user.id/name/email` e `permissions[]` existem antes de
- * confiar em `data.user` no Provider — defesa contra contrato divergente
- * ou resposta corrompida em proxies intermediários.
+ * O contrato real do `auth-service` é achatado: `{ id, name, email,
+ * identity, permissions: Guid[], routeCodes: string[] }`. Validamos os
+ * campos essenciais (`id`, `name`, `email` strings; `identity` numérico;
+ * `routeCodes` array) antes de o Provider confiar no payload — defesa
+ * contra resposta corrompida em proxies intermediários ou divergência
+ * silenciosa de versão entre frontend/backend.
+ *
+ * `permissions` (GUIDs) também é exigido como array para manter simetria
+ * com o backend, mas o Provider nunca consome diretamente — o catálogo
+ * que alimenta `hasPermission()` é `routeCodes`.
  */
 function isValidVerifyTokenResponse(value: unknown): value is VerifyTokenResponse {
   if (!value || typeof value !== 'object') {
@@ -86,15 +94,32 @@ function isValidVerifyTokenResponse(value: unknown): value is VerifyTokenRespons
   if (!Array.isArray(record.permissions)) {
     return false;
   }
-  if (!record.user || typeof record.user !== 'object') {
+  if (!Array.isArray(record.routeCodes)) {
     return false;
   }
-  const user = record.user as Record<string, unknown>;
   return (
-    typeof user.id === 'string' &&
-    typeof user.name === 'string' &&
-    typeof user.email === 'string'
+    typeof record.id === 'string' &&
+    typeof record.name === 'string' &&
+    typeof record.email === 'string' &&
+    typeof record.identity === 'number'
   );
+}
+
+/**
+ * Extrai o subset de campos do `VerifyTokenResponse` que compõem o
+ * `User` exposto pela aplicação.
+ *
+ * Centralizar a projeção evita divergência entre os call sites (login e
+ * hidratação remota): qualquer mudança no contrato de `User` fica em um
+ * único lugar.
+ */
+function toUser(payload: VerifyTokenResponse): User {
+  return {
+    id: payload.id,
+    name: payload.name,
+    email: payload.email,
+    identity: payload.identity,
+  };
 }
 
 /**
@@ -185,7 +210,14 @@ interface AuthProviderProps {
  *    antes de atualizar o estado, garantindo que mesmo um crash
  *    síncrono entre `save` e `setState` ainda preserve a sessão.
  * 8. **Limpeza tripla** — `clearSession` zera storage, ref e state em
- *    um único ponto, reusado por `logout` e por `onUnauthorized`.
+ *    um único ponto, reusado por `logout`, `onUnauthorized` e por
+ *    falhas pós-login (`verify-token` rejeitou após token aceito).
+ * 9. **Login encadeado (POST /auth/login → GET /auth/verify-token)** —
+ *    o backend retorna apenas `{ token }` no login; o perfil e o
+ *    catálogo `routeCodes` vêm em `verify-token`. Setamos `tokenRef`
+ *    entre as duas chamadas porque o cliente HTTP precisa do header
+ *    `Authorization` para a segunda. Falha entre as duas (rede, 401,
+ *    payload inválido) limpa a sessão parcial via `clearSession`.
  */
 export const AuthProvider: React.FC<AuthProviderProps> = ({
   children,
@@ -325,15 +357,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
           );
           return;
         }
-        // Persiste antes de setState pelos mesmos motivos do `login`.
+        // Projeta o payload achatado em `User` e usa `routeCodes` (e
+        // não `permissions`/GUIDs) como catálogo consumido por
+        // `hasPermission()`. Persiste antes de setState pelos mesmos
+        // motivos do `login`.
+        const user = toUser(data);
+        const permissions = data.routeCodes;
         sessionStorage.save({
           token: tokenRef.current,
-          user: data.user,
-          permissions: data.permissions,
+          user,
+          permissions,
         });
         setState({
-          user: data.user,
-          permissions: data.permissions,
+          user,
+          permissions,
           isAuthenticated: true,
           isLoading: false,
         });
@@ -401,32 +438,72 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
   const login = useCallback(
     async (email: string, password: string): Promise<void> => {
       setState(prev => ({ ...prev, isLoading: true }));
+      // `tokenAcquired` distingue falhas pré-token (login) de falhas
+      // pós-token (verify-token): o cleanup do segundo caso precisa
+      // limpar `tokenRef`/storage para não deixar a aplicação com
+      // token "vivo em memória" sem perfil correspondente.
+      let tokenAcquired = false;
       try {
-        const data = await client.post<LoginResponse>('/auth/login', {
+        const loginData = await client.post<LoginResponse>('/auth/login', {
           email,
           password,
         });
+        // Setar `tokenRef` ANTES do verify é crítico: o cliente HTTP
+        // injeta `Authorization: Bearer ${getToken()}` lendo a ref a
+        // cada requisição. Sem isso, o `verify-token` sai sem header
+        // de autenticação e o backend responde 401.
+        tokenRef.current = loginData.token;
+        tokenAcquired = true;
+
+        const verifyData = await client.get<VerifyTokenResponse>(
+          '/auth/verify-token',
+        );
+        if (!isValidVerifyTokenResponse(verifyData)) {
+          // Backend respondeu 200 mas com payload inesperado. Tratamos
+          // como falha pós-login: zera token e propaga erro tipado para
+          // a UI exibir mensagem genérica.
+          throw {
+            kind: 'parse',
+            message: 'Resposta inválida do servidor.',
+          } satisfies ApiError;
+        }
+
+        const user = toUser(verifyData);
+        const permissions = verifyData.routeCodes;
+
         // Persiste antes de atualizar o estado: assim qualquer falha
         // posterior (ainda que improvável) não deixa a sessão "viva em
         // memória, morta em disco".
         sessionStorage.save({
-          token: data.token,
-          user: data.user,
-          permissions: data.permissions,
+          token: loginData.token,
+          user,
+          permissions,
         });
-        tokenRef.current = data.token;
         setState({
-          user: data.user,
-          permissions: data.permissions,
+          user,
+          permissions,
           isAuthenticated: true,
           isLoading: false,
         });
       } catch (error) {
-        setState(prev => ({ ...prev, isLoading: false }));
+        // Falha pós-login (verify-token rejeitou ou payload inválido):
+        // o token já foi setado em `tokenRef`, então precisamos limpar
+        // tudo via `clearSession` para não deixar header `Authorization`
+        // pendurado em chamadas seguintes.
+        //
+        // Falha pré-login (credenciais inválidas, rede): `tokenRef`
+        // ainda é `null`/o valor anterior, basta sair de `isLoading`.
+        // Em ambos os casos, o erro é re-lançado para o caller decidir
+        // a apresentação.
+        if (tokenAcquired) {
+          clearSession();
+        } else {
+          setState(prev => ({ ...prev, isLoading: false }));
+        }
         throw error;
       }
     },
-    [client],
+    [client, clearSession],
   );
 
   const logout = useCallback(async (): Promise<void> => {

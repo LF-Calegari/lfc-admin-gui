@@ -4,7 +4,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ApiClient, ApiError } from '@/shared/api';
-import type { LoginResponse } from '@/shared/auth';
+import type { LoginResponse, VerifyTokenResponse } from '@/shared/auth';
 
 import { LoginPage } from '@/pages/LoginPage';
 import { AuthProvider } from '@/shared/auth';
@@ -18,6 +18,7 @@ import { AuthProvider } from '@/shared/auth';
  */
 function createClientStub(): ApiClient & {
   post: ReturnType<typeof vi.fn>;
+  get: ReturnType<typeof vi.fn>;
   setAuth: ReturnType<typeof vi.fn>;
 } {
   return {
@@ -30,18 +31,27 @@ function createClientStub(): ApiClient & {
     setAuth: vi.fn(),
   } as unknown as ApiClient & {
     post: ReturnType<typeof vi.fn>;
+    get: ReturnType<typeof vi.fn>;
     setAuth: ReturnType<typeof vi.fn>;
   };
 }
 
 const SAMPLE_LOGIN: LoginResponse = {
   token: 'jwt-xyz',
-  user: {
-    id: 'u-1',
-    name: 'Ada Lovelace',
-    email: 'ada@lfc.com.br',
-  },
-  permissions: ['Systems.Read'],
+};
+
+/**
+ * Resposta de `verify-token` usada nos cenários de submit feliz —
+ * espelha o contrato real do `auth-service` (achatado, com `routeCodes`
+ * separado de `permissions`/Guid[]).
+ */
+const SAMPLE_VERIFY: VerifyTokenResponse = {
+  id: 'u-1',
+  name: 'Ada Lovelace',
+  email: 'ada@lfc.com.br',
+  identity: 42,
+  permissions: ['11111111-1111-1111-1111-111111111111'],
+  routeCodes: ['Systems.Read'],
 };
 
 type ClientStub = ReturnType<typeof createClientStub>;
@@ -164,7 +174,10 @@ describe('LoginPage — validação client-side', () => {
 describe('LoginPage — submit feliz', () => {
   it('chama login com credenciais e redireciona para /systems por padrão', async () => {
     const client = createClientStub();
+    // Login encadeia POST /auth/login + GET /auth/verify-token; ambos
+    // precisam estar mockados para o submit feliz completar.
     client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
+    client.get.mockResolvedValueOnce(SAMPLE_VERIFY);
     renderLogin({ client });
 
     fireEvent.change(screen.getByLabelText(/E-mail/i), {
@@ -188,6 +201,7 @@ describe('LoginPage — submit feliz', () => {
   it('redireciona para a rota original preservada em location.state.from', async () => {
     const client = createClientStub();
     client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
+    client.get.mockResolvedValueOnce(SAMPLE_VERIFY);
     renderLogin({
       client,
       initialEntries: [
@@ -209,6 +223,7 @@ describe('LoginPage — submit feliz', () => {
   it('faz trim do e-mail antes de submeter', async () => {
     const client = createClientStub();
     client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
+    client.get.mockResolvedValueOnce(SAMPLE_VERIFY);
     renderLogin({ client });
 
     fireEvent.change(screen.getByLabelText(/E-mail/i), {
@@ -325,6 +340,9 @@ describe('LoginPage — estado loading', () => {
     });
     const client = createClientStub();
     client.post.mockReturnValueOnce(pending);
+    // `verify-token` resolve imediatamente assim que for chamado (após
+    // `resolveLogin` liberar a 1ª etapa).
+    client.get.mockResolvedValueOnce(SAMPLE_VERIFY);
     renderLogin({ client });
 
     fireEvent.change(screen.getByLabelText(/E-mail/i), {
@@ -349,6 +367,7 @@ describe('LoginPage — já autenticado', () => {
   it('redireciona imediatamente para /systems quando sessão já está ativa', async () => {
     const client = createClientStub();
     client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
+    client.get.mockResolvedValueOnce(SAMPLE_VERIFY);
     renderLogin({ client });
 
     fireEvent.change(screen.getByLabelText(/E-mail/i), {
