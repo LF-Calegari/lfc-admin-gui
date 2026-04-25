@@ -235,6 +235,16 @@ Antes de aprovar, validar CI/evidências:
 
 Tudo via container Docker.
 
+## SonarCloud — novas issues no diff são BLOCKER
+
+Antes de aprovar, verificar análise SonarCloud do PR:
+
+- Acesse o status do check `SonarCloud Code Analysis` (ou equivalente) no PR; se houver Quality Gate, ele deve estar passando para o diff do PR.
+- Liste as issues **novas** no SonarCloud introduzidas pelo PR (em arquivos tocados pelo diff). Use `gh pr checks <num>` para ver detalhes ou consulte diretamente o painel SonarCloud do projeto/PR.
+- **Qualquer issue nova (Bug, Vulnerability, Security Hotspot ou Code Smell)** apontada pelo Sonar em código alterado pelo PR é **BLOCKER**, independentemente da severidade.
+- Se o painel SonarCloud não estiver acessível (config externa pendente, Automatic Analysis em conflito), registre como **NEEDS IMPROVEMENT** e aprove apenas se o restante estiver verde — sem evidência, não dá para garantir Sonar limpo.
+- Issues já existentes no `development` (não introduzidas pelo PR) **não bloqueiam** este PR — abrir issue de cleanup separada se relevante.
+
 ---
 
 # Etapa 9 — Regressão
@@ -259,6 +269,7 @@ Tudo via container Docker.
 - Corpo da PR sem `Closes #<issue-number>` da issue corrente
 - Evidência de execução no host
 - Checklist visual ausente
+- Nova issue (Bug/Vulnerability/Security Hotspot/Code Smell) introduzida pelo PR no SonarCloud, em arquivo tocado pelo diff
 
 ## NEEDS IMPROVEMENT
 
