@@ -113,7 +113,7 @@ export const ShowcasePage: React.FC = () => {
 
   const triggerLoading = () => {
     setLoadingDemo(true);
-    window.setTimeout(() => setLoadingDemo(false), 1600);
+    globalThis.setTimeout(() => setLoadingDemo(false), 1600);
   };
 
   return (

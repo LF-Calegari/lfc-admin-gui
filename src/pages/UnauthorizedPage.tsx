@@ -7,14 +7,13 @@ import { ErrorPage } from '../components/ErrorPage';
  * 401 — Não autenticado.
  *
  * Ainda não existe rota `/login` no SPA — a autenticação será feita pelo
- * `lfc-authenticator` em uma issue futura. Enquanto isso, a ação reaproveita
- * o redirect padrão da raiz (`/` → `/systems`) para devolver o usuário a um
- * ponto seguro do painel. O `// TODO` documenta a integração futura.
+ * `lfc-authenticator` na Epic #44. Enquanto isso, a ação reaproveita o
+ * redirect padrão da raiz (`/` → `/systems`) para devolver o usuário a um
+ * ponto seguro do painel.
  */
 export const UnauthorizedPage: React.FC = () => {
   const navigate = useNavigate();
 
-  // TODO: integrar com lfc-authenticator quando rota de login estiver disponível.
   return (
     <ErrorPage
       code="401"
