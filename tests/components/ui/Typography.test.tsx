@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
-import { Body, Caption, Heading, Label } from './Typography';
+import { Body, Caption, Heading, Label } from '@/components/ui/Typography';
 
 describe('Typography.Heading', () => {
   it('renderiza h1 por padrão', () => {

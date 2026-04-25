@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { Topbar } from './Topbar';
+import { Topbar } from '@/components/layout/Topbar';
 
 describe('Topbar', () => {
   it('renderiza título e usuário recebidos via props', () => {

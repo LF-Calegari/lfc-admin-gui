@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { Button } from './Button';
+import { Button } from '@/components/ui/Button';
 
 describe('Button', () => {
   it('renderiza children e dispara onClick', () => {

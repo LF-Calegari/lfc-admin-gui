@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { ErrorPage } from './ErrorPage';
+import { ErrorPage } from '@/components/ErrorPage/ErrorPage';
 
 describe('ErrorPage', () => {
   it('renderiza code, title e description recebidos via props', () => {

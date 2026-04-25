@@ -2,9 +2,8 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { THEME_STORAGE_KEY } from '../../hooks/useTheme';
-
-import { Sidebar } from './Sidebar';
+import { Sidebar } from '@/components/layout/Sidebar';
+import { THEME_STORAGE_KEY } from '@/hooks/useTheme';
 
 /**
  * Reinstala um polyfill estável de `matchMedia` para cada teste — o Sidebar
