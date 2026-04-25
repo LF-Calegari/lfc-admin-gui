@@ -36,20 +36,6 @@ const ROUTE_TITLES: RouteTitleEntry[] = [
 
 const FALLBACK_TITLE = 'Admin';
 
-const GridOverlay = createGlobalStyle`
-  body::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    background-image:
-      linear-gradient(var(--grid-line) 1px, transparent 1px),
-      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
-    background-size: var(--grid-cell) var(--grid-cell);
-    pointer-events: none;
-    z-index: 0;
-  }
-`;
-
 /**
  * Trava de scroll body enquanto o drawer está aberto. Aplica via styled
  * `createGlobalStyle` para evitar manipulação imperativa de `document`.
@@ -169,7 +155,6 @@ export const AppLayout: React.FC = () => {
 
   return (
     <>
-      <GridOverlay />
       {drawerOpen && <BodyScrollLock />}
       <Shell>
         <Sidebar open={drawerOpen} onClose={handleCloseDrawer} />
