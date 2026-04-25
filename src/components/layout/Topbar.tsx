@@ -2,6 +2,8 @@ import { Search, Bell, LogOut, Menu, X } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import styled from 'styled-components';
 
+import { ThemeToggle } from '../ui/ThemeToggle';
+
 interface TopbarUser {
   name: string;
   role?: string;
@@ -436,6 +438,7 @@ export const Topbar: React.FC<TopbarProps> = ({
         >
           <Bell size={16} strokeWidth={1.5} />
         </NotificationsButton>
+        <ThemeToggle />
         <UserSection>
           <Avatar>{initials}</Avatar>
           <UserMeta>

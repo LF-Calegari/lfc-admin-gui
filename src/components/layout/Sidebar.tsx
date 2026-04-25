@@ -13,7 +13,13 @@ import React, { useEffect, useRef } from 'react';
 import { NavLink } from 'react-router-dom';
 import styled from 'styled-components';
 
-import logoDark from '../../assets/logo-dark.svg';
+// `logo-dark.svg` usa fill escuro (forest) e foi desenhada para fundo claro;
+// `logo-white.svg` usa fill claro (lime/cream) e foi desenhada para fundo
+// escuro. A seleção é feita em runtime conforme `resolvedTheme` para
+// preservar contraste WCAG em ambos os temas.
+import logoForLightTheme from '../../assets/logo-dark.svg';
+import logoForDarkTheme from '../../assets/logo-white.svg';
+import { useTheme } from '../../hooks/useTheme';
 
 interface NavItem {
   to: string;
@@ -259,6 +265,8 @@ const FootVersion = styled.div`
 
 export const Sidebar: React.FC<SidebarProps> = ({ open, onClose }) => {
   const wrapperRef = useRef<HTMLElement | null>(null);
+  const { resolvedTheme } = useTheme();
+  const logoSrc = resolvedTheme === 'dark' ? logoForDarkTheme : logoForLightTheme;
 
   /**
    * Tecla ESC fecha o drawer. Listener só ativa quando aberto para evitar
@@ -306,7 +314,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ open, onClose }) => {
       >
         <SidebarHeader>
           <LogoArea>
-            <img src={logoDark} alt="LFC Admin" height={28} />
+            <img
+              src={logoSrc}
+              alt="LFC Admin"
+              height={28}
+              data-testid="sidebar-logo"
+            />
           </LogoArea>
           <CloseButton
             type="button"
