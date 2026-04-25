@@ -128,17 +128,23 @@ const Container = styled.div`
   gap: var(--space-6);
 `;
 
-const Brand = styled.div`
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-2);
-`;
-
+/**
+ * Logo da marca exibida no topo do `FormCard`. Dimensão definida por
+ * `height` literal (`36px`) com `width: auto` para preservar o
+ * aspect-ratio original do SVG (viewBox 200×48 ≈ 4.16:1) e manter o
+ * texto "authenticator" legível. Espelha o padrão do identity kit
+ * (`identity/ui_kits/admin-spa/screens.jsx:19` — `<img height="36">`).
+ *
+ * Decisão sobre o literal `36px`: é dimensão visual de imagem, não
+ * spacing/font/color — tokens semânticos `--space-*` representam outra
+ * coisa. Aceitável literal aqui (consistente com o atributo HTML
+ * `<img height="36">` da referência).
+ */
 const Logo = styled.img`
-  width: var(--space-16);
-  height: var(--space-16);
+  height: 36px;
+  width: auto;
   display: block;
+  margin-bottom: var(--space-4);
 `;
 
 /**
@@ -451,12 +457,9 @@ export const LoginPage: React.FC = () => {
         <ThemeToggle />
       </ThemeSlot>
       <Container>
-        <Brand>
-          <Logo src={logoSrc} alt="LF Calegari Admin" />
-        </Brand>
-
         <FormCard aria-labelledby="login-form-title">
           <VisuallyHidden id="login-form-title">Formulário de login</VisuallyHidden>
+          <Logo src={logoSrc} alt="LF Calegari Admin" />
           <CardHeader>
             <Eyebrow data-testid="login-eyebrow">{EYEBROW_TEXT}</Eyebrow>
             <BrandTitle>Entrar no painel</BrandTitle>

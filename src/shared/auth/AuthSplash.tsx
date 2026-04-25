@@ -39,9 +39,17 @@ const Container = styled.div`
   text-align: center;
 `;
 
+/**
+ * Logo da marca exibida no splash. Dimensão definida por `height`
+ * literal (`36px`) com `width: auto` para preservar o aspect-ratio
+ * original do SVG (viewBox 200×48 ≈ 4.16:1) — mesma decisão da
+ * `LoginPage`. Sem o `width: auto` o container quadrado de
+ * `--space-16` causava letterboxing e tornava o texto "authenticator"
+ * ilegível (Issue #111).
+ */
 const Logo = styled.img`
-  width: var(--space-16);
-  height: var(--space-16);
+  height: 36px;
+  width: auto;
   display: block;
 `;
 
