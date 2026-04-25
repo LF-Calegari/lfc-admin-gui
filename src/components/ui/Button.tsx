@@ -3,10 +3,25 @@ import styled, { css } from 'styled-components';
 
 import { Spinner } from './Spinner';
 
+/**
+ * Variantes visuais do Button.
+ *
+ * - `primary`: ação principal (CTA), destaque máximo.
+ * - `secondary`: ação secundária neutra.
+ * - `ghost`: ação terciária sem fundo.
+ * - `danger`: legado — preservado por compat com páginas existentes
+ *   (ex.: `SettingsPage`). Para novas telas, prefira combinar
+ *   `secondary` com confirmação por modal.
+ */
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
 type ButtonSize = 'sm' | 'md' | 'lg';
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  /**
+   * Variante visual do botão.
+   *
+   * `danger` é tratado como legado — ver JSDoc de `ButtonVariant`.
+   */
   variant?: ButtonVariant;
   size?: ButtonSize;
   icon?: React.ReactNode;
