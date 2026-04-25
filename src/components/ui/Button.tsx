@@ -110,7 +110,7 @@ const StyledButton = styled.button<{
   gap: var(--space-2);
   font-family: var(--font-sans);
   font-weight: var(--weight-medium);
-  border: 1px solid transparent;
+  border: var(--border-thin) solid transparent;
   cursor: pointer;
   letter-spacing: var(--tracking-tight);
   line-height: var(--leading-tight);
@@ -129,7 +129,7 @@ const StyledButton = styled.button<{
   }
 
   &:active:not(:disabled) {
-    transform: translateY(1px);
+    transform: translateY(var(--press-offset));
   }
 
   &:disabled {

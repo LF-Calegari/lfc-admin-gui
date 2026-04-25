@@ -19,17 +19,17 @@ const sizeStyles: Record<SpinnerSize, ReturnType<typeof css>> = {
   sm: css`
     width: var(--text-sm);
     height: var(--text-sm);
-    border-width: 1.5px;
+    border-width: var(--border-medium);
   `,
   md: css`
     width: var(--text-md);
     height: var(--text-md);
-    border-width: 2px;
+    border-width: var(--border-thick);
   `,
   lg: css`
     width: var(--text-xl);
     height: var(--text-xl);
-    border-width: 2.5px;
+    border-width: var(--border-thicker);
   `,
 };
 
