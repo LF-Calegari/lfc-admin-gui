@@ -21,13 +21,19 @@ interface AuthSplashProps {
   message?: string;
 }
 
+/**
+ * Background transparente: o `<body>` global já pinta `--bg-base` e o
+ * grid overlay "engineering tool" (`identity/README.md:75`); manter o
+ * `SplashRoot` opaco esconderia o grid também durante a validação
+ * inicial da sessão.
+ */
 const SplashRoot = styled.div`
   min-height: 100vh;
   width: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-base);
+  background: transparent;
   padding: var(--space-6) var(--space-4);
 `;
 
