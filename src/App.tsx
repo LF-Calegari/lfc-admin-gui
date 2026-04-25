@@ -1,11 +1,14 @@
 import React from 'react';
 import { BrowserRouter } from 'react-router-dom';
 
+import { ToastProvider } from './components/ui';
 import { AppRoutes } from './routes';
 
 const App: React.FC = () => (
   <BrowserRouter>
-    <AppRoutes />
+    <ToastProvider>
+      <AppRoutes />
+    </ToastProvider>
   </BrowserRouter>
 );
 
