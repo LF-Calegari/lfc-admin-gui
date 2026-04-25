@@ -1,6 +1,15 @@
 /* ============================================================
  * LFC Authenticator — Design Tokens
  * Fonte única de verdade para cores, tipografia e espaçamento.
+ *
+ * Organização em camadas:
+ *   1. Invariantes globais  → `:root`
+ *      (espaçamento, raios, tipografia, breakpoints, motion,
+ *      paleta brand raw e demais valores que NÃO mudam por tema)
+ *   2. Tokens semânticos por tema → `[data-theme='light']` e
+ *      `[data-theme='dark']` (superfícies, foreground, bordas,
+ *      sombras, focus rings — qualquer cor/tonalidade que
+ *      precise alternar entre light e dark)
  * ============================================================ */
 
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
@@ -23,8 +32,14 @@
   font-display: swap;
 }
 
+/* ============================================================
+ * 1. INVARIANTES — não mudam entre temas
+ * ============================================================ */
 :root {
-  /* ── Brand palette ───────────────────────────────────────── */
+  /* ── Brand palette (raw) ─────────────────────────────────────
+   * Valores fixos da identidade. Tokens semânticos por tema
+   * compõem a partir destes; raramente devem ser usados
+   * diretamente em componentes. */
   --clr-forest: #16240f;
   --clr-forest-mid: #1e3516;
   --clr-hunter: #5b7d47;
@@ -35,64 +50,11 @@
   --clr-black: #000000;
   --clr-white: #ffffff;
 
-  /* ── Semantic surfaces (light) ───────────────────────────── */
-  --bg-base: #f2f4ea;
-  --bg-surface: #ffffff;
-  --bg-elevated: #ecefe0;
-  --bg-overlay: #e0e5cd;
-
-  /* ── Borders ─────────────────────────────────────────────── */
-  --border-subtle: rgba(22, 36, 15, 0.08);
-  --border-base: rgba(22, 36, 15, 0.16);
-  --border-strong: rgba(91, 125, 71, 0.55);
-  --border-soft-forest: rgba(22, 36, 15, 0.14);
-  --border-medium-forest: rgba(22, 36, 15, 0.28);
-
-  /* Border widths — usados por componentes com bordas estruturais */
+  /* ── Border widths ─────────────────────────────────────────── */
   --border-thin: 1px;
   --border-medium: 1.5px;
   --border-thick: 2px;
   --border-thicker: 2.5px;
-
-  /* ── Foreground / text ───────────────────────────────────── */
-  --fg1: #1b2a12;
-  --fg2: #4a5e42;
-  --fg3: #6e8164;
-  --fg4: #b5bea8;
-  --fg-inverse: #ffffff;
-
-  --text-primary: var(--fg1);
-  --text-secondary: var(--fg2);
-  --text-muted: var(--fg3);
-  --text-disabled: var(--fg4);
-
-  /* ── Accents & status ────────────────────────────────────── */
-  --accent: #aeca59;
-  --accent-dim: #8cb139;
-  --accent-ink: #5a7d1f;
-  --danger: #d95f5f;
-  --warning: #d9a24a;
-  --info: #4a9fd9;
-  --success: #aeca59;
-  --danger-ink: color-mix(in srgb, var(--danger) 65%, black);
-
-  /* ── UI state colors/shadows ─────────────────────────────── */
-  --grid-line: rgba(22, 36, 15, 0.04);
-  --bg-ghost-hover: rgba(22, 36, 15, 0.05);
-  --bg-ghost-active: rgba(22, 36, 15, 0.1);
-  --bg-danger-soft: rgba(217, 95, 95, 0.1);
-  --bg-danger-hover: rgba(217, 95, 95, 0.18);
-  --border-danger-soft: rgba(217, 95, 95, 0.3);
-  --border-danger-strong: rgba(217, 95, 95, 0.5);
-
-  --focus-ring-accent: 0 0 0 3px rgba(174, 202, 89, 0.22);
-  --focus-ring-accent-strong: 0 0 0 3px rgba(174, 202, 89, 0.28);
-  --focus-ring-danger: 0 0 0 3px rgba(217, 95, 95, 0.22);
-  --focus-ring-danger-soft: 0 0 0 3px color-mix(in srgb, var(--danger) 10%, transparent);
-  --focus-ring-border: 0 0 0 3px color-mix(in srgb, var(--border-strong) 60%, transparent);
-
-  --shadow-button-primary: 0 1px 0 rgba(22, 36, 15, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.25);
-  --shadow-button-primary-active: inset 0 1px 2px rgba(22, 36, 15, 0.18);
 
   /* ── Fonts ───────────────────────────────────────────────── */
   --font-display: 'Geist', 'Inter', system-ui, -apple-system, sans-serif;
@@ -135,15 +97,6 @@
   --radius-xl: 16px;
   --radius-2xl: 20px;
   --radius-full: 9999px;
-
-  /* ── Shadows ─────────────────────────────────────────────── */
-  --shadow-sm: 0 1px 2px rgba(22, 36, 15, 0.04), 0 0 0 1px var(--border-subtle);
-  --shadow-md: 0 4px 14px rgba(22, 36, 15, 0.07), 0 0 0 1px var(--border-subtle);
-  --shadow-card: 0 1px 2px rgba(22, 36, 15, 0.04), 0 2px 12px rgba(22, 36, 15, 0.06),
-    0 0 0 1px var(--border-subtle);
-  --shadow-modal: 0 24px 48px rgba(22, 36, 15, 0.16), 0 4px 12px rgba(22, 36, 15, 0.06),
-    0 0 0 1px var(--border-base);
-  --shadow-glow: 0 0 24px rgba(174, 202, 89, 0.3), 0 0 48px rgba(174, 202, 89, 0.12);
 
   /* ── Motion ──────────────────────────────────────────────── */
   --ease-default: cubic-bezier(0.16, 1, 0.3, 1);
@@ -190,38 +143,186 @@
   --measure-base: 56ch;
   --measure-cta: 22rem;
   --measure-cta-min: 12rem;
+
+  /* ── Breakpoints ─────────────────────────────────────────────
+   * Tokens documentais — referência única dos pontos de quebra.
+   *
+   * Importante: CSS custom properties NÃO funcionam dentro da condição
+   * de `@media (...)` porque a regra é resolvida em tempo de parser,
+   * antes da cascata. Por isso os componentes devem repetir o valor
+   * literal (ex.: `@media (min-width: 48em)`) e referenciar este token
+   * em comentário para manter a tabela como fonte única de verdade.
+   *
+   *   --bp-sm: 30em  (≈ 480px) — handheld grande / phablet
+   *   --bp-md: 48em  (≈ 768px) — quebra mobile/desktop (Sidebar drawer)
+   *   --bp-lg: 64em  (≈ 1024px) — desktop padrão
+   *   --bp-xl: 80em  (≈ 1280px) — desktop largo
+   */
+  --bp-sm: 30em;
+  --bp-md: 48em;
+  --bp-lg: 64em;
+  --bp-xl: 80em;
 }
 
-/*
- * Breakpoints (referência) — CSS custom properties não funcionam dentro da
- * condição de @media (resolução em tempo de parser, antes da cascata). Use
- * estes literais nos @media de styled-components, mantendo a tabela única:
- *   --bp-xs: 30em   (≈ 480px)  — quebra para layouts ≥ tablet pequeno
- *   --bp-sm: 48em   (≈ 768px)  — quebra para tablet
- *   --bp-md: 60em   (≈ 960px)  — quebra para desktop
- *   --bp-lg: 75em   (≈ 1200px) — quebra para desktop largo
- */
-
-@media (min-width: 60em) {
+/* Grid maior em desktop — espelha `--bp-lg` (64em ≈ 1024px). */
+@media (min-width: 64em) {
   :root {
     --grid-cell: 40px;
   }
 }
 
-/* ── Dark mode ─────────────────────────────────────────────── */
+/* ============================================================
+ * 2. TOKENS SEMÂNTICOS POR TEMA
+ *
+ * Aplicados via `data-theme` no `<html>`. O default `light` também
+ * é aplicado via `:root` para garantir que páginas servidas antes
+ * da hidratação do JS (ou em ambientes sem `data-theme` definido)
+ * tenham um esquema válido. O bloco `[data-theme='light']` repete
+ * os mesmos valores para alinhar especificidade quando o tema é
+ * trocado dinamicamente (evita herança parcial entre seletor base
+ * e seletor com atributo).
+ * ============================================================ */
+:root,
+[data-theme='light'] {
+  /* ── Surfaces ────────────────────────────────────────────── */
+  --bg-base: #f2f4ea;
+  --bg-surface: #ffffff;
+  --bg-elevated: #ecefe0;
+  --bg-overlay: #e0e5cd;
+
+  /* ── Borders ─────────────────────────────────────────────── */
+  --border-subtle: rgba(22, 36, 15, 0.08);
+  --border-base: rgba(22, 36, 15, 0.16);
+  --border-strong: rgba(91, 125, 71, 0.55);
+  --border-soft-forest: rgba(22, 36, 15, 0.14);
+  --border-medium-forest: rgba(22, 36, 15, 0.28);
+
+  /* ── Foreground / text ───────────────────────────────────── */
+  --fg1: #1b2a12;
+  --fg2: #4a5e42;
+  --fg3: #6e8164;
+  --fg4: #b5bea8;
+  --fg-inverse: #ffffff;
+
+  --text-primary: var(--fg1);
+  --text-secondary: var(--fg2);
+  --text-muted: var(--fg3);
+  --text-disabled: var(--fg4);
+
+  /* ── Accents & status ────────────────────────────────────── */
+  --accent: #aeca59;
+  --accent-dim: #8cb139;
+  --accent-ink: #5a7d1f;
+  --danger: #d95f5f;
+  --warning: #d9a24a;
+  --info: #4a9fd9;
+  --success: #aeca59;
+  --danger-ink: color-mix(in srgb, var(--danger) 65%, black);
+
+  /* ── UI state colors/shadows ─────────────────────────────── */
+  --grid-line: rgba(22, 36, 15, 0.04);
+  --bg-ghost-hover: rgba(22, 36, 15, 0.05);
+  --bg-ghost-active: rgba(22, 36, 15, 0.1);
+  --bg-danger-soft: rgba(217, 95, 95, 0.1);
+  --bg-danger-hover: rgba(217, 95, 95, 0.18);
+  --bg-backdrop-modal: color-mix(in srgb, var(--clr-forest) 42%, transparent);
+  --border-danger-soft: rgba(217, 95, 95, 0.3);
+  --border-danger-strong: rgba(217, 95, 95, 0.5);
+
+  --focus-ring-accent: 0 0 0 3px rgba(174, 202, 89, 0.22);
+  --focus-ring-accent-strong: 0 0 0 3px rgba(174, 202, 89, 0.28);
+  --focus-ring-danger: 0 0 0 3px rgba(217, 95, 95, 0.22);
+  --focus-ring-danger-soft: 0 0 0 3px color-mix(in srgb, var(--danger) 10%, transparent);
+  --focus-ring-border: 0 0 0 3px color-mix(in srgb, var(--border-strong) 60%, transparent);
+
+  --shadow-button-primary: 0 1px 0 rgba(22, 36, 15, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  --shadow-button-primary-active: inset 0 1px 2px rgba(22, 36, 15, 0.18);
+
+  /* ── Shadows ─────────────────────────────────────────────── */
+  --shadow-sm: 0 1px 2px rgba(22, 36, 15, 0.04), 0 0 0 1px var(--border-subtle);
+  --shadow-md: 0 4px 14px rgba(22, 36, 15, 0.07), 0 0 0 1px var(--border-subtle);
+  --shadow-card: 0 1px 2px rgba(22, 36, 15, 0.04), 0 2px 12px rgba(22, 36, 15, 0.06),
+    0 0 0 1px var(--border-subtle);
+  --shadow-modal: 0 24px 48px rgba(22, 36, 15, 0.16), 0 4px 12px rgba(22, 36, 15, 0.06),
+    0 0 0 1px var(--border-base);
+  --shadow-glow: 0 0 24px rgba(174, 202, 89, 0.3), 0 0 48px rgba(174, 202, 89, 0.12);
+}
+
+/* ── Dark theme ─────────────────────────────────────────────
+ * Equivalência com o light:
+ *   • Surfaces invertidas (forest profundo → cream/branco)
+ *   • Foreground claro com tonalidade verde-creme (mantém DNA
+ *     da marca em vez de branco frio)
+ *   • Accent inalterado (lime é cor identitária)
+ *   • Bordas em alpha sobre lime (em vez de forest)
+ *   • Sombras mais profundas e em preto puro (o fundo escuro
+ *     já absorve, então sombra preta funciona como halo)
+ *   • Focus rings com alpha maior (compensa contraste do fundo)
+ * ============================================================ */
 [data-theme='dark'] {
-  --bg-base: #080e06;
-  --bg-surface: #0e1a0b;
-  --bg-elevated: #152011;
-  --bg-overlay: #1c2c17;
+  /* ── Surfaces ────────────────────────────────────────────── */
+  --bg-base: #0d1410;
+  --bg-surface: #141d18;
+  --bg-elevated: #1c2620;
+  --bg-overlay: #243029;
 
-  --border-subtle: rgba(91, 125, 71, 0.18);
-  --border-base: rgba(91, 125, 71, 0.35);
+  /* ── Borders ─────────────────────────────────────────────── */
+  --border-subtle: rgba(174, 202, 89, 0.1);
+  --border-base: rgba(174, 202, 89, 0.18);
   --border-strong: rgba(174, 202, 89, 0.45);
+  --border-soft-forest: rgba(174, 202, 89, 0.14);
+  --border-medium-forest: rgba(174, 202, 89, 0.28);
 
-  --fg1: #dde9ca;
-  --fg2: #9baf87;
-  --fg3: #617560;
-  --fg4: #3a4e35;
-  --accent-ink: #bdd96a;
+  /* ── Foreground / text ───────────────────────────────────── */
+  --fg1: #e7eed8;
+  --fg2: #b3c0a3;
+  --fg3: #7d8e75;
+  --fg4: #4d5b4a;
+  --fg-inverse: #16240f;
+
+  --text-primary: var(--fg1);
+  --text-secondary: var(--fg2);
+  --text-muted: var(--fg3);
+  --text-disabled: var(--fg4);
+
+  /* ── Accents & status ────────────────────────────────────── */
+  --accent: #aeca59;
+  --accent-dim: #8cb139;
+  /* No dark, o "ink" do accent precisa ser claro: aparece em texto
+     ativo de NavLink, badges e focus glows. */
+  --accent-ink: #c9e074;
+  --danger: #e87575;
+  --warning: #e6b25a;
+  --info: #6cb6e6;
+  --success: #b9d268;
+  --danger-ink: #f4a8a8;
+
+  /* ── UI state colors ─────────────────────────────────────── */
+  --grid-line: rgba(174, 202, 89, 0.04);
+  --bg-ghost-hover: rgba(174, 202, 89, 0.08);
+  --bg-ghost-active: rgba(174, 202, 89, 0.14);
+  --bg-danger-soft: rgba(232, 117, 117, 0.12);
+  --bg-danger-hover: rgba(232, 117, 117, 0.2);
+  --bg-backdrop-modal: rgba(0, 0, 0, 0.6);
+  --border-danger-soft: rgba(232, 117, 117, 0.32);
+  --border-danger-strong: rgba(232, 117, 117, 0.55);
+
+  /* Focus rings — alpha um pouco maior para contraste sobre fundo escuro */
+  --focus-ring-accent: 0 0 0 3px rgba(174, 202, 89, 0.32);
+  --focus-ring-accent-strong: 0 0 0 3px rgba(174, 202, 89, 0.42);
+  --focus-ring-danger: 0 0 0 3px rgba(232, 117, 117, 0.3);
+  --focus-ring-danger-soft: 0 0 0 3px color-mix(in srgb, var(--danger) 18%, transparent);
+  --focus-ring-border: 0 0 0 3px color-mix(in srgb, var(--border-strong) 70%, transparent);
+
+  --shadow-button-primary: 0 1px 0 rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  --shadow-button-primary-active: inset 0 1px 2px rgba(0, 0, 0, 0.45);
+
+  /* ── Shadows — pretas puras com alpha maior ──────────────── */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3), 0 0 0 1px var(--border-subtle);
+  --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--border-subtle);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 2px 12px rgba(0, 0, 0, 0.35),
+    0 0 0 1px var(--border-subtle);
+  --shadow-modal: 0 24px 48px rgba(0, 0, 0, 0.55), 0 4px 12px rgba(0, 0, 0, 0.35),
+    0 0 0 1px var(--border-base);
+  --shadow-glow: 0 0 24px rgba(174, 202, 89, 0.4), 0 0 48px rgba(174, 202, 89, 0.18);
 }

@@ -10,7 +10,9 @@ import {
   Icon,
   Label,
   Spinner,
+  ThemeToggle,
 } from '../components/ui';
+import { useTheme } from '../hooks/useTheme';
 
 const Page = styled.div`
   display: flex;
@@ -74,8 +76,40 @@ const Tones = styled.div`
   gap: var(--space-4);
 `;
 
+/**
+ * Linha que evidencia o estado atual do tema. Expõe a preferência
+ * persistida (`theme`) e o valor resolvido (`resolvedTheme`) para
+ * facilitar QA visual durante desenvolvimento.
+ */
+const ThemeRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-thin) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+`;
+
+const ThemeStatus = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+`;
+
+const ThemeBadge = styled.span`
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  color: var(--accent-ink);
+`;
+
 export const ShowcasePage: React.FC = () => {
   const [loadingDemo, setLoadingDemo] = useState(false);
+  const { theme, resolvedTheme } = useTheme();
 
   const triggerLoading = () => {
     setLoadingDemo(true);
@@ -92,6 +126,31 @@ export const ShowcasePage: React.FC = () => {
           tokens do design system.
         </Body>
       </SectionHead>
+
+      {/* ─── Theme ──────────────────────────────────────────────── */}
+      <Section aria-label="Theme">
+        <SectionHead>
+          <Caption>Theme</Caption>
+          <Heading level={3}>Tema claro / escuro</Heading>
+        </SectionHead>
+        <Body muted>
+          Use o toggle no Topbar (ou o duplicado abaixo) para alternar entre
+          claro e escuro. A escolha é persistida em <code>localStorage</code> sob
+          a chave <code>lfc-admin-theme</code>; sem escolha persistida o tema
+          segue <code>prefers-color-scheme</code> do sistema.
+        </Body>
+        <ThemeRow>
+          <ThemeToggle />
+          <ThemeStatus>
+            <Caption>
+              Preferência: <ThemeBadge>{theme}</ThemeBadge>
+            </Caption>
+            <Caption>
+              Resolvido: <ThemeBadge>{resolvedTheme}</ThemeBadge>
+            </Caption>
+          </ThemeStatus>
+        </ThemeRow>
+      </Section>
 
       {/* ─── Typography ─────────────────────────────────────────── */}
       <Section aria-label="Typography">
