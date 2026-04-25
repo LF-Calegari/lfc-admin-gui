@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient, ApiError } from '@/shared/api';
 import type { LoginResponse, VerifyTokenResponse } from '@/shared/auth';
 
+import { ToastProvider } from '@/components/ui';
 import { LoginPage } from '@/pages/LoginPage';
 import { AuthProvider } from '@/shared/auth';
 
@@ -71,17 +72,19 @@ function renderLogin(options: RenderOptions = {}): { client: ClientStub } {
   render(
     <MemoryRouter initialEntries={options.initialEntries ?? ['/login']}>
       <AuthProvider client={client} verifyIntervalMs={0}>
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route
-            path="/systems"
-            element={<div data-testid="systems-page">systems</div>}
-          />
-          <Route
-            path="/permissions"
-            element={<div data-testid="permissions-page">permissions</div>}
-          />
-        </Routes>
+        <ToastProvider>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route
+              path="/systems"
+              element={<div data-testid="systems-page">systems</div>}
+            />
+            <Route
+              path="/permissions"
+              element={<div data-testid="permissions-page">permissions</div>}
+            />
+          </Routes>
+        </ToastProvider>
       </AuthProvider>
     </MemoryRouter>,
   );
@@ -100,14 +103,14 @@ describe('LoginPage — render inicial', () => {
     expect(screen.getByRole('img', { name: /LF Calegari Admin/i })).toBeInTheDocument();
     expect(screen.getByLabelText(/E-mail/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/Senha/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Entrar/i })).toBeInTheDocument();
+    expect(screen.getByTestId('login-submit')).toBeInTheDocument();
   });
 
   it('campos começam vazios e botão habilitado', () => {
     renderLogin();
     const email = screen.getByLabelText(/E-mail/i) as HTMLInputElement;
     const password = screen.getByLabelText(/Senha/i) as HTMLInputElement;
-    const submit = screen.getByRole('button', { name: /Entrar/i });
+    const submit = screen.getByTestId('login-submit');
 
     expect(email.value).toBe('');
     expect(password.value).toBe('');
@@ -118,6 +121,57 @@ describe('LoginPage — render inicial', () => {
     renderLogin();
     const email = screen.getByLabelText(/E-mail/i);
     expect(email).toHaveFocus();
+  });
+
+  it('renderiza heading principal "Entrar no painel" como h1 único', () => {
+    renderLogin();
+    const headings = screen.getAllByRole('heading', { level: 1 });
+    expect(headings).toHaveLength(1);
+    expect(headings[0]).toHaveTextContent(/Entrar no painel/i);
+  });
+
+  it('exibe eyebrow "Authenticator · v1.0" acima do título', () => {
+    renderLogin();
+    const eyebrow = screen.getByTestId('login-eyebrow');
+    expect(eyebrow).toBeInTheDocument();
+    expect(eyebrow).toHaveTextContent(/Authenticator/i);
+    expect(eyebrow).toHaveTextContent(/v1\.0/i);
+  });
+
+  it('exibe footer mono com metadados de JWT e data ISO', () => {
+    renderLogin();
+    const meta = screen.getByTestId('login-meta');
+    expect(meta).toBeInTheDocument();
+    expect(meta).toHaveTextContent(/JWT/i);
+    expect(meta).toHaveTextContent(/tokenVersion assinado/i);
+    // Data corrente em formato YYYY-MM-DD
+    expect(meta).toHaveTextContent(/\d{4}-\d{2}-\d{2}/);
+  });
+
+  it('exibe botão "Esqueci a senha" como secundário (variant ghost)', () => {
+    renderLogin();
+    expect(screen.getByTestId('login-forgot')).toBeInTheDocument();
+    expect(screen.getByTestId('login-forgot')).toHaveTextContent(/Esqueci a senha/i);
+  });
+});
+
+describe('LoginPage — esqueci a senha', () => {
+  it('dispara toast informativo ao clicar em "Esqueci a senha"', async () => {
+    renderLogin();
+
+    fireEvent.click(screen.getByTestId('login-forgot'));
+
+    expect(
+      await screen.findByText(/Funcionalidade em breve\. Contate o administrador\./i),
+    ).toBeInTheDocument();
+  });
+
+  it('não submete o formulário ao clicar em "Esqueci a senha"', () => {
+    const { client } = renderLogin();
+
+    fireEvent.click(screen.getByTestId('login-forgot'));
+
+    expect(client.post).not.toHaveBeenCalled();
   });
 });
 
