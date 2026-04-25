@@ -110,6 +110,7 @@
   --text-2xl: 2rem;
   --text-3xl: 2.75rem;
   --text-4xl: 3.75rem;
+  --text-display: clamp(3.75rem, 12vw, 7rem);
 
   --weight-regular: 400;
   --weight-medium: 500;
@@ -183,7 +184,23 @@
   --touch-min: 44px;
   --grid-cell: 24px;
   --pad-inline: clamp(1.25rem, 5vw, 5rem);
+
+  /* Larguras semânticas — usadas por blocos de conteúdo centralizado */
+  --measure-narrow: 48ch;
+  --measure-base: 56ch;
+  --measure-cta: 22rem;
+  --measure-cta-min: 12rem;
 }
+
+/*
+ * Breakpoints (referência) — CSS custom properties não funcionam dentro da
+ * condição de @media (resolução em tempo de parser, antes da cascata). Use
+ * estes literais nos @media de styled-components, mantendo a tabela única:
+ *   --bp-xs: 30em   (≈ 480px)  — quebra para layouts ≥ tablet pequeno
+ *   --bp-sm: 48em   (≈ 768px)  — quebra para tablet
+ *   --bp-md: 60em   (≈ 960px)  — quebra para desktop
+ *   --bp-lg: 75em   (≈ 1200px) — quebra para desktop largo
+ */
 
 @media (min-width: 60em) {
   :root {
