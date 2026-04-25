@@ -139,7 +139,7 @@ export const AppLayout: React.FC = () => {
 
   const handleLogout = () => {
     // Sessão invalidada — placeholder para integração com lfc-authenticator.
-    window.location.reload();
+    globalThis.location.reload();
   };
 
   return (
