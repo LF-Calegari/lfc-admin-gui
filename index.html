@@ -7,6 +7,26 @@
     <meta name="description" content="LFC Admin GUI" />
     <link rel="manifest" href="/manifest.json" />
     <title>LFC Admin GUI</title>
+    <script>
+      // Anti-FOUC: define `data-theme` no <html> antes do React montar.
+      // - Lê preferência persistida em `localStorage` ('lfc-admin-theme'):
+      //   * 'light' / 'dark' → escolhas explícitas
+      //   * ausente / 'system' → segue prefers-color-scheme do SO
+      // - Falha silenciosamente em modo privado / SSR / cota zerada.
+      (function () {
+        try {
+          var stored = window.localStorage.getItem('lfc-admin-theme');
+          var explicit = stored === 'light' || stored === 'dark';
+          var prefersDark =
+            typeof window.matchMedia === 'function' &&
+            window.matchMedia('(prefers-color-scheme: dark)').matches;
+          var theme = explicit ? stored : prefersDark ? 'dark' : 'light';
+          document.documentElement.setAttribute('data-theme', theme);
+        } catch (_err) {
+          document.documentElement.setAttribute('data-theme', 'light');
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
