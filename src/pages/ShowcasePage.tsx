@@ -14,6 +14,15 @@ import {
 } from '../components/ui';
 import { useTheme } from '../hooks/useTheme';
 
+import { ColorsBrand } from './showcase/ColorsBrand';
+import { ColorsStatus } from './showcase/ColorsStatus';
+import { ColorsSurfaces } from './showcase/ColorsSurfaces';
+import { ColorsText } from './showcase/ColorsText';
+import { Logo } from './showcase/Logo';
+import { Radii } from './showcase/Radii';
+import { Shadows } from './showcase/Shadows';
+import { Spacing } from './showcase/Spacing';
+
 const Page = styled.div`
   display: flex;
   flex-direction: column;
@@ -122,8 +131,9 @@ export const ShowcasePage: React.FC = () => {
         <Caption>00 Showcase</Caption>
         <Heading level={1}>Componentes base</Heading>
         <Body muted>
-          Vitrine isolada de Button, Typography, Icon e Spinner — todos consumindo
-          tokens do design system.
+          Vitrine isolada do design system: tokens visuais (cores, raios,
+          sombras, espaçamento, logo) e componentes base — todos consumindo
+          tokens definidos em <code>src/styles/tokens.css</code>.
         </Body>
       </SectionHead>
 
@@ -151,6 +161,16 @@ export const ShowcasePage: React.FC = () => {
           </ThemeStatus>
         </ThemeRow>
       </Section>
+
+      {/* ─── Tokens visuais (Epic #22 / PR-A1) ──────────────────── */}
+      <ColorsBrand />
+      <ColorsStatus />
+      <ColorsSurfaces />
+      <ColorsText />
+      <Radii />
+      <Shadows />
+      <Spacing />
+      <Logo />
 
       {/* ─── Typography ─────────────────────────────────────────── */}
       <Section aria-label="Typography">
