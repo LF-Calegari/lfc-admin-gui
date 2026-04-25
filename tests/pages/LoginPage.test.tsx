@@ -59,8 +59,8 @@ interface RenderOptions {
 function renderLogin(options: RenderOptions = {}): { client: ClientStub } {
   const client = options.client ?? createClientStub();
   render(
-    <AuthProvider client={client}>
-      <MemoryRouter initialEntries={options.initialEntries ?? ['/login']}>
+    <MemoryRouter initialEntries={options.initialEntries ?? ['/login']}>
+      <AuthProvider client={client} verifyIntervalMs={0}>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route
@@ -72,8 +72,8 @@ function renderLogin(options: RenderOptions = {}): { client: ClientStub } {
             element={<div data-testid="permissions-page">permissions</div>}
           />
         </Routes>
-      </MemoryRouter>
-    </AuthProvider>,
+      </AuthProvider>
+    </MemoryRouter>,
   );
   return { client };
 }
