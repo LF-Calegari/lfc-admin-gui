@@ -18,10 +18,24 @@ const PERM_GROUPS: PermGroup[] = [
   { res: 'Tokens',  actions: ['Issue', 'Revoke', 'Inspect'] },
 ];
 
+/**
+ * Em mobile (< --bp-md) cada card de permissão ocupa a largura inteira;
+ * a partir de `--bp-md` (48em) ganha 2 colunas, e a partir de `--bp-lg`
+ * (64em) volta à grade 3×N original.
+ */
 const PermGrid = styled.div`
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 14px;
+  grid-template-columns: 1fr;
+  gap: 12px;
+
+  @media (min-width: 48em) {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+  }
+
+  @media (min-width: 64em) {
+    grid-template-columns: repeat(3, 1fr);
+  }
 `;
 
 const ChipWrap = styled.div`

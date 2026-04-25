@@ -30,25 +30,43 @@ const STATUS_MAP: Record<SystemItem['status'], { variant: BadgeVariant; label: s
   pending:   { variant: 'warning', label: 'Pendente' },
 };
 
+/**
+ * StatRow — em mobile (< --bp-md, 48em) duas colunas para evitar números
+ * espremidos; a partir de `--bp-md` recupera o layout 4×1 característico.
+ */
 const StatRow = styled.div`
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
-  margin-bottom: 26px;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: var(--space-5);
+
+  @media (min-width: 48em) {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    margin-bottom: 26px;
+  }
 `;
 
 const StatCard = styled.div`
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
-  padding: 16px 18px;
+  padding: 14px 16px;
+
+  @media (min-width: 48em) {
+    padding: 16px 18px;
+  }
 `;
 
 const StatNumber = styled.div`
-  font-size: 28px;
+  font-size: 24px;
   font-weight: var(--weight-bold);
   letter-spacing: -0.03em;
   color: var(--fg1);
+
+  @media (min-width: 48em) {
+    font-size: 28px;
+  }
 `;
 
 const StatLabel = styled.div`
@@ -60,10 +78,19 @@ const StatLabel = styled.div`
   margin-top: 4px;
 `;
 
+/**
+ * Grid de cards de sistemas. Em mobile (< --bp-md) cada card ocupa a
+ * largura inteira; a partir de `--bp-md` (48em) volta a duas colunas.
+ */
 const Grid2 = styled.div`
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 16px;
+  grid-template-columns: 1fr;
+  gap: 14px;
+
+  @media (min-width: 48em) {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
 `;
 
 const CardMeta = styled.div`
