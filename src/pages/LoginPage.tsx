@@ -462,7 +462,7 @@ export const LoginPage: React.FC = () => {
           <Logo src={logoSrc} alt="LF Calegari Admin" />
           <CardHeader>
             <Eyebrow data-testid="login-eyebrow">{EYEBROW_TEXT}</Eyebrow>
-            <BrandTitle>Acessar no painel</BrandTitle>
+            <BrandTitle>Entrar no painel</BrandTitle>
             <BrandSubtitle>
               Acesso restrito a administradores do ecossistema LFC.
             </BrandSubtitle>
