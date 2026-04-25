@@ -7,6 +7,7 @@ import { PermissionsPage } from './pages/PermissionsPage';
 import { PlaceholderPage } from './pages/PlaceholderPage';
 import { RolesPage } from './pages/RolesPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { ShowcasePage } from './pages/ShowcasePage';
 import { SystemsPage } from './pages/SystemsPage';
 import { UsersPage } from './pages/UsersPage';
 
@@ -55,6 +56,7 @@ const PAGE_TITLES: Record<NavId, string> = {
   users:    'Usuários',
   tokens:   'Tokens',
   settings: 'Configurações',
+  showcase: 'Showcase UI',
 };
 
 interface AuthUser {
@@ -75,6 +77,8 @@ function renderPage(page: NavId): React.ReactNode {
       return <PermissionsPage />;
     case 'settings':
       return <SettingsPage />;
+    case 'showcase':
+      return <ShowcasePage />;
     case 'routes':
       return (
         <PlaceholderPage

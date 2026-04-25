@@ -6,13 +6,22 @@ import {
   User,
   Activity,
   Settings,
+  Component,
 } from 'lucide-react';
 import React from 'react';
 import styled from 'styled-components';
 
 import logoDark from '../../assets/logo-dark.svg';
 
-export type NavId = 'systems' | 'routes' | 'roles' | 'perms' | 'users' | 'tokens' | 'settings';
+export type NavId =
+  | 'systems'
+  | 'routes'
+  | 'roles'
+  | 'perms'
+  | 'users'
+  | 'tokens'
+  | 'settings'
+  | 'showcase';
 
 interface NavItem {
   id: NavId;
@@ -29,6 +38,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'users',    num: '05', label: 'Usuários',       icon: <User size={15} strokeWidth={1.5} /> },
   { id: 'tokens',   num: '06', label: 'Tokens',         icon: <Activity size={15} strokeWidth={1.5} /> },
   { id: 'settings', num: '07', label: 'Configurações',  icon: <Settings size={15} strokeWidth={1.5} /> },
+  { id: 'showcase', num: '08', label: 'Showcase UI',     icon: <Component size={15} strokeWidth={1.5} /> },
 ];
 
 interface SidebarProps {

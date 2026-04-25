@@ -1,4 +1,5 @@
 export { Button } from './Button';
+export type { ButtonProps, ButtonVariant, ButtonSize } from './Button';
 export { Badge } from './Badge';
 export type { BadgeVariant } from './Badge';
 export { PermChip } from './PermChip';
@@ -6,3 +7,9 @@ export { Input } from './Input';
 export { Card } from './Card';
 export { Alert } from './Alert';
 export type { AlertVariant } from './Alert';
+export { Heading, Body, Caption, Label, Typography } from './Typography';
+export type { HeadingLevel, HeadingProps, TextProps, LabelProps } from './Typography';
+export { Icon } from './Icon';
+export type { IconProps, IconSize, IconTone } from './Icon';
+export { Spinner } from './Spinner';
+export type { SpinnerProps, SpinnerSize, SpinnerTone } from './Spinner';
