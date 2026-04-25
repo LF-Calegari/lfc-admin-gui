@@ -27,21 +27,34 @@ test('exibe o usuário padrão na Topbar', () => {
   expect(screen.getByText('admin@lfc.com.br')).toBeInTheDocument();
 });
 
-test('rota inexistente exibe placeholder 404', () => {
+test('rota inexistente exibe pagina 404', () => {
   renderAt('/rota-que-nao-existe');
 
-  expect(screen.getByText('Página não encontrada')).toBeInTheDocument();
+  expect(screen.getByText('404')).toBeInTheDocument();
   expect(
-    screen.getByText(/Erro 404 — placeholder, será substituído em #7\./),
+    screen.getByRole('heading', { level: 1, name: 'Página não encontrada' }),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole('button', { name: 'Voltar ao início' }),
   ).toBeInTheDocument();
 });
 
-test('rota /error/:code exibe placeholder com o código informado', () => {
+test('rota /error/:code resolve a pagina correspondente ao codigo', () => {
   renderAt('/error/401');
 
-  expect(screen.getByText('Não autenticado')).toBeInTheDocument();
+  expect(screen.getByText('401')).toBeInTheDocument();
   expect(
-    screen.getByText(/Erro 401 — placeholder, será substituído em #7\./),
+    screen.getByRole('heading', { level: 1, name: 'Não autenticado' }),
+  ).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Fazer login' })).toBeInTheDocument();
+});
+
+test('rota /error/:code com codigo desconhecido cai no 404', () => {
+  renderAt('/error/999');
+
+  expect(screen.getByText('404')).toBeInTheDocument();
+  expect(
+    screen.getByRole('heading', { level: 1, name: 'Página não encontrada' }),
   ).toBeInTheDocument();
 });
 
