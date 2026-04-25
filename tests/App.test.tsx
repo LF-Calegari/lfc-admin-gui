@@ -1,12 +1,37 @@
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { vi } from 'vitest';
+
+import type { ApiClient } from '@/shared/api';
 
 import { AppRoutes } from '@/routes';
+import { AuthProvider } from '@/shared/auth';
+
+/**
+ * Cliente HTTP stub para os testes de árvore: o `AppLayout` agora consome
+ * `useAuth()`, e o `AuthProvider` injeta callbacks no client. Como os
+ * cenários daqui não exercitam autenticação, devolvemos um stub inerte —
+ * sem sessão local, o `verify-token` nem chega a ser chamado.
+ */
+function makeInertClient(): ApiClient {
+  const stub = {
+    request: vi.fn(),
+    get: vi.fn(),
+    post: vi.fn(),
+    put: vi.fn(),
+    patch: vi.fn(),
+    delete: vi.fn(),
+    setAuth: vi.fn(),
+  };
+  return stub as unknown as ApiClient;
+}
 
 function renderAt(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
-      <AppRoutes />
+      <AuthProvider client={makeInertClient()} verifyIntervalMs={0} disableSplash>
+        <AppRoutes />
+      </AuthProvider>
     </MemoryRouter>,
   );
 }

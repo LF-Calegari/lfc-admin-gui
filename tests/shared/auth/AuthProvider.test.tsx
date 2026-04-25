@@ -1,6 +1,6 @@
 import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
 import React from 'react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 
@@ -262,6 +262,7 @@ describe('AuthProvider — logout', () => {
   test('limpa estado e zera token após logout', async () => {
     const client = createClientStub();
     client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
+    client.get.mockResolvedValueOnce({ message: 'Sessão encerrada.' });
     const { result } = renderHook(() => useAuth(), {
       wrapper: makeWrapper(client),
     });
@@ -280,6 +281,234 @@ describe('AuthProvider — logout', () => {
     expect(result.current.isAuthenticated).toBe(false);
     const latest = lastCall(client.setAuth.mock.calls)?.[0];
     expect(latest?.getToken?.()).toBeNull();
+  });
+
+  test('chama GET /auth/logout para invalidar tokenVersion remoto (Issue #55)', async () => {
+    const client = createClientStub();
+    client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
+    client.get.mockResolvedValueOnce({ message: 'Sessão encerrada.' });
+    const { result } = renderHook(() => useAuth(), {
+      wrapper: makeWrapper(client),
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    await act(async () => {
+      await result.current.login('ada@lfc.com.br', 'secret');
+    });
+
+    await act(async () => {
+      await result.current.logout();
+    });
+
+    expect(client.get).toHaveBeenCalledWith('/auth/logout');
+    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
+    expect(window.localStorage.getItem(STORAGE_KEYS.user)).toBeNull();
+    expect(result.current.isAuthenticated).toBe(false);
+  });
+
+  test('logout sem sessão ativa NÃO chama o endpoint remoto', async () => {
+    const client = createClientStub();
+    const { result } = renderHook(() => useAuth(), {
+      wrapper: makeWrapper(client),
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    await act(async () => {
+      await result.current.logout();
+    });
+
+    expect(client.get).not.toHaveBeenCalled();
+    expect(result.current.isAuthenticated).toBe(false);
+  });
+
+  test('falha de rede no logout remoto ainda limpa estado e storage', async () => {
+    const client = createClientStub();
+    client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
+    client.get.mockRejectedValueOnce(NETWORK_ERROR);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const { result } = renderHook(() => useAuth(), {
+      wrapper: makeWrapper(client),
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    await act(async () => {
+      await result.current.login('ada@lfc.com.br', 'secret');
+    });
+    expect(result.current.isAuthenticated).toBe(true);
+
+    await act(async () => {
+      await result.current.logout();
+    });
+
+    expect(client.get).toHaveBeenCalledWith('/auth/logout');
+    expect(result.current.isAuthenticated).toBe(false);
+    expect(result.current.user).toBeNull();
+    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
+    expect(window.localStorage.getItem(STORAGE_KEYS.user)).toBeNull();
+    expect(warnSpy).toHaveBeenCalled();
+
+    warnSpy.mockRestore();
+  });
+
+  test('logout em 401 (já deslogado no backend) limpa local sem warning', async () => {
+    const client = createClientStub();
+    client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
+    // Simula o comportamento real do client HTTP em 401: dispara
+    // `onUnauthorized` (que limpa sessão) e rejeita com ApiError.
+    client.get.mockImplementationOnce(async () => {
+      const config = lastCall(client.setAuth.mock.calls)?.[0];
+      config?.onUnauthorized?.();
+      throw UNAUTHORIZED_ERROR;
+    });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const { result } = renderHook(() => useAuth(), {
+      wrapper: makeWrapper(client),
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    await act(async () => {
+      await result.current.login('ada@lfc.com.br', 'secret');
+    });
+
+    await act(async () => {
+      await result.current.logout();
+    });
+
+    expect(client.get).toHaveBeenCalledWith('/auth/logout');
+    expect(result.current.isAuthenticated).toBe(false);
+    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
+    // 401 é silencioso: o usuário já estava deslogado de qualquer forma.
+    expect(warnSpy).not.toHaveBeenCalled();
+
+    warnSpy.mockRestore();
+  });
+
+  test('logout redireciona para /login após sucesso remoto', async () => {
+    seedPersistedSession();
+    const client = createClientStub();
+    // Primeira chamada: hidratação verify-token; Segunda: logout remoto.
+    client.get
+      .mockResolvedValueOnce(VERIFY_RESPONSE)
+      .mockResolvedValueOnce({ message: 'Sessão encerrada.' });
+
+    let capturedPath = '';
+    const PathProbe: React.FC = () => {
+      const location = useLocation();
+      capturedPath = location.pathname;
+      return null;
+    };
+
+    const TriggerScreen: React.FC = () => {
+      const authValue = useAuth();
+      return (
+        <>
+          <PathProbe />
+          <button
+            type="button"
+            data-testid="trigger-logout"
+            onClick={() => {
+              void authValue.logout();
+            }}
+          >
+            sair
+          </button>
+        </>
+      );
+    };
+
+    const LoginScreen: React.FC = () => (
+      <>
+        <PathProbe />
+        <div data-testid="login-screen">login</div>
+      </>
+    );
+
+    render(
+      <MemoryRouter initialEntries={['/systems']}>
+        <AuthProvider client={client} verifyIntervalMs={0} disableSplash>
+          <Routes>
+            <Route path="/login" element={<LoginScreen />} />
+            <Route path="/systems" element={<TriggerScreen />} />
+          </Routes>
+        </AuthProvider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(client.get).toHaveBeenCalledTimes(1));
+    expect(capturedPath).toBe('/systems');
+
+    await act(async () => {
+      screen.getByTestId('trigger-logout').click();
+    });
+
+    await waitFor(() => expect(capturedPath).toBe('/login'));
+    expect(client.get).toHaveBeenLastCalledWith('/auth/logout');
+    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
+  });
+
+  test('logout redireciona para /login mesmo após falha remota', async () => {
+    seedPersistedSession();
+    const client = createClientStub();
+    // Hidratação OK, depois logout falha por rede.
+    client.get
+      .mockResolvedValueOnce(VERIFY_RESPONSE)
+      .mockRejectedValueOnce(NETWORK_ERROR);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    let capturedPath = '';
+    const PathProbe: React.FC = () => {
+      const location = useLocation();
+      capturedPath = location.pathname;
+      return null;
+    };
+
+    const TriggerScreen: React.FC = () => {
+      const authValue = useAuth();
+      return (
+        <>
+          <PathProbe />
+          <button
+            type="button"
+            data-testid="trigger-logout"
+            onClick={() => {
+              void authValue.logout();
+            }}
+          >
+            sair
+          </button>
+        </>
+      );
+    };
+
+    const LoginScreen: React.FC = () => (
+      <>
+        <PathProbe />
+        <div data-testid="login-screen">login</div>
+      </>
+    );
+
+    render(
+      <MemoryRouter initialEntries={['/systems']}>
+        <AuthProvider client={client} verifyIntervalMs={0} disableSplash>
+          <Routes>
+            <Route path="/login" element={<LoginScreen />} />
+            <Route path="/systems" element={<TriggerScreen />} />
+          </Routes>
+        </AuthProvider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(client.get).toHaveBeenCalledTimes(1));
+    expect(capturedPath).toBe('/systems');
+
+    await act(async () => {
+      screen.getByTestId('trigger-logout').click();
+    });
+
+    await waitFor(() => expect(capturedPath).toBe('/login'));
+    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
+    expect(warnSpy).toHaveBeenCalled();
+
+    warnSpy.mockRestore();
   });
 });
 
