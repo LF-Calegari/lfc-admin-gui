@@ -68,6 +68,12 @@ interface FieldErrors {
  * Container raiz — `position: relative` para servir de âncora para a
  * camada de glow absoluta. `overflow: hidden` corta os gradientes que
  * vazam fora do viewport.
+ *
+ * Background transparente: o `<body>` global (em `globals.css`) já
+ * pinta `--bg-base` + grid overlay "engineering tool"
+ * (`identity/README.md:75`); manter o `PageRoot` opaco esconderia o
+ * grid também na tela de login. A `GlowLayer` continua por cima como
+ * camada decorativa absoluta.
  */
 const PageRoot = styled.div`
   min-height: 100vh;
@@ -76,7 +82,7 @@ const PageRoot = styled.div`
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: var(--bg-base);
+  background: transparent;
   padding: var(--space-8) var(--space-4);
   position: relative;
   overflow: hidden;
