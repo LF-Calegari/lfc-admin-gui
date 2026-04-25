@@ -6,13 +6,22 @@ import {
   User,
   Activity,
   Settings,
+  Component,
 } from 'lucide-react';
 import React from 'react';
 import styled from 'styled-components';
 
 import logoDark from '../../assets/logo-dark.svg';
 
-export type NavId = 'systems' | 'routes' | 'roles' | 'perms' | 'users' | 'tokens' | 'settings';
+export type NavId =
+  | 'systems'
+  | 'routes'
+  | 'roles'
+  | 'perms'
+  | 'users'
+  | 'tokens'
+  | 'settings'
+  | 'showcase';
 
 interface NavItem {
   id: NavId;
@@ -21,7 +30,7 @@ interface NavItem {
   icon: React.ReactNode;
 }
 
-const NAV_ITEMS: NavItem[] = [
+const ALL_NAV_ITEMS: NavItem[] = [
   { id: 'systems',  num: '01', label: 'Sistemas',       icon: <Monitor size={15} strokeWidth={1.5} /> },
   { id: 'routes',   num: '02', label: 'Rotas',          icon: <Shuffle size={15} strokeWidth={1.5} /> },
   { id: 'roles',    num: '03', label: 'Roles',          icon: <Users size={15} strokeWidth={1.5} /> },
@@ -29,7 +38,14 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'users',    num: '05', label: 'Usuários',       icon: <User size={15} strokeWidth={1.5} /> },
   { id: 'tokens',   num: '06', label: 'Tokens',         icon: <Activity size={15} strokeWidth={1.5} /> },
   { id: 'settings', num: '07', label: 'Configurações',  icon: <Settings size={15} strokeWidth={1.5} /> },
+  { id: 'showcase', num: '08', label: 'Showcase UI',     icon: <Component size={15} strokeWidth={1.5} /> },
 ];
+
+// Showcase UI eh pagina de demonstracao interna do design system —
+// expor apenas em build de desenvolvimento para nao poluir producao.
+const NAV_ITEMS: NavItem[] = ALL_NAV_ITEMS.filter(
+  item => item.id !== 'showcase' || import.meta.env.DEV,
+);
 
 interface SidebarProps {
   current: NavId;
