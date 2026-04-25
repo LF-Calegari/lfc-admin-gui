@@ -82,6 +82,7 @@
   --bg-ghost-active: rgba(22, 36, 15, 0.1);
   --bg-danger-soft: rgba(217, 95, 95, 0.1);
   --bg-danger-hover: rgba(217, 95, 95, 0.18);
+  --bg-backdrop-modal: color-mix(in srgb, var(--clr-forest) 42%, transparent);
   --border-danger-soft: rgba(217, 95, 95, 0.3);
   --border-danger-strong: rgba(217, 95, 95, 0.5);
 
@@ -190,19 +191,29 @@
   --measure-base: 56ch;
   --measure-cta: 22rem;
   --measure-cta-min: 12rem;
+
+  /* ── Breakpoints ─────────────────────────────────────────────
+   * Tokens documentais — referência única dos pontos de quebra.
+   *
+   * Importante: CSS custom properties NÃO funcionam dentro da condição
+   * de `@media (...)` porque a regra é resolvida em tempo de parser,
+   * antes da cascata. Por isso os componentes devem repetir o valor
+   * literal (ex.: `@media (min-width: 48em)`) e referenciar este token
+   * em comentário para manter a tabela como fonte única de verdade.
+   *
+   *   --bp-sm: 30em  (≈ 480px) — handheld grande / phablet
+   *   --bp-md: 48em  (≈ 768px) — quebra mobile/desktop (Sidebar drawer)
+   *   --bp-lg: 64em  (≈ 1024px) — desktop padrão
+   *   --bp-xl: 80em  (≈ 1280px) — desktop largo
+   */
+  --bp-sm: 30em;
+  --bp-md: 48em;
+  --bp-lg: 64em;
+  --bp-xl: 80em;
 }
 
-/*
- * Breakpoints (referência) — CSS custom properties não funcionam dentro da
- * condição de @media (resolução em tempo de parser, antes da cascata). Use
- * estes literais nos @media de styled-components, mantendo a tabela única:
- *   --bp-xs: 30em   (≈ 480px)  — quebra para layouts ≥ tablet pequeno
- *   --bp-sm: 48em   (≈ 768px)  — quebra para tablet
- *   --bp-md: 60em   (≈ 960px)  — quebra para desktop
- *   --bp-lg: 75em   (≈ 1200px) — quebra para desktop largo
- */
-
-@media (min-width: 60em) {
+/* Grid maior em desktop — espelha `--bp-lg` (64em ≈ 1024px). */
+@media (min-width: 64em) {
   :root {
     --grid-cell: 40px;
   }

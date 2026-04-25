@@ -30,19 +30,39 @@ const STATUS_MAP: Record<UserItem['status'], { variant: BadgeVariant; label: str
   pending:   { variant: 'warning', label: 'Pendente' },
 };
 
+/**
+ * FilterRow — em mobile (< --bp-md) empilha o input/filtros para evitar
+ * compressão e mantém touch targets confortáveis. Em desktop volta à
+ * linha única com Spacer empurrando a contagem à direita.
+ */
 const FilterRow = styled.div`
   display: flex;
+  flex-direction: column;
   gap: 10px;
-  align-items: flex-end;
+  align-items: stretch;
   margin-bottom: 18px;
 
   > *:first-child {
-    min-width: 280px;
+    min-width: 0;
+  }
+
+  @media (min-width: 48em) {
+    flex-direction: row;
+    align-items: flex-end;
+
+    > *:first-child {
+      min-width: 280px;
+    }
   }
 `;
 
 const Spacer = styled.div`
-  flex: 1;
+  display: none;
+
+  @media (min-width: 48em) {
+    display: block;
+    flex: 1;
+  }
 `;
 
 const MonoMuted = styled.span`
@@ -56,17 +76,27 @@ const Mono = styled.span`
   font-size: 12px;
 `;
 
+/**
+ * Em mobile permitimos `overflow-x: auto` para que a tabela mantenha
+ * todas as colunas legíveis via scroll horizontal contido ao card.
+ */
 const TableWrap = styled.div`
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
-  overflow: hidden;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   background: var(--bg-surface);
 `;
 
 const Table = styled.table`
   width: 100%;
+  min-width: 720px;
   border-collapse: collapse;
   font-size: 13.5px;
+
+  @media (min-width: 48em) {
+    min-width: 0;
+  }
 
   thead {
     background: var(--bg-elevated);

@@ -21,17 +21,28 @@ const ROLES: RoleItem[] = [
   { name: 'default', users: 1,  perms: 3,  desc: 'Role de fallback para usuários legados',         system: '—' },
 ];
 
+/**
+ * Em mobile permitimos `overflow-x: auto` para que tabelas largas
+ * mantenham todas as colunas sem espremer texto; o container restringe o
+ * scroll ao card e impede que ele afete o layout principal.
+ */
 const TableWrap = styled.div`
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
-  overflow: hidden;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   background: var(--bg-surface);
 `;
 
 const Table = styled.table`
   width: 100%;
+  min-width: 640px;
   border-collapse: collapse;
   font-size: 13.5px;
+
+  @media (min-width: 48em) {
+    min-width: 0;
+  }
 
   thead {
     background: var(--bg-elevated);

@@ -36,9 +36,14 @@ const KVValue = styled.span`
   font-family: var(--font-mono);
 `;
 
+/**
+ * Em telas estreitas a linha de ações pode quebrar — `flex-wrap` evita
+ * overflow horizontal sem mudar a estrutura semântica.
+ */
 const Actions = styled.div`
   margin-top: 16px;
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 `;
 
