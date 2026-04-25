@@ -88,6 +88,18 @@ interface UseThemeResult {
  * renderização quanto a cada mudança — em conjunto com o script
  * anti-FOUC do `index.html`, garante que a paleta correta esteja
  * presente desde o primeiro frame.
+ *
+ * Comportamento do modo `system` na UI atual:
+ * - O `ThemeToggle` (componente visível na Topbar) só cicla
+ *   binariamente entre `light` e `dark` via `toggleTheme()`. Ao
+ *   primeiro clique a partir de `system`, a preferência é "promovida"
+ *   para a escolha explícita oposta ao tema resolvido naquele momento.
+ * - O modo `system` continua acessível por dois caminhos: (a) chamada
+ *   programática `setTheme('system')`, e (b) ausência da chave
+ *   `lfc-admin-theme` no `localStorage` no primeiro carregamento — o
+ *   hook então segue `prefers-color-scheme` do SO em runtime.
+ * - A evolução para um dropdown de três estados (`light`/`dark`/
+ *   `system`) é compatível com este hook sem quebra de API.
  */
 export const useTheme = (): UseThemeResult => {
   const [theme, setThemeState] = useState<ThemePreference>(() => readStoredPreference());
