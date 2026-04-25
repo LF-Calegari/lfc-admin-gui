@@ -76,15 +76,18 @@ function resolveVerifyInterval(): number {
  * Type guard mínimo para o payload do endpoint `verify-token`.
  *
  * O contrato real do `auth-service` é achatado: `{ id, name, email,
- * identity, permissions: Guid[], routeCodes: string[] }`. Validamos os
- * campos essenciais (`id`, `name`, `email` strings; `identity` numérico;
- * `routeCodes` array) antes de o Provider confiar no payload — defesa
+ * identity, permissions: Guid[], permissionCodes: string[],
+ * routeCodes: string[] }`. Validamos os campos essenciais (`id`,
+ * `name`, `email` strings; `identity` numérico; `permissionCodes` e
+ * `routeCodes` arrays) antes de o Provider confiar no payload — defesa
  * contra resposta corrompida em proxies intermediários ou divergência
  * silenciosa de versão entre frontend/backend.
  *
  * `permissions` (GUIDs) também é exigido como array para manter simetria
  * com o backend, mas o Provider nunca consome diretamente — o catálogo
- * que alimenta `hasPermission()` é `routeCodes`.
+ * que alimenta `hasPermission()` é `permissionCodes` (ex.:
+ * `perm:Systems.Read`). Cada item de `permissionCodes` deve ser string
+ * para evitar que entradas corrompidas escapem para `state.permissions`.
  */
 function isValidVerifyTokenResponse(value: unknown): value is VerifyTokenResponse {
   if (!value || typeof value !== 'object') {
@@ -92,6 +95,12 @@ function isValidVerifyTokenResponse(value: unknown): value is VerifyTokenRespons
   }
   const record = value as Record<string, unknown>;
   if (!Array.isArray(record.permissions)) {
+    return false;
+  }
+  if (!Array.isArray(record.permissionCodes)) {
+    return false;
+  }
+  if (!record.permissionCodes.every(item => typeof item === 'string')) {
     return false;
   }
   if (!Array.isArray(record.routeCodes)) {
@@ -214,10 +223,11 @@ interface AuthProviderProps {
  *    falhas pós-login (`verify-token` rejeitou após token aceito).
  * 9. **Login encadeado (POST /auth/login → GET /auth/verify-token)** —
  *    o backend retorna apenas `{ token }` no login; o perfil e o
- *    catálogo `routeCodes` vêm em `verify-token`. Setamos `tokenRef`
- *    entre as duas chamadas porque o cliente HTTP precisa do header
- *    `Authorization` para a segunda. Falha entre as duas (rede, 401,
- *    payload inválido) limpa a sessão parcial via `clearSession`.
+ *    catálogo `permissionCodes` vêm em `verify-token`. Setamos
+ *    `tokenRef` entre as duas chamadas porque o cliente HTTP precisa
+ *    do header `Authorization` para a segunda. Falha entre as duas
+ *    (rede, 401, payload inválido) limpa a sessão parcial via
+ *    `clearSession`.
  */
 export const AuthProvider: React.FC<AuthProviderProps> = ({
   children,
@@ -357,12 +367,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
           );
           return;
         }
-        // Projeta o payload achatado em `User` e usa `routeCodes` (e
-        // não `permissions`/GUIDs) como catálogo consumido por
-        // `hasPermission()`. Persiste antes de setState pelos mesmos
-        // motivos do `login`.
+        // Projeta o payload achatado em `User` e usa `permissionCodes`
+        // (e não `permissions`/GUIDs nem `routeCodes`) como catálogo
+        // consumido por `hasPermission()`. Persiste antes de setState
+        // pelos mesmos motivos do `login`.
         const user = toUser(data);
-        const permissions = data.routeCodes;
+        const permissions = data.permissionCodes;
         sessionStorage.save({
           token: tokenRef.current,
           user,
@@ -469,7 +479,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
         }
 
         const user = toUser(verifyData);
-        const permissions = verifyData.routeCodes;
+        const permissions = verifyData.permissionCodes;
 
         // Persiste antes de atualizar o estado: assim qualquer falha
         // posterior (ainda que improvável) não deixa a sessão "viva em
