@@ -154,6 +154,7 @@ export const AppLayout: React.FC = () => {
             user={user}
             onLogout={handleLogout}
             onMenuClick={handleOpenDrawer}
+            drawerOpen={drawerOpen}
           />
           <ContentArea>
             <Outlet />

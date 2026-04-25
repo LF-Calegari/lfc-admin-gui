@@ -34,6 +34,17 @@ describe('Topbar', () => {
     expect(button).toHaveAttribute('aria-label', 'Abrir menu de navegação');
   });
 
+  it('hamburger expõe aria-controls e aria-expanded refletindo drawerOpen', () => {
+    const { rerender } = render(<Topbar title="Sistemas" drawerOpen={false} />);
+
+    const button = screen.getByTestId('topbar-menu-button');
+    expect(button).toHaveAttribute('aria-controls', 'sidebar-drawer');
+    expect(button).toHaveAttribute('aria-expanded', 'false');
+
+    rerender(<Topbar title="Sistemas" drawerOpen={true} />);
+    expect(button).toHaveAttribute('aria-expanded', 'true');
+  });
+
   it('busca colapsada expande ao clicar no toggle de busca', () => {
     render(<Topbar title="Sistemas" />);
 

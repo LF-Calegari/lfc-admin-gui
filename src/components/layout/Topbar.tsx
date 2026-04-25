@@ -17,6 +17,12 @@ interface TopbarProps {
    * ocultado via `@media`, então o handler é inerte.
    */
   onMenuClick?: () => void;
+  /**
+   * Reflete o estado do drawer controlado pelo layout. Usado para expor
+   * `aria-expanded` no botão hamburger e indicar a leitores de tela se o
+   * `#sidebar-drawer` (referenciado em `aria-controls`) está aberto.
+   */
+  drawerOpen?: boolean;
 }
 
 const TopbarWrapper = styled.header`
@@ -363,6 +369,7 @@ export const Topbar: React.FC<TopbarProps> = ({
   user,
   onLogout,
   onMenuClick,
+  drawerOpen = false,
 }) => {
   const initials = user?.name?.[0]?.toUpperCase() ?? 'A';
   const roleLabel = user
@@ -385,6 +392,8 @@ export const Topbar: React.FC<TopbarProps> = ({
       <MenuButton
         type="button"
         aria-label="Abrir menu de navegação"
+        aria-controls="sidebar-drawer"
+        aria-expanded={drawerOpen}
         onClick={onMenuClick}
         data-testid="topbar-menu-button"
       >
