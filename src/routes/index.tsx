@@ -4,6 +4,7 @@ import { Navigate, Route, Routes, useParams } from 'react-router-dom';
 import { AppLayout } from '../layouts/AppLayout';
 import { ForbiddenPage } from '../pages/ForbiddenPage';
 import { InternalErrorPage } from '../pages/InternalErrorPage';
+import { LoginPage } from '../pages/LoginPage';
 import { NotFoundPage } from '../pages/NotFoundPage';
 import { PermissionsPage } from '../pages/PermissionsPage';
 import { PlaceholderPage } from '../pages/PlaceholderPage';
@@ -39,6 +40,8 @@ const ErrorRouteResolver: React.FC = () => {
  * Estrutura de rotas do painel administrativo.
  *
  * Convenções:
+ * - Rotas públicas (`/login`) vivem em top-level, fora do `<AppLayout>`,
+ *   para que Sidebar/Topbar não apareçam antes da autenticação.
  * - Toda rota autenticada vive sob `<AppLayout>` (Sidebar + Topbar + Outlet).
  * - O índice `/` redireciona para `/systems` para preservar UX legada.
  * - Rotas `/error/:code` mapeiam para as páginas reais de erro
@@ -49,6 +52,8 @@ const ErrorRouteResolver: React.FC = () => {
  */
 export const AppRoutes: React.FC = () => (
   <Routes>
+    <Route path="/login" element={<LoginPage />} />
+
     <Route element={<AppLayout />}>
       <Route index element={<Navigate to="/systems" replace />} />
 
