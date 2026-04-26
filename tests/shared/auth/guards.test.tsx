@@ -294,68 +294,110 @@ describe('RequireAuth', () => {
   });
 });
 
+/**
+ * Helper local para reduzir duplicação dos cenários de `RequirePermission`.
+ * Concentra o boilerplate `MemoryRouter` + `AuthProvider` + `Routes` +
+ * `Route` + `RequirePermission` + `Route /error/:code` em um único lugar.
+ *
+ * Pontos de variação cobertos:
+ * - `protectedRoute` / `initialEntries` para roteamento.
+ * - `code` exigido pelo guard.
+ * - `sessionPermissions` para o `seedSession` (ou seed vazio com `[]`).
+ * - `protectedTestId` / `protectedLabel` para o conteúdo protegido.
+ * - `errorTestId` para o conteúdo de fallback.
+ * - `withProbe` para anexar a sonda de location na rota `/error/:code`
+ *   quando o teste asserir o redirect (`captured.current?.pathname`).
+ */
+interface RenderRequirePermissionOptions {
+  protectedRoute: string;
+  initialEntries?: string[];
+  code: string;
+  sessionPermissions: ReadonlyArray<string>;
+  protectedTestId: string;
+  protectedLabel: string;
+  errorTestId?: string;
+  withProbe?: boolean;
+}
+
+interface RenderRequirePermissionResult {
+  captured: { current: CapturedLocation | null };
+}
+
+function renderRequirePermissionScenario(
+  options: RenderRequirePermissionOptions,
+): RenderRequirePermissionResult {
+  const {
+    protectedRoute,
+    initialEntries = [protectedRoute],
+    code,
+    sessionPermissions,
+    protectedTestId,
+    protectedLabel,
+    errorTestId = 'error-page',
+    withProbe = false,
+  } = options;
+
+  seedSession(sessionPermissions);
+  const client = createClientStub();
+  const captured = { current: null as CapturedLocation | null };
+  const ErrorProbe = makeLocationProbe(captured);
+
+  render(
+    <MemoryRouter initialEntries={initialEntries}>
+      <AuthProvider client={client} verifyIntervalMs={0} disableSplash>
+        <Routes>
+          <Route
+            path={protectedRoute}
+            element={
+              <RequirePermission code={code}>
+                <div data-testid={protectedTestId}>{protectedLabel}</div>
+              </RequirePermission>
+            }
+          />
+          <Route
+            path="/error/:code"
+            element={
+              withProbe ? (
+                <>
+                  <ErrorProbe />
+                  <div data-testid={errorTestId}>erro</div>
+                </>
+              ) : (
+                <div data-testid={errorTestId}>erro</div>
+              )
+            }
+          />
+        </Routes>
+      </AuthProvider>
+    </MemoryRouter>,
+  );
+
+  return { captured };
+}
+
 describe('RequirePermission', () => {
   it('renderiza children quando a permissão exigida está presente', () => {
-    seedSession(['perm:Systems.Read', 'perm:Users.Read']);
-    const client = createClientStub();
-
-    render(
-      <MemoryRouter initialEntries={['/users']}>
-        <AuthProvider client={client} verifyIntervalMs={0} disableSplash>
-          <Routes>
-            <Route
-              path="/users"
-              element={
-                <RequirePermission code="perm:Users.Read">
-                  <div data-testid="users-page">users</div>
-                </RequirePermission>
-              }
-            />
-            <Route
-              path="/error/:code"
-              element={<div data-testid="error-page">erro</div>}
-            />
-          </Routes>
-        </AuthProvider>
-      </MemoryRouter>,
-    );
+    renderRequirePermissionScenario({
+      protectedRoute: '/users',
+      code: 'perm:Users.Read',
+      sessionPermissions: ['perm:Systems.Read', 'perm:Users.Read'],
+      protectedTestId: 'users-page',
+      protectedLabel: 'users',
+    });
 
     expect(screen.getByTestId('users-page')).toBeInTheDocument();
     expect(screen.queryByTestId('error-page')).not.toBeInTheDocument();
   });
 
   it('redireciona para /error/403 quando o code não está presente', () => {
-    seedSession(['perm:Systems.Read']);
-    const client = createClientStub();
-
-    const captured = { current: null as CapturedLocation | null };
-    const ErrorProbe = makeLocationProbe(captured);
-
-    render(
-      <MemoryRouter initialEntries={['/users']}>
-        <AuthProvider client={client} verifyIntervalMs={0} disableSplash>
-          <Routes>
-            <Route
-              path="/users"
-              element={
-                <RequirePermission code="perm:Users.Read">
-                  <div data-testid="users-page">users</div>
-                </RequirePermission>
-              }
-            />
-            <Route
-              path="/error/:code"
-              element={
-                <>
-                  <ErrorProbe />
-                  <div data-testid="error-page">erro</div>
-                </>
-              }
-            />
-          </Routes>
-        </AuthProvider>
-      </MemoryRouter>,
-    );
+    const { captured } = renderRequirePermissionScenario({
+      protectedRoute: '/users',
+      code: 'perm:Users.Read',
+      sessionPermissions: ['perm:Systems.Read'],
+      protectedTestId: 'users-page',
+      protectedLabel: 'users',
+      withProbe: true,
+    });
 
     expect(screen.queryByTestId('users-page')).not.toBeInTheDocument();
     expect(screen.getByTestId('error-page')).toBeInTheDocument();
@@ -364,29 +406,13 @@ describe('RequirePermission', () => {
 
   it('redireciona para /error/403 quando o usuário não tem permissões', () => {
     // Sessão sem nenhum code: sempre 403 em rotas com gating.
-    seedSession([]);
-    const client = createClientStub();
-
-    render(
-      <MemoryRouter initialEntries={['/permissions']}>
-        <AuthProvider client={client} verifyIntervalMs={0} disableSplash>
-          <Routes>
-            <Route
-              path="/permissions"
-              element={
-                <RequirePermission code="perm:Permissions.Read">
-                  <div data-testid="permissions-page">permissões</div>
-                </RequirePermission>
-              }
-            />
-            <Route
-              path="/error/:code"
-              element={<div data-testid="error-page">erro</div>}
-            />
-          </Routes>
-        </AuthProvider>
-      </MemoryRouter>,
-    );
+    renderRequirePermissionScenario({
+      protectedRoute: '/permissions',
+      code: 'perm:Permissions.Read',
+      sessionPermissions: [],
+      protectedTestId: 'permissions-page',
+      protectedLabel: 'permissões',
+    });
 
     expect(screen.queryByTestId('permissions-page')).not.toBeInTheDocument();
     expect(screen.getByTestId('error-page')).toBeInTheDocument();
@@ -397,29 +423,13 @@ describe('RequirePermission', () => {
     // exatamente com o item em `permissions` (alimentado por
     // `permissionCodes` do verify-token). Usar o nome `SystemsRoutes`
     // do backend valida que os codes não-óbvios também são respeitados.
-    seedSession(['perm:SystemsRoutes.Read', 'perm:Systems.Read']);
-    const client = createClientStub();
-
-    render(
-      <MemoryRouter initialEntries={['/routes']}>
-        <AuthProvider client={client} verifyIntervalMs={0} disableSplash>
-          <Routes>
-            <Route
-              path="/routes"
-              element={
-                <RequirePermission code="perm:SystemsRoutes.Read">
-                  <div data-testid="routes-page">rotas</div>
-                </RequirePermission>
-              }
-            />
-            <Route
-              path="/error/:code"
-              element={<div data-testid="error-page">erro</div>}
-            />
-          </Routes>
-        </AuthProvider>
-      </MemoryRouter>,
-    );
+    renderRequirePermissionScenario({
+      protectedRoute: '/routes',
+      code: 'perm:SystemsRoutes.Read',
+      sessionPermissions: ['perm:SystemsRoutes.Read', 'perm:Systems.Read'],
+      protectedTestId: 'routes-page',
+      protectedLabel: 'rotas',
+    });
 
     expect(screen.getByTestId('routes-page')).toBeInTheDocument();
     expect(screen.queryByTestId('error-page')).not.toBeInTheDocument();
@@ -429,37 +439,14 @@ describe('RequirePermission', () => {
     // Cenário do bug original (#116): se o catálogo `permissions` no
     // estado vier sem o code exato esperado pelo guard, o usuário cai
     // em 403 — confirmando que o match continua estritamente por igualdade.
-    seedSession(['perm:Systems.Read']);
-    const client = createClientStub();
-
-    const captured = { current: null as CapturedLocation | null };
-    const ErrorProbe = makeLocationProbe(captured);
-
-    render(
-      <MemoryRouter initialEntries={['/tokens']}>
-        <AuthProvider client={client} verifyIntervalMs={0} disableSplash>
-          <Routes>
-            <Route
-              path="/tokens"
-              element={
-                <RequirePermission code="perm:SystemTokensTypes.Read">
-                  <div data-testid="tokens-page">tokens</div>
-                </RequirePermission>
-              }
-            />
-            <Route
-              path="/error/:code"
-              element={
-                <>
-                  <ErrorProbe />
-                  <div data-testid="error-page">erro</div>
-                </>
-              }
-            />
-          </Routes>
-        </AuthProvider>
-      </MemoryRouter>,
-    );
+    const { captured } = renderRequirePermissionScenario({
+      protectedRoute: '/tokens',
+      code: 'perm:SystemTokensTypes.Read',
+      sessionPermissions: ['perm:Systems.Read'],
+      protectedTestId: 'tokens-page',
+      protectedLabel: 'tokens',
+      withProbe: true,
+    });
 
     expect(screen.queryByTestId('tokens-page')).not.toBeInTheDocument();
     expect(screen.getByTestId('error-page')).toBeInTheDocument();
