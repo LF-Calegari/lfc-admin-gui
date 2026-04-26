@@ -14,6 +14,7 @@ import { apiClient, isApiError } from '../api';
 import { AuthSplash } from './AuthSplash';
 import { permissionsCache } from './permissionsCache';
 import { tokenStorage } from './storage';
+import { isValidPermissionsCatalog } from './types';
 
 import type { ApiClient, ApiError } from '../api';
 import type {
@@ -99,37 +100,12 @@ function isValidVerifyTokenResponse(value: unknown): value is VerifyTokenRespons
 /**
  * Type guard para `GET /auth/permissions`.
  *
- * O endpoint novo carrega `user`, `permissions` (GUIDs),
- * `permissionCodes` e `routeCodes`. Garantimos shape mínimo antes de
- * persistir no cache para evitar gravar lixo em IndexedDB.
+ * Delega ao guard compartilhado `isValidPermissionsCatalog` em
+ * `types.ts` (Issue #122 / FIX PR #123) — mesmo shape do registro
+ * cacheado em IndexedDB, sem o `cachedAt`.
  */
 function isValidPermissionsResponse(value: unknown): value is PermissionsResponse {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-  const record = value as Record<string, unknown>;
-  if (!Array.isArray(record.permissions)) {
-    return false;
-  }
-  if (!Array.isArray(record.permissionCodes)) {
-    return false;
-  }
-  if (!record.permissionCodes.every(item => typeof item === 'string')) {
-    return false;
-  }
-  if (!Array.isArray(record.routeCodes)) {
-    return false;
-  }
-  if (!record.user || typeof record.user !== 'object') {
-    return false;
-  }
-  const user = record.user as Record<string, unknown>;
-  return (
-    typeof user.id === 'string' &&
-    typeof user.name === 'string' &&
-    typeof user.email === 'string' &&
-    typeof user.identity === 'number'
-  );
+  return isValidPermissionsCatalog(value);
 }
 
 /**

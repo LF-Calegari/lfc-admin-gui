@@ -1,3 +1,5 @@
+import { isValidPermissionsCatalog } from './types';
+
 import type { User } from './types';
 
 /**
@@ -47,42 +49,22 @@ const RECORD_KEY = 'current';
 /**
  * Type guard mínimo para o registro lido de IndexedDB.
  *
- * O store é gravável pelo usuário via DevTools — confiar cegamente no
- * shape abriria caminho para crashes ao acessar campos. Validamos os
- * essenciais (mesmo critério aplicado em `storage.ts`).
+ * Reusa `isValidPermissionsCatalog` em `types.ts` (Issue #122 / FIX
+ * PR #123) e adiciona apenas a validação de `cachedAt` — o subset
+ * comum de shape vive em uma fonte única, sem duplicação de código.
+ *
+ * O store é gravável pelo usuário via DevTools, então a checagem
+ * defensiva é necessária; confiar cegamente em `JSON.parse` poderia
+ * crashar em acesso a `payload.user.id` se alguém substituísse o
+ * conteúdo manualmente.
  */
 function isValidCachedPermissions(value: unknown): value is CachedPermissions {
-  if (!value || typeof value !== 'object') {
+  if (!isValidPermissionsCatalog(value)) {
     return false;
   }
   const record = value as Record<string, unknown>;
-  if (!Array.isArray(record.permissions)) {
-    return false;
-  }
-  if (!Array.isArray(record.permissionCodes)) {
-    return false;
-  }
-  if (!record.permissionCodes.every(item => typeof item === 'string')) {
-    return false;
-  }
-  if (!Array.isArray(record.routeCodes)) {
-    return false;
-  }
-  if (!record.routeCodes.every(item => typeof item === 'string')) {
-    return false;
-  }
-  if (typeof record.cachedAt !== 'number' || !Number.isFinite(record.cachedAt)) {
-    return false;
-  }
-  if (!record.user || typeof record.user !== 'object') {
-    return false;
-  }
-  const user = record.user as Record<string, unknown>;
   return (
-    typeof user.id === 'string' &&
-    typeof user.name === 'string' &&
-    typeof user.email === 'string' &&
-    typeof user.identity === 'number'
+    typeof record.cachedAt === 'number' && Number.isFinite(record.cachedAt)
   );
 }
 

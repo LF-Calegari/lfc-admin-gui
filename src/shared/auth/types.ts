@@ -110,6 +110,60 @@ export interface PermissionsResponse {
 }
 
 /**
+ * Type guard compartilhado para o catálogo de permissões.
+ *
+ * Centraliza a validação de shape usada em dois call sites distintos:
+ *
+ * - `AuthContext.isValidPermissionsResponse` para o payload bruto de
+ *   `GET /auth/permissions`;
+ * - `permissionsCache.isValidCachedPermissions` para o registro lido
+ *   de IndexedDB (que adiciona apenas `cachedAt: number`).
+ *
+ * Sem a extração, os dois guards repetiam ~16 linhas de validação
+ * (Sonar Quality Gate falhou em new code duplication, PR #123). Manter
+ * uma fonte da verdade evita drift quando o shape evoluir.
+ *
+ * Não valida `cachedAt` — é responsabilidade do caller (cache) checar
+ * o campo extra. A função aqui valida apenas o subset comum.
+ */
+export function isValidPermissionsCatalog(value: unknown): value is {
+  user: User;
+  permissions: ReadonlyArray<string>;
+  permissionCodes: ReadonlyArray<string>;
+  routeCodes: ReadonlyArray<string>;
+} {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  if (!Array.isArray(record.permissions)) {
+    return false;
+  }
+  if (!Array.isArray(record.permissionCodes)) {
+    return false;
+  }
+  if (!record.permissionCodes.every(item => typeof item === 'string')) {
+    return false;
+  }
+  if (!Array.isArray(record.routeCodes)) {
+    return false;
+  }
+  if (!record.routeCodes.every(item => typeof item === 'string')) {
+    return false;
+  }
+  if (!record.user || typeof record.user !== 'object') {
+    return false;
+  }
+  const user = record.user as Record<string, unknown>;
+  return (
+    typeof user.id === 'string' &&
+    typeof user.name === 'string' &&
+    typeof user.email === 'string' &&
+    typeof user.identity === 'number'
+  );
+}
+
+/**
  * Valor exposto pelo `useAuth()`.
  *
  * Combina o estado atual com as ações disponíveis. Todas as ações são
