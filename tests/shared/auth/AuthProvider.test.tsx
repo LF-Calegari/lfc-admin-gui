@@ -398,13 +398,35 @@ describe('AuthProvider — login', () => {
     expect(latest?.getToken?.()).toBeNull();
   });
 
-  test('login envia systemId no body lendo do client.getSystemId() (Issue #118)', async () => {
-    // Cobre explicitamente a fonte da verdade do `systemId`: o campo é
-    // lido do `apiClient.getSystemId()` (e não de `import.meta.env`),
-    // garantindo que o singleton seja a única origem do valor enviado
-    // no body do `/auth/login` e do header `X-System-Id` em chamadas
-    // autenticadas.
+  test.each([
+    {
+      // Cobre explicitamente a fonte da verdade do `systemId`: o campo
+      // é lido do `apiClient.getSystemId()` (e não de
+      // `import.meta.env`), garantindo que o singleton seja a única
+      // origem do valor enviado no body do `/auth/login` e do header
+      // `X-System-Id` em chamadas autenticadas.
+      name: 'login envia systemId no body lendo do client.getSystemId() (Issue #118)',
+      stubReturnsNull: false,
+      expectedBody: {
+        email: 'ada@lfc.com.br',
+        password: 'secret',
+        systemId: STUB_SYSTEM_ID,
+      },
+    },
+    {
+      // Defesa de retrocompatibilidade: testes que injetam um cliente
+      // sem `systemId` (cenário hipotético; em produção o boot falha
+      // fail-fast antes) precisam continuar verdes — o body sai sem
+      // o campo e o stub controla o comportamento esperado do backend.
+      name: 'login omite systemId do body quando client.getSystemId() retorna null',
+      stubReturnsNull: true,
+      expectedBody: { email: 'ada@lfc.com.br', password: 'secret' },
+    },
+  ])('$name', async ({ stubReturnsNull, expectedBody }) => {
     const client = createClientStub();
+    if (stubReturnsNull) {
+      client.getSystemId.mockReturnValueOnce(null);
+    }
     client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
     client.get.mockResolvedValueOnce(SAMPLE_VERIFY);
     const { result } = renderHook(() => useAuth(), {
@@ -416,36 +438,7 @@ describe('AuthProvider — login', () => {
       await result.current.login('ada@lfc.com.br', 'secret');
     });
 
-    expect(client.getSystemId).toHaveBeenCalled();
-    expect(client.post).toHaveBeenCalledWith('/auth/login', {
-      email: 'ada@lfc.com.br',
-      password: 'secret',
-      systemId: STUB_SYSTEM_ID,
-    });
-  });
-
-  test('login omite systemId do body quando client.getSystemId() retorna null', async () => {
-    // Defesa de retrocompatibilidade: testes que injetam um cliente sem
-    // `systemId` (cenário hipotético; em produção o boot falha
-    // fail-fast antes) precisam continuar verdes — o body sai sem o
-    // campo e o stub controla o comportamento esperado do backend.
-    const client = createClientStub();
-    client.getSystemId.mockReturnValueOnce(null);
-    client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
-    client.get.mockResolvedValueOnce(SAMPLE_VERIFY);
-    const { result } = renderHook(() => useAuth(), {
-      wrapper: makeWrapper(client),
-    });
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-    await act(async () => {
-      await result.current.login('ada@lfc.com.br', 'secret');
-    });
-
-    expect(client.post).toHaveBeenCalledWith('/auth/login', {
-      email: 'ada@lfc.com.br',
-      password: 'secret',
-    });
+    expect(client.post).toHaveBeenCalledWith('/auth/login', expectedBody);
   });
 
   test('verify-token com payload inválido pós-login limpa sessão e propaga ApiError(parse)', async () => {

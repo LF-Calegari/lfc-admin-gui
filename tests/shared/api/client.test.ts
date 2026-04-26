@@ -137,21 +137,57 @@ describe('createApiClient', () => {
   });
 
   describe('X-System-Id (Issue #118)', () => {
-    test('injeta X-System-Id quando o cliente é configurado com systemId', async () => {
+    /**
+     * Helper que dispara um GET único com o cliente configurado e
+     * retorna os headers efetivamente enviados ao `fetch`. Centraliza
+     * o boilerplate (mock de resposta + leitura dos headers da call)
+     * para que os testes expressem só o cenário sendo coberto —
+     * configuração e expectativa — eliminando duplicação que dispara
+     * o Quality Gate do SonarCloud.
+     */
+    async function captureHeaders(
+      configOverrides: Partial<Parameters<typeof createApiClient>[0]>,
+      requestOptions?: { headers?: Record<string, string> },
+    ): Promise<Headers> {
       fetchSpy.mockResolvedValueOnce(jsonResponse({}));
-      const client = createApiClient({
-        baseUrl: '',
-        systemId: '843740f1-a264-4d65-a881-7fc1640d7cc6',
-      });
+      const client = createApiClient({ baseUrl: '', ...configOverrides });
+      await client.get('/r', requestOptions);
+      return new Headers((fetchSpy.mock.calls[0][1] as RequestInit).headers);
+    }
 
-      await client.get('/auth/verify-token');
-
-      const headers = new Headers(
-        (fetchSpy.mock.calls[0][1] as RequestInit).headers,
-      );
-      expect(headers.get('X-System-Id')).toBe(
-        '843740f1-a264-4d65-a881-7fc1640d7cc6',
-      );
+    test.each([
+      {
+        name: 'injeta X-System-Id quando o cliente é configurado com systemId',
+        config: { systemId: '843740f1-a264-4d65-a881-7fc1640d7cc6' },
+        options: undefined,
+        expected: '843740f1-a264-4d65-a881-7fc1640d7cc6',
+      },
+      {
+        // Compatibilidade com testes legados e cenários onde o cliente
+        // é criado sem identificação (em produção isso nunca acontece —
+        // o boot em `src/shared/api/index.ts` falha fail-fast).
+        name: 'omite X-System-Id quando systemId NÃO é configurado',
+        config: {},
+        options: undefined,
+        expected: null,
+      },
+      {
+        // Não é caso de uso real, mas garante que a ordem de aplicação
+        // é a esperada (overrides do consumidor têm precedência) —
+        // evita surpresas se um endpoint específico precisar trocar
+        // o id.
+        name: 'headers customizados podem sobrescrever X-System-Id pontualmente',
+        config: { systemId: 'default' },
+        options: { headers: { 'X-System-Id': 'override' } },
+        expected: 'override',
+      },
+    ])('$name', async ({ config, options, expected }) => {
+      const headers = await captureHeaders(config, options);
+      if (expected === null) {
+        expect(headers.has('X-System-Id')).toBe(false);
+      } else {
+        expect(headers.get('X-System-Id')).toBe(expected);
+      }
     });
 
     test('emite X-System-Id em todas as chamadas (GET, POST, PUT, PATCH, DELETE)', async () => {
@@ -163,10 +199,7 @@ describe('createApiClient', () => {
         .mockResolvedValueOnce(jsonResponse({}))
         .mockResolvedValueOnce(jsonResponse({}))
         .mockResolvedValueOnce(noContentResponse());
-      const client = createApiClient({
-        baseUrl: '',
-        systemId: 'sys-123',
-      });
+      const client = createApiClient({ baseUrl: '', systemId: 'sys-123' });
 
       await client.get('/r');
       await client.post('/r', { a: 1 });
@@ -178,36 +211,6 @@ describe('createApiClient', () => {
         const headers = new Headers((call[1] as RequestInit).headers);
         expect(headers.get('X-System-Id')).toBe('sys-123');
       }
-    });
-
-    test('omite X-System-Id quando systemId NÃO é configurado', async () => {
-      // Compatibilidade com testes legados e cenários onde o cliente é
-      // criado sem identificação (em produção isso nunca acontece — o
-      // boot em `src/shared/api/index.ts` falha fail-fast).
-      fetchSpy.mockResolvedValueOnce(jsonResponse({}));
-      const client = createApiClient({ baseUrl: '' });
-
-      await client.get('/r');
-
-      const headers = new Headers(
-        (fetchSpy.mock.calls[0][1] as RequestInit).headers,
-      );
-      expect(headers.has('X-System-Id')).toBe(false);
-    });
-
-    test('headers customizados podem sobrescrever X-System-Id pontualmente', async () => {
-      // Não é caso de uso real, mas garante que a ordem de aplicação é
-      // a esperada (overrides do consumidor têm precedência) — evita
-      // surpresas se um endpoint específico precisar trocar o id.
-      fetchSpy.mockResolvedValueOnce(jsonResponse({}));
-      const client = createApiClient({ baseUrl: '', systemId: 'default' });
-
-      await client.get('/r', { headers: { 'X-System-Id': 'override' } });
-
-      const headers = new Headers(
-        (fetchSpy.mock.calls[0][1] as RequestInit).headers,
-      );
-      expect(headers.get('X-System-Id')).toBe('override');
     });
 
     test('getSystemId retorna o valor configurado e null quando ausente', () => {
