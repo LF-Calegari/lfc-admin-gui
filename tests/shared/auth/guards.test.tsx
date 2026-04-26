@@ -4,16 +4,20 @@ import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-rou
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  createInertAuthClientStub,
+  SAMPLE_USER,
+  VERIFY_OK,
+} from './__helpers__/authTestHelpers';
+import {
   installFakeIndexedDB,
   uninstallFakeIndexedDB,
 } from './__helpers__/fakeIndexedDB';
 
-import type { ApiClient } from '@/shared/api';
+
 import type {
   AuthContextValue,
   CachedPermissions,
   PermissionsResponse,
-  VerifyTokenResponse,
 } from '@/shared/auth';
 
 import {
@@ -25,36 +29,6 @@ import {
 import { permissionsCache } from '@/shared/auth/permissionsCache';
 import { STORAGE_KEYS } from '@/shared/auth/storage';
 
-
-/**
- * Stub mínimo de `ApiClient`: nenhum teste daqui depende de transporte
- * real. `client.get` retorna por padrão uma Promise pendente para
- * evitar que `setState` da hidratação aconteça depois do teste capturar
- * a árvore (gera warnings de `act` em assertivas síncronas). O estado
- * otimista vindo do cache em IndexedDB já é suficiente para os cenários
- * cobertos.
- */
-function createClientStub(): ApiClient & {
-  get: ReturnType<typeof vi.fn>;
-  setAuth: ReturnType<typeof vi.fn>;
-  getSystemId: ReturnType<typeof vi.fn>;
-} {
-  return {
-    request: vi.fn(),
-    get: vi.fn().mockImplementation(() => new Promise(() => undefined)),
-    post: vi.fn(),
-    put: vi.fn(),
-    patch: vi.fn(),
-    delete: vi.fn(),
-    setAuth: vi.fn(),
-    getSystemId: vi.fn(() => 'system-test-uuid'),
-  } as unknown as ApiClient & {
-    get: ReturnType<typeof vi.fn>;
-    setAuth: ReturnType<typeof vi.fn>;
-    getSystemId: ReturnType<typeof vi.fn>;
-  };
-}
-
 /**
  * Espelha o contrato do `lfc-authenticator` no novo split (Issue #122):
  * `/auth/permissions` carrega o catálogo completo. Mantemos o tipo aqui
@@ -63,28 +37,10 @@ function createClientStub(): ApiClient & {
  * padrão para evitar setState pós-assert).
  */
 const PERMISSIONS_RESPONSE: PermissionsResponse = {
-  user: {
-    id: 'u-1',
-    name: 'Ada Lovelace',
-    email: 'ada@lfc.com.br',
-    identity: 42,
-  },
+  user: SAMPLE_USER,
   permissions: ['11111111-1111-1111-1111-111111111111'],
   permissionCodes: ['perm:Systems.Read'],
   routeCodes: ['AUTH_ADMIN_V1_SYSTEMS'],
-};
-
-const VERIFY_USER = PERMISSIONS_RESPONSE.user;
-
-/**
- * Resposta de `verify-token` usada nos cenários do `RequireAuth` quando
- * o teste precisa permitir que o disparo automático de verify-token na
- * mudança de rota resolva sem efeito colateral observável.
- */
-const VERIFY_OK: VerifyTokenResponse = {
-  valid: true,
-  issuedAt: '2026-01-01T00:00:00Z',
-  expiresAt: '2026-01-01T01:00:00Z',
 };
 
 /**
@@ -95,7 +51,7 @@ async function seedSession(
 ): Promise<void> {
   window.localStorage.setItem(STORAGE_KEYS.token, 'jwt-test');
   await permissionsCache.save({
-    user: VERIFY_USER,
+    user: SAMPLE_USER,
     permissions: PERMISSIONS_RESPONSE.permissions,
     permissionCodes,
     routeCodes: PERMISSIONS_RESPONSE.routeCodes,
@@ -128,6 +84,61 @@ function makeLocationProbe(captured: { current: CapturedLocation | null }): Reac
   return Probe;
 }
 
+/**
+ * Constrói um valor de `AuthContextValue` mockado com defaults seguros
+ * (deslogado, sem permissões, todos os métodos resolvendo). O caller
+ * sobrescreve apenas o que precisa por cenário.
+ *
+ * Concentra a montagem repetida do `AuthContextValue` que aparecia em
+ * 6 testes diferentes do `RequireAuth` — duplicação detectada pelo
+ * Sonar (PR #123).
+ */
+function makeAuthContextValue(overrides: Partial<AuthContextValue> = {}): AuthContextValue {
+  return {
+    user: null,
+    permissions: [],
+    isAuthenticated: false,
+    isLoading: false,
+    login: vi.fn().mockResolvedValue(undefined),
+    logout: vi.fn().mockResolvedValue(undefined),
+    hasPermission: () => false,
+    verifyRoute: vi.fn().mockResolvedValue(true),
+    ...overrides,
+  };
+}
+
+/**
+ * Renderiza `<RequireAuth>` envolvendo `children` com um Context
+ * mockado e MemoryRouter. Aceita `extraRoutes` para cenários que
+ * precisam de rotas adicionais (ex.: navegação entre `/systems` e
+ * `/users` para testar AbortController).
+ */
+function renderRequireAuthWithContext(options: {
+  value: AuthContextValue;
+  initial: string;
+  protectedPath: string;
+  protectedContent: React.ReactElement;
+  extraRoutes?: Record<string, React.ReactElement>;
+}): void {
+  const { value, initial, protectedPath, protectedContent, extraRoutes = {} } = options;
+  const extras = Object.entries(extraRoutes).map(([path, element]) => (
+    <Route key={path} path={path} element={element} />
+  ));
+  render(
+    <MemoryRouter initialEntries={[initial]}>
+      <AuthContext.Provider value={value}>
+        <Routes>
+          <Route
+            path={protectedPath}
+            element={<RequireAuth>{protectedContent}</RequireAuth>}
+          />
+          {extras}
+        </Routes>
+      </AuthContext.Provider>
+    </MemoryRouter>,
+  );
+}
+
 beforeEach(() => {
   installFakeIndexedDB();
   window.localStorage.clear();
@@ -140,7 +151,7 @@ afterEach(() => {
 describe('RequireAuth', () => {
   it('renderiza children quando o usuário está autenticado', async () => {
     await seedSession();
-    const client = createClientStub();
+    const client = createInertAuthClientStub();
 
     render(
       <MemoryRouter initialEntries={['/private']}>
@@ -165,7 +176,7 @@ describe('RequireAuth', () => {
   });
 
   it('redireciona para /login preservando state.from quando deslogado', () => {
-    const client = createClientStub();
+    const client = createInertAuthClientStub();
     const captured = { current: null as CapturedLocation | null };
     const LoginProbe = makeLocationProbe(captured);
 
@@ -202,7 +213,7 @@ describe('RequireAuth', () => {
   });
 
   it('preserva o pathname original mesmo em rotas aninhadas', () => {
-    const client = createClientStub();
+    const client = createInertAuthClientStub();
     const captured = { current: null as CapturedLocation | null };
     const LoginProbe = makeLocationProbe(captured);
 
@@ -236,50 +247,28 @@ describe('RequireAuth', () => {
   });
 
   it('renderiza children com sessão otimista mesmo enquanto isLoading=true', () => {
-    const value: AuthContextValue = {
+    const value = makeAuthContextValue({
       user: { id: 'u-1', name: 'Ada', email: 'ada@lfc.com.br', identity: 42 },
       permissions: ['perm:Systems.Read'],
       isAuthenticated: true,
       isLoading: true,
-      login: vi.fn().mockResolvedValue(undefined),
-      logout: vi.fn().mockResolvedValue(undefined),
-      hasPermission: (code: string) => code === 'perm:Systems.Read',
-      verifyRoute: vi.fn().mockResolvedValue(true),
-    };
+      hasPermission: code => code === 'perm:Systems.Read',
+    });
 
-    render(
-      <MemoryRouter initialEntries={['/private']}>
-        <AuthContext.Provider value={value}>
-          <Routes>
-            <Route
-              path="/private"
-              element={
-                <RequireAuth>
-                  <div data-testid="private-content">conteúdo protegido</div>
-                </RequireAuth>
-              }
-            />
-            <Route path="/login" element={<div data-testid="login-screen">login</div>} />
-          </Routes>
-        </AuthContext.Provider>
-      </MemoryRouter>,
-    );
+    renderRequireAuthWithContext({
+      value,
+      initial: '/private',
+      protectedPath: '/private',
+      protectedContent: <div data-testid="private-content">conteúdo protegido</div>,
+      extraRoutes: { '/login': <div data-testid="login-screen">login</div> },
+    });
 
     expect(screen.getByTestId('private-content')).toBeInTheDocument();
     expect(screen.queryByTestId('login-screen')).not.toBeInTheDocument();
   });
 
   it('retorna null durante isLoading sem sessão (transição rara, sem flicker)', () => {
-    const value: AuthContextValue = {
-      user: null,
-      permissions: [],
-      isAuthenticated: false,
-      isLoading: true,
-      login: vi.fn().mockResolvedValue(undefined),
-      logout: vi.fn().mockResolvedValue(undefined),
-      hasPermission: () => false,
-      verifyRoute: vi.fn().mockResolvedValue(true),
-    };
+    const value = makeAuthContextValue({ isLoading: true });
 
     const { container } = render(
       <MemoryRouter initialEntries={['/private']}>
@@ -307,33 +296,20 @@ describe('RequireAuth', () => {
   describe('verify-token por navegação (Issue #122 / adendo)', () => {
     it('dispara verifyRoute com X-Route-Code da rota destino', async () => {
       const verifyRouteMock = vi.fn().mockResolvedValue(true);
-      const value: AuthContextValue = {
-        user: VERIFY_USER,
+      const value = makeAuthContextValue({
+        user: SAMPLE_USER,
         permissions: ['perm:Systems.Read'],
         isAuthenticated: true,
-        isLoading: false,
-        login: vi.fn().mockResolvedValue(undefined),
-        logout: vi.fn().mockResolvedValue(undefined),
         hasPermission: () => true,
         verifyRoute: verifyRouteMock,
-      };
+      });
 
-      render(
-        <MemoryRouter initialEntries={['/systems']}>
-          <AuthContext.Provider value={value}>
-            <Routes>
-              <Route
-                path="/systems"
-                element={
-                  <RequireAuth>
-                    <div data-testid="systems-page">systems</div>
-                  </RequireAuth>
-                }
-              />
-            </Routes>
-          </AuthContext.Provider>
-        </MemoryRouter>,
-      );
+      renderRequireAuthWithContext({
+        value,
+        initial: '/systems',
+        protectedPath: '/systems',
+        protectedContent: <div data-testid="systems-page">systems</div>,
+      });
 
       await waitFor(() => {
         expect(verifyRouteMock).toHaveBeenCalledWith(
@@ -346,33 +322,20 @@ describe('RequireAuth', () => {
 
     it('não dispara verifyRoute quando a rota não está mapeada', async () => {
       const verifyRouteMock = vi.fn().mockResolvedValue(true);
-      const value: AuthContextValue = {
-        user: VERIFY_USER,
+      const value = makeAuthContextValue({
+        user: SAMPLE_USER,
         permissions: ['perm:Systems.Read'],
         isAuthenticated: true,
-        isLoading: false,
-        login: vi.fn().mockResolvedValue(undefined),
-        logout: vi.fn().mockResolvedValue(undefined),
         hasPermission: () => true,
         verifyRoute: verifyRouteMock,
-      };
+      });
 
-      render(
-        <MemoryRouter initialEntries={['/rota-nao-mapeada']}>
-          <AuthContext.Provider value={value}>
-            <Routes>
-              <Route
-                path="*"
-                element={
-                  <RequireAuth>
-                    <div data-testid="content">x</div>
-                  </RequireAuth>
-                }
-              />
-            </Routes>
-          </AuthContext.Provider>
-        </MemoryRouter>,
-      );
+      renderRequireAuthWithContext({
+        value,
+        initial: '/rota-nao-mapeada',
+        protectedPath: '*',
+        protectedContent: <div data-testid="content">x</div>,
+      });
 
       // Aguarda um pouco para garantir que NENHUMA chamada aconteceu.
       await new Promise(resolve => setTimeout(resolve, 50));
@@ -387,16 +350,13 @@ describe('RequireAuth', () => {
           return true;
         },
       );
-      const value: AuthContextValue = {
-        user: VERIFY_USER,
+      const value = makeAuthContextValue({
+        user: SAMPLE_USER,
         permissions: ['perm:Systems.Read', 'perm:Users.Read'],
         isAuthenticated: true,
-        isLoading: false,
-        login: vi.fn().mockResolvedValue(undefined),
-        logout: vi.fn().mockResolvedValue(undefined),
         hasPermission: () => true,
         verifyRoute: verifyRouteMock,
-      };
+      });
 
       // Componente com botão que dispara navegação real via useNavigate
       // — `initialEntries` só inicializa o histórico no mount, então
@@ -415,30 +375,19 @@ describe('RequireAuth', () => {
         );
       };
 
-      render(
-        <MemoryRouter initialEntries={['/systems']}>
-          <AuthContext.Provider value={value}>
-            <Routes>
-              <Route
-                path="/systems"
-                element={
-                  <RequireAuth>
-                    <NavigationTrigger to="/users" />
-                  </RequireAuth>
-                }
-              />
-              <Route
-                path="/users"
-                element={
-                  <RequireAuth>
-                    <div data-testid="users-page">users</div>
-                  </RequireAuth>
-                }
-              />
-            </Routes>
-          </AuthContext.Provider>
-        </MemoryRouter>,
-      );
+      renderRequireAuthWithContext({
+        value,
+        initial: '/systems',
+        protectedPath: '/systems',
+        protectedContent: <NavigationTrigger to="/users" />,
+        extraRoutes: {
+          '/users': (
+            <RequireAuth>
+              <div data-testid="users-page">users</div>
+            </RequireAuth>
+          ),
+        },
+      });
 
       await waitFor(() => expect(verifyRouteMock).toHaveBeenCalledTimes(1));
 
@@ -455,34 +404,15 @@ describe('RequireAuth', () => {
 
     it('não dispara verifyRoute quando deslogado', async () => {
       const verifyRouteMock = vi.fn().mockResolvedValue(true);
-      const value: AuthContextValue = {
-        user: null,
-        permissions: [],
-        isAuthenticated: false,
-        isLoading: false,
-        login: vi.fn().mockResolvedValue(undefined),
-        logout: vi.fn().mockResolvedValue(undefined),
-        hasPermission: () => false,
-        verifyRoute: verifyRouteMock,
-      };
+      const value = makeAuthContextValue({ verifyRoute: verifyRouteMock });
 
-      render(
-        <MemoryRouter initialEntries={['/systems']}>
-          <AuthContext.Provider value={value}>
-            <Routes>
-              <Route
-                path="/systems"
-                element={
-                  <RequireAuth>
-                    <div>x</div>
-                  </RequireAuth>
-                }
-              />
-              <Route path="/login" element={<div>login</div>} />
-            </Routes>
-          </AuthContext.Provider>
-        </MemoryRouter>,
-      );
+      renderRequireAuthWithContext({
+        value,
+        initial: '/systems',
+        protectedPath: '/systems',
+        protectedContent: <div>x</div>,
+        extraRoutes: { '/login': <div>login</div> },
+      });
 
       await new Promise(resolve => setTimeout(resolve, 50));
       expect(verifyRouteMock).not.toHaveBeenCalled();
@@ -490,7 +420,7 @@ describe('RequireAuth', () => {
 
     it('integração: AuthProvider real envia X-Route-Code para a rota corrente', async () => {
       await seedSession(['perm:Systems.Read']);
-      const client = createClientStub();
+      const client = createInertAuthClientStub();
       // Reset para resolver imediatamente em vez de Promise pendente.
       client.get.mockReset();
       client.get.mockResolvedValue(VERIFY_OK);
@@ -561,7 +491,7 @@ async function renderRequirePermissionScenario(
   } = options;
 
   await seedSession(sessionPermissions);
-  const client = createClientStub();
+  const client = createInertAuthClientStub();
   const captured = { current: null as CapturedLocation | null };
   const ErrorProbe = makeLocationProbe(captured);
 
@@ -695,7 +625,7 @@ describe('RequirePermission', () => {
 
 describe('RequireAuth + RequirePermission combinados', () => {
   it('redireciona para /login quando deslogado, sem chegar no 403', () => {
-    const client = createClientStub();
+    const client = createInertAuthClientStub();
     const captured = { current: null as CapturedLocation | null };
     const LoginProbe = makeLocationProbe(captured);
 
