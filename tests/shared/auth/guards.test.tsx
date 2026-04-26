@@ -375,82 +375,115 @@ function renderRequirePermissionScenario(
   return { captured };
 }
 
-describe('RequirePermission', () => {
-  it('renderiza children quando a permissão exigida está presente', () => {
-    renderRequirePermissionScenario({
+/**
+ * Tabela de cenários do `RequirePermission`. Cada caso é um teste
+ * independente, mas o esqueleto (chamada do helper + asserts de
+ * presença/ausência + assert opcional do redirect) é idêntico, então
+ * usamos `it.each` para colapsar a repetição estrutural — preservando
+ * a granularidade dos testes (1 caso = 1 `it`) sem mudar o que cada
+ * cenário valida.
+ *
+ * - `expectsContent: true` → permissão satisfeita; conteúdo protegido
+ *   aparece e a `error-page` não aparece.
+ * - `expectsContent: false` → permissão ausente; `error-page` aparece
+ *   e o conteúdo protegido não. Quando `expectedRedirectPath` é
+ *   informado, asserimos também o pathname capturado pela sonda (e o
+ *   helper é instruído a anexá-la via `withProbe`).
+ */
+interface RequirePermissionCase {
+  name: string;
+  options: RenderRequirePermissionOptions;
+  expectsContent: boolean;
+  expectedRedirectPath?: string;
+}
+
+const REQUIRE_PERMISSION_CASES: ReadonlyArray<RequirePermissionCase> = [
+  {
+    name: 'renderiza children quando a permissão exigida está presente',
+    options: {
       protectedRoute: '/users',
       code: 'perm:Users.Read',
       sessionPermissions: ['perm:Systems.Read', 'perm:Users.Read'],
       protectedTestId: 'users-page',
       protectedLabel: 'users',
-    });
-
-    expect(screen.getByTestId('users-page')).toBeInTheDocument();
-    expect(screen.queryByTestId('error-page')).not.toBeInTheDocument();
-  });
-
-  it('redireciona para /error/403 quando o code não está presente', () => {
-    const { captured } = renderRequirePermissionScenario({
+    },
+    expectsContent: true,
+  },
+  {
+    name: 'redireciona para /error/403 quando o code não está presente',
+    options: {
       protectedRoute: '/users',
       code: 'perm:Users.Read',
       sessionPermissions: ['perm:Systems.Read'],
       protectedTestId: 'users-page',
       protectedLabel: 'users',
       withProbe: true,
-    });
-
-    expect(screen.queryByTestId('users-page')).not.toBeInTheDocument();
-    expect(screen.getByTestId('error-page')).toBeInTheDocument();
-    expect(captured.current?.pathname).toBe('/error/403');
-  });
-
-  it('redireciona para /error/403 quando o usuário não tem permissões', () => {
+    },
+    expectsContent: false,
+    expectedRedirectPath: '/error/403',
+  },
+  {
     // Sessão sem nenhum code: sempre 403 em rotas com gating.
-    renderRequirePermissionScenario({
+    name: 'redireciona para /error/403 quando o usuário não tem permissões',
+    options: {
       protectedRoute: '/permissions',
       code: 'perm:Permissions.Read',
       sessionPermissions: [],
       protectedTestId: 'permissions-page',
       protectedLabel: 'permissões',
-    });
-
-    expect(screen.queryByTestId('permissions-page')).not.toBeInTheDocument();
-    expect(screen.getByTestId('error-page')).toBeInTheDocument();
-  });
-
-  it('renderiza children com o code exato presente em permissionCodes', () => {
+    },
+    expectsContent: false,
+  },
+  {
     // Caso explícito do contrato pós-#116: o code precisa bater
     // exatamente com o item em `permissions` (alimentado por
     // `permissionCodes` do verify-token). Usar o nome `SystemsRoutes`
     // do backend valida que os codes não-óbvios também são respeitados.
-    renderRequirePermissionScenario({
+    name: 'renderiza children com o code exato presente em permissionCodes',
+    options: {
       protectedRoute: '/routes',
       code: 'perm:SystemsRoutes.Read',
       sessionPermissions: ['perm:SystemsRoutes.Read', 'perm:Systems.Read'],
       protectedTestId: 'routes-page',
       protectedLabel: 'rotas',
-    });
-
-    expect(screen.getByTestId('routes-page')).toBeInTheDocument();
-    expect(screen.queryByTestId('error-page')).not.toBeInTheDocument();
-  });
-
-  it('redireciona para /error/403 quando o code com prefixo perm: não existe em permissionCodes', () => {
+    },
+    expectsContent: true,
+  },
+  {
     // Cenário do bug original (#116): se o catálogo `permissions` no
     // estado vier sem o code exato esperado pelo guard, o usuário cai
     // em 403 — confirmando que o match continua estritamente por igualdade.
-    const { captured } = renderRequirePermissionScenario({
+    name: 'redireciona para /error/403 quando o code com prefixo perm: não existe em permissionCodes',
+    options: {
       protectedRoute: '/tokens',
       code: 'perm:SystemTokensTypes.Read',
       sessionPermissions: ['perm:Systems.Read'],
       protectedTestId: 'tokens-page',
       protectedLabel: 'tokens',
       withProbe: true,
-    });
+    },
+    expectsContent: false,
+    expectedRedirectPath: '/error/403',
+  },
+];
 
-    expect(screen.queryByTestId('tokens-page')).not.toBeInTheDocument();
-    expect(screen.getByTestId('error-page')).toBeInTheDocument();
-    expect(captured.current?.pathname).toBe('/error/403');
+describe('RequirePermission', () => {
+  it.each(REQUIRE_PERMISSION_CASES)('$name', ({ options, expectsContent, expectedRedirectPath }) => {
+    const { captured } = renderRequirePermissionScenario(options);
+    const protectedQuery = screen.queryByTestId(options.protectedTestId);
+    const errorQuery = screen.queryByTestId(options.errorTestId ?? 'error-page');
+
+    if (expectsContent) {
+      expect(protectedQuery).toBeInTheDocument();
+      expect(errorQuery).not.toBeInTheDocument();
+    } else {
+      expect(protectedQuery).not.toBeInTheDocument();
+      expect(errorQuery).toBeInTheDocument();
+    }
+
+    if (expectedRedirectPath !== undefined) {
+      expect(captured.current?.pathname).toBe(expectedRedirectPath);
+    }
   });
 });
 
