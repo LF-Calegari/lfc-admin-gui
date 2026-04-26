@@ -3,12 +3,23 @@ import React from 'react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
+import {
+  installFakeIndexedDB,
+  uninstallFakeIndexedDB,
+} from './__helpers__/fakeIndexedDB';
 
 import type { ApiClient, ApiError } from '@/shared/api';
-import type { LoginResponse, VerifyTokenResponse } from '@/shared/auth';
+import type {
+  CachedPermissions,
+  LoginResponse,
+  PermissionsResponse,
+  VerifyTokenResponse,
+} from '@/shared/auth';
 
 import { AuthProvider, useAuth } from '@/shared/auth';
+import { permissionsCache } from '@/shared/auth/permissionsCache';
 import { STORAGE_KEYS } from '@/shared/auth/storage';
+
 
 /**
  * UUID fake usado pelos stubs nos testes do Provider — qualquer valor
@@ -111,59 +122,32 @@ const SAMPLE_LOGIN: LoginResponse = {
 };
 
 /**
- * Perfil retornado por `verify-token` logo após o login feliz —
- * espelha o contrato real do `auth-service` (id/name/email/identity +
- * permissions/Guid[] + permissionCodes/string[] + routeCodes/string[]).
- *
- * Usado também em testes de hidratação otimista após reload.
+ * Resposta do novo `GET /auth/permissions` (Issue #122). Usado em
+ * cenários de login feliz e hidratação a partir de cache vazio.
  */
-const SAMPLE_VERIFY: VerifyTokenResponse = {
-  id: 'u-1',
-  name: 'Ada Lovelace',
-  email: 'ada@lfc.com.br',
-  identity: 42,
+const SAMPLE_PERMISSIONS: PermissionsResponse = {
+  user: {
+    id: 'u-1',
+    name: 'Ada Lovelace',
+    email: 'ada@lfc.com.br',
+    identity: 42,
+  },
   permissions: ['11111111-1111-1111-1111-111111111111'],
   permissionCodes: ['perm:Systems.Read', 'perm:Systems.Create'],
-  routeCodes: ['KURTTO_V1_URLS_HOME'],
+  routeCodes: ['AUTH_ADMIN_V1_SYSTEMS'],
 };
+
+const SAMPLE_USER = SAMPLE_PERMISSIONS.user;
+const SAMPLE_PERMISSION_CODES = SAMPLE_PERMISSIONS.permissionCodes;
 
 /**
- * Espelho do `User` projetado pelo Provider a partir de `SAMPLE_VERIFY`.
- * Centraliza o shape esperado pela maioria dos asserts.
+ * Resposta do novo `verify-token` reduzido (Issue #122).
  */
-const SAMPLE_USER = {
-  id: SAMPLE_VERIFY.id,
-  name: SAMPLE_VERIFY.name,
-  email: SAMPLE_VERIFY.email,
-  identity: SAMPLE_VERIFY.identity,
+const VERIFY_OK: VerifyTokenResponse = {
+  valid: true,
+  issuedAt: '2026-01-01T00:00:00Z',
+  expiresAt: '2026-01-01T01:00:00Z',
 };
-
-const SAMPLE_PERMISSIONS = SAMPLE_VERIFY.permissionCodes;
-
-/**
- * Resposta de `verify-token` para a revalidação periódica — simula o
- * cenário em que o backend acrescentou um `permissionCode` (por exemplo,
- * uma permissão recém-concedida) e o Provider precisa refletir o
- * snapshot atualizado.
- */
-const VERIFY_RESPONSE: VerifyTokenResponse = {
-  id: 'u-1',
-  name: 'Ada Lovelace',
-  email: 'ada@lfc.com.br',
-  identity: 42,
-  permissions: ['11111111-1111-1111-1111-111111111111'],
-  permissionCodes: ['perm:Systems.Read', 'perm:Systems.Create', 'perm:Systems.Update'],
-  routeCodes: ['KURTTO_V1_URLS_HOME'],
-};
-
-const VERIFY_USER = {
-  id: VERIFY_RESPONSE.id,
-  name: VERIFY_RESPONSE.name,
-  email: VERIFY_RESPONSE.email,
-  identity: VERIFY_RESPONSE.identity,
-};
-
-const VERIFY_PERMISSIONS = VERIFY_RESPONSE.permissionCodes;
 
 const UNAUTHORIZED_ERROR: ApiError = {
   kind: 'http',
@@ -172,46 +156,48 @@ const UNAUTHORIZED_ERROR: ApiError = {
   message: 'Sessão expirada.',
 };
 
+const FORBIDDEN_ERROR: ApiError = {
+  kind: 'http',
+  status: 403,
+  message: 'Acesso negado para a rota.',
+};
+
 const NETWORK_ERROR: ApiError = {
   kind: 'network',
   message: 'Falha de conexão com o servidor.',
 };
 
 /**
- * Pré-popula `localStorage` para simular sessão persistida — usado nos
- * testes de hidratação remota.
- *
- * O shape gravado espelha o `PersistedSession` real (User com `identity`
- * + permissions = permissionCodes), de modo que os testes leiam
- * exatamente o que o Provider gravou em sessões anteriores.
+ * Pré-popula token (`localStorage`) e catálogo (IndexedDB) para
+ * simular sessão persistida — usado nos testes de hidratação otimista.
  */
-function seedPersistedSession(): void {
+async function seedPersistedSession(): Promise<void> {
   window.localStorage.setItem(STORAGE_KEYS.token, 'jwt-persistido');
-  window.localStorage.setItem(
-    STORAGE_KEYS.user,
-    JSON.stringify({
-      user: SAMPLE_USER,
-      permissions: SAMPLE_PERMISSIONS,
-    }),
-  );
+  await permissionsCache.save({
+    user: SAMPLE_USER,
+    permissions: SAMPLE_PERMISSIONS.permissions,
+    permissionCodes: SAMPLE_PERMISSION_CODES,
+    routeCodes: SAMPLE_PERMISSIONS.routeCodes,
+  } as Omit<CachedPermissions, 'cachedAt'>);
 }
 
 /**
  * Garante storage limpo antes de cada teste — evita vazar sessão
  * persistida entre cenários, especialmente nos testes de hidratação
- * que dependem do estado de `localStorage` no momento do mount.
+ * que dependem do estado de `localStorage`/IndexedDB no momento do mount.
  */
 beforeEach(() => {
+  installFakeIndexedDB();
   window.localStorage.clear();
 });
 
 afterEach(() => {
+  uninstallFakeIndexedDB();
   vi.useRealTimers();
 });
 
 describe('useAuth fora do Provider', () => {
   test('lança erro descritivo', () => {
-    // Suprime o `console.error` esperado do React durante teste de erro.
     const noop = (): void => {
       // intencionalmente vazio — apenas absorver logs de erro do React.
     };
@@ -224,7 +210,7 @@ describe('useAuth fora do Provider', () => {
 });
 
 describe('AuthProvider — estado inicial', () => {
-  test('expõe estado deslogado e finaliza isLoading após hidratação', async () => {
+  test('expõe estado deslogado e finaliza isLoading sem token', async () => {
     const client = createClientStub();
     const { result } = renderHook(() => useAuth(), {
       wrapper: makeWrapper(client),
@@ -236,7 +222,7 @@ describe('AuthProvider — estado inicial', () => {
     expect(result.current.user).toBeNull();
     expect(result.current.permissions).toEqual([]);
     expect(result.current.isAuthenticated).toBe(false);
-    // Sem sessão local, verify-token NÃO deve ser chamado.
+    // Sem token, NÃO chama nem /auth/permissions nem /auth/verify-token.
     expect(client.get).not.toHaveBeenCalled();
   });
 
@@ -251,13 +237,24 @@ describe('AuthProvider — estado inicial', () => {
     // Antes do login, getToken() retorna null.
     expect(latest?.getToken?.()).toBeNull();
   });
+
+  test('migração: clearLegacyKeys remove lfc-admin-auth-user no boot', () => {
+    window.localStorage.setItem(
+      STORAGE_KEYS.legacyUser,
+      JSON.stringify({ user: SAMPLE_USER, permissions: [] }),
+    );
+    const client = createClientStub();
+    renderHook(() => useAuth(), { wrapper: makeWrapper(client) });
+
+    expect(window.localStorage.getItem(STORAGE_KEYS.legacyUser)).toBeNull();
+  });
 });
 
-describe('AuthProvider — login', () => {
-  test('caminho feliz: encadeia POST /auth/login + GET /auth/verify-token e popula estado', async () => {
+describe('AuthProvider — login (Issue #122)', () => {
+  test('caminho feliz: encadeia POST /auth/login + GET /auth/permissions e popula estado', async () => {
     const client = createClientStub();
     client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
-    client.get.mockResolvedValueOnce(SAMPLE_VERIFY);
+    client.get.mockResolvedValueOnce(SAMPLE_PERMISSIONS);
     const { result } = renderHook(() => useAuth(), {
       wrapper: makeWrapper(client),
     });
@@ -272,20 +269,18 @@ describe('AuthProvider — login', () => {
       password: 'secret',
       systemId: STUB_SYSTEM_ID,
     });
-    expect(client.get).toHaveBeenCalledWith('/auth/verify-token');
-    // `permissions` no estado é o catálogo de `permissionCodes`, não os
-    // GUIDs brutos em `verify-token.permissions` nem os `routeCodes`
-    // (filtrados para kurtto).
+    // Issue #122: chama o NOVO endpoint /auth/permissions, não verify-token.
+    expect(client.get).toHaveBeenCalledWith('/auth/permissions', undefined);
     expect(result.current.user).toEqual(SAMPLE_USER);
-    expect(result.current.permissions).toEqual(SAMPLE_PERMISSIONS);
+    expect(result.current.permissions).toEqual(SAMPLE_PERMISSION_CODES);
     expect(result.current.isAuthenticated).toBe(true);
     expect(result.current.isLoading).toBe(false);
   });
 
-  test('após login, getToken injetado no client retorna o token recebido', async () => {
+  test('login persiste catálogo em IndexedDB', async () => {
     const client = createClientStub();
     client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
-    client.get.mockResolvedValueOnce(SAMPLE_VERIFY);
+    client.get.mockResolvedValueOnce(SAMPLE_PERMISSIONS);
     const { result } = renderHook(() => useAuth(), {
       wrapper: makeWrapper(client),
     });
@@ -295,22 +290,40 @@ describe('AuthProvider — login', () => {
       await result.current.login('ada@lfc.com.br', 'secret');
     });
 
-    const latest = lastCall(client.setAuth.mock.calls)?.[0];
-    expect(latest?.getToken?.()).toBe('jwt-xyz');
+    // Aguarda o `void permissionsCache.save(...)` resolver.
+    await waitFor(async () => {
+      const cached = await permissionsCache.load();
+      expect(cached?.user.email).toBe('ada@lfc.com.br');
+    });
+    const cached = await permissionsCache.load();
+    expect(cached?.permissionCodes).toEqual(SAMPLE_PERMISSION_CODES);
+    expect(cached?.routeCodes).toEqual(SAMPLE_PERMISSIONS.routeCodes);
   });
 
-  test('tokenRef é setado ANTES do verify-token (header Authorization presente)', async () => {
-    // Asserção crítica do contrato: o `verify-token` precisa ler o token
-    // recém-recebido via `getToken()` para que o cliente HTTP injete
-    // `Authorization: Bearer ...`. Capturamos o valor de `getToken()` no
-    // momento exato da chamada `client.get`.
+  test('login persiste token em localStorage', async () => {
+    const client = createClientStub();
+    client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
+    client.get.mockResolvedValueOnce(SAMPLE_PERMISSIONS);
+    const { result } = renderHook(() => useAuth(), {
+      wrapper: makeWrapper(client),
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    await act(async () => {
+      await result.current.login('ada@lfc.com.br', 'secret');
+    });
+
+    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBe('jwt-xyz');
+  });
+
+  test('tokenRef é setado ANTES do /auth/permissions (header Authorization presente)', async () => {
     const client = createClientStub();
     client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
 
-    let tokenAtVerify: string | null | undefined;
+    let tokenAtPermissions: string | null | undefined;
     client.get.mockImplementationOnce(async () => {
-      tokenAtVerify = lastCall(client.setAuth.mock.calls)?.[0]?.getToken?.();
-      return SAMPLE_VERIFY;
+      tokenAtPermissions = lastCall(client.setAuth.mock.calls)?.[0]?.getToken?.();
+      return SAMPLE_PERMISSIONS;
     });
 
     const { result } = renderHook(() => useAuth(), {
@@ -322,7 +335,7 @@ describe('AuthProvider — login', () => {
       await result.current.login('ada@lfc.com.br', 'secret');
     });
 
-    expect(tokenAtVerify).toBe('jwt-xyz');
+    expect(tokenAtPermissions).toBe('jwt-xyz');
   });
 
   test('falha de credenciais propaga ApiError e mantém estado deslogado', async () => {
@@ -348,32 +361,19 @@ describe('AuthProvider — login', () => {
     expect(result.current.isAuthenticated).toBe(false);
     expect(result.current.user).toBeNull();
     expect(result.current.isLoading).toBe(false);
-    // `verify-token` nunca chega a ser chamado quando o login rejeita.
+    // /auth/permissions nunca chega a ser chamado quando o login rejeita.
     expect(client.get).not.toHaveBeenCalled();
   });
 
-  test('falha no verify-token pós-login limpa sessão parcial e propaga erro', async () => {
-    // Cenário: backend aceitou as credenciais mas a chamada subsequente
-    // a `verify-token` falhou (ex.: rede caiu, 5xx, payload corrompido).
-    // O Provider já tinha aceitado o token em `tokenRef`; precisa
-    // limpar tudo (storage + ref + state) para não deixar um header
-    // `Authorization` pendurado em chamadas seguintes.
-    const apiError: ApiError = {
-      kind: 'network',
-      message: 'Falha de conexão com o servidor.',
-    };
+  test('falha em /auth/permissions pós-login limpa sessão parcial e propaga erro', async () => {
     const client = createClientStub();
     client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
-    client.get.mockRejectedValueOnce(apiError);
+    client.get.mockRejectedValueOnce(NETWORK_ERROR);
     const { result } = renderHook(() => useAuth(), {
       wrapper: makeWrapper(client),
     });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    // Capturamos a rejection diretamente — `await expect(act(..)).rejects`
-    // pode liberar antes do bloco `finally` interno do Provider rodar
-    // sob certas timings, gerando race com asserts subsequentes em
-    // `tokenRef`.
     let captured: unknown;
     await act(async () => {
       try {
@@ -389,9 +389,8 @@ describe('AuthProvider — login', () => {
     expect(result.current.permissions).toEqual([]);
     expect(result.current.isLoading).toBe(false);
 
-    // Storage limpo — a sessão parcial (token sem perfil) foi descartada.
+    // Storage limpo — a sessão parcial foi descartada.
     expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
-    expect(window.localStorage.getItem(STORAGE_KEYS.user)).toBeNull();
 
     // Token injetado no client também foi zerado.
     const latest = lastCall(client.setAuth.mock.calls)?.[0];
@@ -400,11 +399,6 @@ describe('AuthProvider — login', () => {
 
   test.each([
     {
-      // Cobre explicitamente a fonte da verdade do `systemId`: o campo
-      // é lido do `apiClient.getSystemId()` (e não de
-      // `import.meta.env`), garantindo que o singleton seja a única
-      // origem do valor enviado no body do `/auth/login` e do header
-      // `X-System-Id` em chamadas autenticadas.
       name: 'login envia systemId no body lendo do client.getSystemId() (Issue #118)',
       stubReturnsNull: false,
       expectedBody: {
@@ -414,10 +408,6 @@ describe('AuthProvider — login', () => {
       },
     },
     {
-      // Defesa de retrocompatibilidade: testes que injetam um cliente
-      // sem `systemId` (cenário hipotético; em produção o boot falha
-      // fail-fast antes) precisam continuar verdes — o body sai sem
-      // o campo e o stub controla o comportamento esperado do backend.
       name: 'login omite systemId do body quando client.getSystemId() retorna null',
       stubReturnsNull: true,
       expectedBody: { email: 'ada@lfc.com.br', password: 'secret' },
@@ -428,7 +418,7 @@ describe('AuthProvider — login', () => {
       client.getSystemId.mockReturnValueOnce(null);
     }
     client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
-    client.get.mockResolvedValueOnce(SAMPLE_VERIFY);
+    client.get.mockResolvedValueOnce(SAMPLE_PERMISSIONS);
     const { result } = renderHook(() => useAuth(), {
       wrapper: makeWrapper(client),
     });
@@ -441,7 +431,7 @@ describe('AuthProvider — login', () => {
     expect(client.post).toHaveBeenCalledWith('/auth/login', expectedBody);
   });
 
-  test('verify-token com payload inválido pós-login limpa sessão e propaga ApiError(parse)', async () => {
+  test('/auth/permissions com payload inválido pós-login limpa sessão e propaga ApiError(parse)', async () => {
     const client = createClientStub();
     client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
     // Resposta sem campos obrigatórios — o type guard deve rejeitar.
@@ -467,12 +457,12 @@ describe('AuthProvider — login', () => {
 });
 
 describe('AuthProvider — logout', () => {
-  test('limpa estado e zera token após logout', async () => {
+  test('limpa estado, token e cache após logout', async () => {
     const client = createClientStub();
     client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
-    // 1ª chamada: verify-token do login encadeado; 2ª: logout remoto.
+    // 1ª chamada: /auth/permissions; 2ª: /auth/logout.
     client.get
-      .mockResolvedValueOnce(SAMPLE_VERIFY)
+      .mockResolvedValueOnce(SAMPLE_PERMISSIONS)
       .mockResolvedValueOnce({ message: 'Sessão encerrada.' });
     const { result } = renderHook(() => useAuth(), {
       wrapper: makeWrapper(client),
@@ -490,15 +480,18 @@ describe('AuthProvider — logout', () => {
     expect(result.current.user).toBeNull();
     expect(result.current.permissions).toEqual([]);
     expect(result.current.isAuthenticated).toBe(false);
-    const latest = lastCall(client.setAuth.mock.calls)?.[0];
-    expect(latest?.getToken?.()).toBeNull();
+    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
+    // Cache em IndexedDB também é limpo (best-effort, async).
+    await waitFor(async () => {
+      expect(await permissionsCache.load()).toBeNull();
+    });
   });
 
-  test('chama GET /auth/logout para invalidar tokenVersion remoto (Issue #55)', async () => {
+  test('chama GET /auth/logout para invalidar tokenVersion remoto', async () => {
     const client = createClientStub();
     client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
     client.get
-      .mockResolvedValueOnce(SAMPLE_VERIFY)
+      .mockResolvedValueOnce(SAMPLE_PERMISSIONS)
       .mockResolvedValueOnce({ message: 'Sessão encerrada.' });
     const { result } = renderHook(() => useAuth(), {
       wrapper: makeWrapper(client),
@@ -513,9 +506,6 @@ describe('AuthProvider — logout', () => {
     });
 
     expect(client.get).toHaveBeenCalledWith('/auth/logout');
-    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
-    expect(window.localStorage.getItem(STORAGE_KEYS.user)).toBeNull();
-    expect(result.current.isAuthenticated).toBe(false);
   });
 
   test('logout sem sessão ativa NÃO chama o endpoint remoto', async () => {
@@ -536,9 +526,8 @@ describe('AuthProvider — logout', () => {
   test('falha de rede no logout remoto ainda limpa estado e storage', async () => {
     const client = createClientStub();
     client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
-    // 1ª chamada: verify-token (login feliz); 2ª: logout falha por rede.
     client.get
-      .mockResolvedValueOnce(SAMPLE_VERIFY)
+      .mockResolvedValueOnce(SAMPLE_PERMISSIONS)
       .mockRejectedValueOnce(NETWORK_ERROR);
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
@@ -557,9 +546,7 @@ describe('AuthProvider — logout', () => {
 
     expect(client.get).toHaveBeenLastCalledWith('/auth/logout');
     expect(result.current.isAuthenticated).toBe(false);
-    expect(result.current.user).toBeNull();
     expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
-    expect(window.localStorage.getItem(STORAGE_KEYS.user)).toBeNull();
     expect(warnSpy).toHaveBeenCalled();
 
     warnSpy.mockRestore();
@@ -568,12 +555,9 @@ describe('AuthProvider — logout', () => {
   test('logout em 401 (já deslogado no backend) limpa local sem warning', async () => {
     const client = createClientStub();
     client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
-    // 1ª chamada: verify-token do login feliz; 2ª: logout em 401.
     client.get
-      .mockResolvedValueOnce(SAMPLE_VERIFY)
+      .mockResolvedValueOnce(SAMPLE_PERMISSIONS)
       .mockImplementationOnce(async () => {
-        // Simula o comportamento real do client HTTP em 401: dispara
-        // `onUnauthorized` (que limpa sessão) e rejeita com ApiError.
         const config = lastCall(client.setAuth.mock.calls)?.[0];
         config?.onUnauthorized?.();
         throw UNAUTHORIZED_ERROR;
@@ -595,19 +579,17 @@ describe('AuthProvider — logout', () => {
     expect(client.get).toHaveBeenLastCalledWith('/auth/logout');
     expect(result.current.isAuthenticated).toBe(false);
     expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
-    // 401 é silencioso: o usuário já estava deslogado de qualquer forma.
     expect(warnSpy).not.toHaveBeenCalled();
 
     warnSpy.mockRestore();
   });
 
   test('logout redireciona para /login após sucesso remoto', async () => {
-    seedPersistedSession();
+    await seedPersistedSession();
     const client = createClientStub();
-    // Primeira chamada: hidratação verify-token; Segunda: logout remoto.
-    client.get
-      .mockResolvedValueOnce(VERIFY_RESPONSE)
-      .mockResolvedValueOnce({ message: 'Sessão encerrada.' });
+    // Após Issue #122, hidratação de sessão persistida usa o cache local
+    // (sem chamada de rede); logout ainda chama /auth/logout.
+    client.get.mockResolvedValueOnce({ message: 'Sessão encerrada.' });
 
     let capturedPath = '';
     const PathProbe: React.FC = () => {
@@ -652,8 +634,7 @@ describe('AuthProvider — logout', () => {
       </MemoryRouter>,
     );
 
-    await waitFor(() => expect(client.get).toHaveBeenCalledTimes(1));
-    expect(capturedPath).toBe('/systems');
+    await waitFor(() => expect(capturedPath).toBe('/systems'));
 
     await act(async () => {
       screen.getByTestId('trigger-logout').click();
@@ -662,72 +643,6 @@ describe('AuthProvider — logout', () => {
     await waitFor(() => expect(capturedPath).toBe('/login'));
     expect(client.get).toHaveBeenLastCalledWith('/auth/logout');
     expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
-  });
-
-  test('logout redireciona para /login mesmo após falha remota', async () => {
-    seedPersistedSession();
-    const client = createClientStub();
-    // Hidratação OK, depois logout falha por rede.
-    client.get
-      .mockResolvedValueOnce(VERIFY_RESPONSE)
-      .mockRejectedValueOnce(NETWORK_ERROR);
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
-    let capturedPath = '';
-    const PathProbe: React.FC = () => {
-      const location = useLocation();
-      capturedPath = location.pathname;
-      return null;
-    };
-
-    const TriggerScreen: React.FC = () => {
-      const authValue = useAuth();
-      return (
-        <>
-          <PathProbe />
-          <button
-            type="button"
-            data-testid="trigger-logout"
-            onClick={() => {
-              void authValue.logout();
-            }}
-          >
-            sair
-          </button>
-        </>
-      );
-    };
-
-    const LoginScreen: React.FC = () => (
-      <>
-        <PathProbe />
-        <div data-testid="login-screen">login</div>
-      </>
-    );
-
-    render(
-      <MemoryRouter initialEntries={['/systems']}>
-        <AuthProvider client={client} verifyIntervalMs={0} disableSplash>
-          <Routes>
-            <Route path="/login" element={<LoginScreen />} />
-            <Route path="/systems" element={<TriggerScreen />} />
-          </Routes>
-        </AuthProvider>
-      </MemoryRouter>,
-    );
-
-    await waitFor(() => expect(client.get).toHaveBeenCalledTimes(1));
-    expect(capturedPath).toBe('/systems');
-
-    await act(async () => {
-      screen.getByTestId('trigger-logout').click();
-    });
-
-    await waitFor(() => expect(capturedPath).toBe('/login'));
-    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
-    expect(warnSpy).toHaveBeenCalled();
-
-    warnSpy.mockRestore();
   });
 });
 
@@ -745,7 +660,7 @@ describe('AuthProvider — hasPermission', () => {
   test('retorna true para permissões presentes após login', async () => {
     const client = createClientStub();
     client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
-    client.get.mockResolvedValueOnce(SAMPLE_VERIFY);
+    client.get.mockResolvedValueOnce(SAMPLE_PERMISSIONS);
     const { result } = renderHook(() => useAuth(), {
       wrapper: makeWrapper(client),
     });
@@ -764,7 +679,7 @@ describe('AuthProvider — onUnauthorized', () => {
   test('callback injetado no client limpa sessão quando disparado', async () => {
     const client = createClientStub();
     client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
-    client.get.mockResolvedValueOnce(SAMPLE_VERIFY);
+    client.get.mockResolvedValueOnce(SAMPLE_PERMISSIONS);
     const { result } = renderHook(() => useAuth(), {
       wrapper: makeWrapper(client),
     });
@@ -788,146 +703,49 @@ describe('AuthProvider — onUnauthorized', () => {
   });
 });
 
-describe('AuthProvider — persistência (Issue #53)', () => {
-  test('hidrata estado a partir de localStorage no mount', async () => {
-    // Pré-condição: storage já contém uma sessão válida (simula reload
-    // após login bem-sucedido em sessão anterior).
-    seedPersistedSession();
+describe('AuthProvider — hidratação (Issue #122)', () => {
+  test('com cache vivo, hidrata SEM chamar /auth/permissions', async () => {
+    await seedPersistedSession();
     const client = createClientStub();
-    // Verify-token bem-sucedido para destravar isLoading.
-    client.get.mockResolvedValueOnce(VERIFY_RESPONSE);
 
     const { result } = renderHook(() => useAuth(), {
       wrapper: makeWrapper(client),
     });
 
-    // Render inicial já é autenticado.
-    expect(result.current.isAuthenticated).toBe(true);
-
-    // Token persistido também alimenta o getToken injetado no client.
-    const latest = lastCall(client.setAuth.mock.calls)?.[0];
-    expect(latest?.getToken?.()).toBe('jwt-persistido');
-
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
-  });
-
-  test('ignora dados corrompidos em storage e mantém estado deslogado', () => {
-    window.localStorage.setItem(STORAGE_KEYS.token, 'jwt-persistido');
-    window.localStorage.setItem(STORAGE_KEYS.user, '{json-quebrado');
-
-    const client = createClientStub();
-    const { result } = renderHook(() => useAuth(), {
-      wrapper: makeWrapper(client),
-    });
-
-    expect(result.current.isAuthenticated).toBe(false);
-    expect(result.current.user).toBeNull();
-    const latest = lastCall(client.setAuth.mock.calls)?.[0];
-    expect(latest?.getToken?.()).toBeNull();
-  });
-
-  test('login persiste token e user em localStorage', async () => {
-    const client = createClientStub();
-    client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
-    client.get.mockResolvedValueOnce(SAMPLE_VERIFY);
-    const { result } = renderHook(() => useAuth(), {
-      wrapper: makeWrapper(client),
-    });
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-    await act(async () => {
-      await result.current.login('ada@lfc.com.br', 'secret');
-    });
-
-    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBe('jwt-xyz');
-    const userJson = window.localStorage.getItem(STORAGE_KEYS.user);
-    expect(userJson).not.toBeNull();
-    // Storage espelha a projeção que o Provider faz: User com `identity`
-    // e permissions = permissionCodes (nunca os GUIDs brutos).
-    expect(JSON.parse(userJson as string)).toEqual({
-      user: SAMPLE_USER,
-      permissions: SAMPLE_PERMISSIONS,
-    });
-  });
-
-  test('logout limpa ambas as chaves do localStorage', async () => {
-    // Estado inicial: sessão já hidratada do storage. A 1ª chamada
-    // a `client.get` é a hidratação otimista; a 2ª, o logout remoto.
-    seedPersistedSession();
-
-    const client = createClientStub();
-    client.get
-      .mockResolvedValueOnce(VERIFY_RESPONSE)
-      .mockResolvedValueOnce({ message: 'Sessão encerrada.' });
-    const { result } = renderHook(() => useAuth(), {
-      wrapper: makeWrapper(client),
-    });
-    expect(result.current.isAuthenticated).toBe(true);
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-    await act(async () => {
-      await result.current.logout();
-    });
-
-    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
-    expect(window.localStorage.getItem(STORAGE_KEYS.user)).toBeNull();
-    expect(result.current.isAuthenticated).toBe(false);
-  });
-
-  test('callback onUnauthorized (401) limpa localStorage', async () => {
-    const client = createClientStub();
-    client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
-    client.get.mockResolvedValueOnce(SAMPLE_VERIFY);
-    const { result } = renderHook(() => useAuth(), {
-      wrapper: makeWrapper(client),
-    });
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
-    await act(async () => {
-      await result.current.login('ada@lfc.com.br', 'secret');
-    });
-    // Confirma pré-condição: storage está populado.
-    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBe('jwt-xyz');
-
-    const onUnauthorized = lastCall(client.setAuth.mock.calls)?.[0]
-      ?.onUnauthorized as () => void;
-    act(() => {
-      onUnauthorized();
-    });
-
-    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
-    expect(window.localStorage.getItem(STORAGE_KEYS.user)).toBeNull();
-  });
-});
-
-describe('AuthProvider — verify-token (Issue #54)', () => {
-  test('com sessão local, hidrata via GET /auth/verify-token e atualiza permissions', async () => {
-    seedPersistedSession();
-    const client = createClientStub();
-    client.get.mockResolvedValueOnce(VERIFY_RESPONSE);
-
-    const { result } = renderHook(() => useAuth(), {
-      wrapper: makeWrapper(client),
-    });
-
-    // Mount inicial já está autenticado (otimista) com permissões antigas
-    // e isLoading=true sinalizando revalidação em curso.
+    // Render inicial já é autenticado (otimista, antes do effect rodar).
     expect(result.current.isAuthenticated).toBe(true);
     expect(result.current.isLoading).toBe(true);
-    expect(result.current.permissions).toEqual(SAMPLE_PERMISSIONS);
 
-    // Após o verify-token resolver, permissões são atualizadas com o
-    // snapshot fresco — `permissionCodes` é a fonte da verdade para o
-    // que o frontend chama de `permissions`.
+    // Aguarda o effect ler o cache de IndexedDB.
     await waitFor(() => expect(result.current.isLoading).toBe(false));
-    expect(client.get).toHaveBeenCalledWith(
-      '/auth/verify-token',
-      expect.objectContaining({ signal: expect.any(AbortSignal) }),
-    );
-    expect(result.current.permissions).toEqual(VERIFY_PERMISSIONS);
-    expect(result.current.user).toEqual(VERIFY_USER);
+    expect(result.current.user).toEqual(SAMPLE_USER);
+    expect(result.current.permissions).toEqual(SAMPLE_PERMISSION_CODES);
+    // Cache hit: nenhuma chamada de rede.
+    expect(client.get).not.toHaveBeenCalled();
   });
 
-  test('sem sessão local, NÃO chama verify-token no mount', async () => {
+  test('com cache vazio mas token presente, dispara /auth/permissions', async () => {
+    window.localStorage.setItem(STORAGE_KEYS.token, 'jwt-persistido');
+    const client = createClientStub();
+    client.get.mockResolvedValueOnce(SAMPLE_PERMISSIONS);
+
+    const { result } = renderHook(() => useAuth(), {
+      wrapper: makeWrapper(client),
+    });
+
+    expect(result.current.isAuthenticated).toBe(true);
+    expect(result.current.isLoading).toBe(true);
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(client.get).toHaveBeenCalledWith(
+      '/auth/permissions',
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(result.current.user).toEqual(SAMPLE_USER);
+    expect(result.current.permissions).toEqual(SAMPLE_PERMISSION_CODES);
+  });
+
+  test('sem token, NÃO chama /auth/permissions nem /auth/verify-token', async () => {
     const client = createClientStub();
     const { result } = renderHook(() => useAuth(), {
       wrapper: makeWrapper(client),
@@ -937,11 +755,9 @@ describe('AuthProvider — verify-token (Issue #54)', () => {
     expect(client.get).not.toHaveBeenCalled();
   });
 
-  test('verify-token com 401 limpa sessão e redireciona para /login', async () => {
-    seedPersistedSession();
+  test('hidratação com /auth/permissions em 401 limpa sessão', async () => {
+    window.localStorage.setItem(STORAGE_KEYS.token, 'jwt-persistido');
     const client = createClientStub();
-    // Simula o comportamento real do client HTTP: em 401, dispara
-    // `onUnauthorized` antes de rejeitar a Promise.
     client.get.mockImplementationOnce(async () => {
       const config = lastCall(client.setAuth.mock.calls)?.[0];
       config?.onUnauthorized?.();
@@ -952,17 +768,14 @@ describe('AuthProvider — verify-token (Issue #54)', () => {
       wrapper: makeWrapper(client, { initialEntries: ['/systems'] }),
     });
 
-    // O verify-token resolve assincronamente; aguardamos a transição
-    // para `isAuthenticated: false` em vez de afirmar o estado inicial
-    // (que pode ou não ter sido capturado antes do `useEffect` rodar).
     await waitFor(() => expect(result.current.isAuthenticated).toBe(false));
     expect(result.current.user).toBeNull();
     expect(result.current.permissions).toEqual([]);
     expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
   });
 
-  test('verify-token com falha de rede mantém sessão local intacta', async () => {
-    seedPersistedSession();
+  test('hidratação com falha de rede mantém sessão local intacta (warning)', async () => {
+    window.localStorage.setItem(STORAGE_KEYS.token, 'jwt-persistido');
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const client = createClientStub();
     client.get.mockRejectedValueOnce(NETWORK_ERROR);
@@ -972,83 +785,22 @@ describe('AuthProvider — verify-token (Issue #54)', () => {
     });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
-    // Sessão local preservada — usuário continua autenticado com último
-    // snapshot conhecido.
+    // Sessão local preservada — usuário continua autenticado.
     expect(result.current.isAuthenticated).toBe(true);
-    expect(result.current.user).toEqual(SAMPLE_USER);
-    expect(result.current.permissions).toEqual(SAMPLE_PERMISSIONS);
     expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBe('jwt-persistido');
     expect(warnSpy).toHaveBeenCalled();
 
     warnSpy.mockRestore();
   });
 
-  test('verify-token com payload inválido mantém sessão local', async () => {
-    seedPersistedSession();
+  test('renderiza splash enquanto hidratação está em curso (token sem cache)', async () => {
+    window.localStorage.setItem(STORAGE_KEYS.token, 'jwt-persistido');
     const client = createClientStub();
-    // Resposta sem `id`/`name`/`email`/`identity`/`permissionCodes`/`routeCodes`
-    // válidos — Provider deve descartar silenciosamente e manter sessão local.
-    client.get.mockResolvedValueOnce({ permissions: [] } as unknown);
-
-    const { result } = renderHook(() => useAuth(), {
-      wrapper: makeWrapper(client),
-    });
-
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
-    expect(result.current.isAuthenticated).toBe(true);
-    expect(result.current.user).toEqual(SAMPLE_USER);
-    expect(result.current.permissions).toEqual(SAMPLE_PERMISSIONS);
-  });
-
-  test('revalidação periódica chama verify-token a cada tick', async () => {
-    seedPersistedSession();
-    const client = createClientStub();
-    client.get.mockResolvedValue(VERIFY_RESPONSE);
-
-    const { unmount } = renderHook(() => useAuth(), {
-      wrapper: makeWrapper(client, { verifyIntervalMs: 50 }),
-    });
-
-    // A hidratação inicial dispara a chamada #1; cada tick subsequente
-    // adiciona mais uma. Asserimos apenas a transição de "1 → ≥3" para
-    // evitar corrida com intervalo de 50ms vs. agendamento do React.
-    await waitFor(
-      () => expect(client.get.mock.calls.length).toBeGreaterThanOrEqual(3),
-      { timeout: 1500 },
-    );
-    // Desmonta explicitamente para liberar `setInterval` antes de o
-    // próximo teste começar — `renderHook` faz auto-cleanup, mas sob
-    // intervalo de 50ms o timer pode disparar entre tests vizinhos.
-    unmount();
-  });
-
-  test('verifyIntervalMs=0 desativa revalidação periódica mas mantém hidratação inicial', async () => {
-    seedPersistedSession();
-    const client = createClientStub();
-    client.get.mockResolvedValue(VERIFY_RESPONSE);
-
-    const { result } = renderHook(() => useAuth(), {
-      wrapper: makeWrapper(client, { verifyIntervalMs: 0 }),
-    });
-
-    await waitFor(() => expect(client.get).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-    // Aguarda um pouco para garantir que nenhum tick adicional chegou.
-    await new Promise(resolve => setTimeout(resolve, 100));
-    expect(client.get).toHaveBeenCalledTimes(1);
-  });
-
-  test('renderiza splash enquanto verify-token está em curso (sessão local)', async () => {
-    seedPersistedSession();
-    const client = createClientStub();
-    // Promise pendente para manter `isLoading: true` enquanto asserimos
-    // a presença da splash.
-    let resolveVerify: ((value: VerifyTokenResponse) => void) | null = null;
+    let resolveFetch: ((value: PermissionsResponse) => void) | null = null;
     client.get.mockImplementationOnce(
       () =>
-        new Promise<VerifyTokenResponse>(resolve => {
-          resolveVerify = resolve;
+        new Promise<PermissionsResponse>(resolve => {
+          resolveFetch = resolve;
         }),
     );
 
@@ -1060,13 +812,18 @@ describe('AuthProvider — verify-token (Issue #54)', () => {
       </MemoryRouter>,
     );
 
-    // Splash visível, conteúdo protegido oculto.
     expect(screen.getByTestId('auth-splash')).toBeInTheDocument();
     expect(screen.queryByTestId('protected-content')).not.toBeInTheDocument();
 
-    // Resolve o verify-token: splash desaparece, conteúdo aparece.
+    // O Provider primeiro tenta `permissionsCache.load()` (assíncrono);
+    // só depois cai em `client.get('/auth/permissions')`. Aguardamos a
+    // chamada do client antes de tentar resolver o mock — sem isso, o
+    // `resolveFetch` ainda é null e não dispara nada.
+    await waitFor(() => expect(client.get).toHaveBeenCalled());
+    await waitFor(() => expect(resolveFetch).not.toBeNull());
+
     await act(async () => {
-      resolveVerify?.(VERIFY_RESPONSE);
+      resolveFetch?.(SAMPLE_PERMISSIONS);
     });
 
     await waitFor(() =>
@@ -1075,7 +832,7 @@ describe('AuthProvider — verify-token (Issue #54)', () => {
     expect(screen.getByTestId('protected-content')).toBeInTheDocument();
   });
 
-  test('sem sessão local, NÃO exibe splash e renderiza children imediatamente', () => {
+  test('sem token, NÃO exibe splash e renderiza children imediatamente', () => {
     const client = createClientStub();
     render(
       <MemoryRouter>
@@ -1089,13 +846,12 @@ describe('AuthProvider — verify-token (Issue #54)', () => {
     expect(screen.getByTestId('public-content')).toBeInTheDocument();
   });
 
-  test('unmount cancela revalidação pendente via AbortController', async () => {
-    seedPersistedSession();
+  test('unmount cancela /auth/permissions pendente via AbortController', async () => {
+    window.localStorage.setItem(STORAGE_KEYS.token, 'jwt-persistido');
     const client = createClientStub();
     let abortSignal: AbortSignal | undefined;
     client.get.mockImplementationOnce((_path: string, options?: { signal?: AbortSignal }) => {
       abortSignal = options?.signal;
-      // Promise pendente — nunca resolve — para asserir o abort.
       return new Promise(() => undefined);
     });
 
@@ -1103,13 +859,204 @@ describe('AuthProvider — verify-token (Issue #54)', () => {
       wrapper: makeWrapper(client),
     });
 
-    // O `useEffect` que dispara o verify-token roda após o primeiro
-    // commit; aguardamos até que o mock receba o signal antes de
-    // desmontar.
     await waitFor(() => expect(abortSignal).toBeDefined());
     expect(abortSignal?.aborted).toBe(false);
 
     unmount();
     expect(abortSignal?.aborted).toBe(true);
+  });
+});
+
+describe('AuthProvider — verifyRoute (Issue #122 / adendo)', () => {
+  test('200 retorna true e envia X-Route-Code', async () => {
+    await seedPersistedSession();
+    const client = createClientStub();
+    client.get.mockResolvedValueOnce(VERIFY_OK);
+
+    const { result } = renderHook(() => useAuth(), {
+      wrapper: makeWrapper(client),
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    let outcome = false;
+    await act(async () => {
+      outcome = await result.current.verifyRoute('AUTH_ADMIN_V1_SYSTEMS');
+    });
+
+    expect(outcome).toBe(true);
+    expect(client.get).toHaveBeenCalledWith(
+      '/auth/verify-token',
+      expect.objectContaining({
+        headers: { 'X-Route-Code': 'AUTH_ADMIN_V1_SYSTEMS' },
+      }),
+    );
+  });
+
+  test('403 retorna false e redireciona para /error/403 com state.from', async () => {
+    await seedPersistedSession();
+    const client = createClientStub();
+    client.get.mockRejectedValueOnce(FORBIDDEN_ERROR);
+
+    let capturedPath = '';
+    let capturedFrom: string | undefined;
+    const PathProbe: React.FC = () => {
+      const location = useLocation();
+      capturedPath = location.pathname;
+      const state = location.state as { from?: { pathname?: string } } | null;
+      capturedFrom = state?.from?.pathname;
+      return null;
+    };
+
+    const TriggerScreen: React.FC = () => {
+      const authValue = useAuth();
+      const location = useLocation();
+      return (
+        <>
+          <PathProbe />
+          <button
+            type="button"
+            data-testid="trigger-verify"
+            onClick={() => {
+              void authValue.verifyRoute(
+                'AUTH_ADMIN_V1_USERS',
+                undefined,
+                location.pathname,
+              );
+            }}
+          >
+            verificar
+          </button>
+        </>
+      );
+    };
+
+    const ErrorScreen: React.FC = () => (
+      <>
+        <PathProbe />
+        <div data-testid="forbidden-screen">403</div>
+      </>
+    );
+
+    render(
+      <MemoryRouter initialEntries={['/users']}>
+        <AuthProvider client={client} verifyIntervalMs={0} disableSplash>
+          <Routes>
+            <Route path="/users" element={<TriggerScreen />} />
+            <Route path="/error/403" element={<ErrorScreen />} />
+          </Routes>
+        </AuthProvider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(capturedPath).toBe('/users'));
+
+    await act(async () => {
+      screen.getByTestId('trigger-verify').click();
+    });
+
+    await waitFor(() => expect(capturedPath).toBe('/error/403'));
+    expect(capturedFrom).toBe('/users');
+  });
+
+  test('falha de rede retorna true (libera navegação) e loga warning', async () => {
+    await seedPersistedSession();
+    const client = createClientStub();
+    client.get.mockRejectedValueOnce(NETWORK_ERROR);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const { result } = renderHook(() => useAuth(), {
+      wrapper: makeWrapper(client),
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    let outcome = false;
+    await act(async () => {
+      outcome = await result.current.verifyRoute('AUTH_ADMIN_V1_SYSTEMS');
+    });
+
+    expect(outcome).toBe(true);
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  test('400 (Rota inválida) retorna true (libera navegação)', async () => {
+    await seedPersistedSession();
+    const client = createClientStub();
+    client.get.mockRejectedValueOnce({
+      kind: 'http',
+      status: 400,
+      message: 'Rota inválida.',
+    } satisfies ApiError);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const { result } = renderHook(() => useAuth(), {
+      wrapper: makeWrapper(client),
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    let outcome = false;
+    await act(async () => {
+      outcome = await result.current.verifyRoute('AUTH_ADMIN_V1_SYSTEMS');
+    });
+
+    expect(outcome).toBe(true);
+    warnSpy.mockRestore();
+  });
+
+  test('401 retorna false (cliente HTTP já limpou sessão)', async () => {
+    await seedPersistedSession();
+    const client = createClientStub();
+    client.get.mockImplementationOnce(async () => {
+      const config = lastCall(client.setAuth.mock.calls)?.[0];
+      config?.onUnauthorized?.();
+      throw UNAUTHORIZED_ERROR;
+    });
+
+    const { result } = renderHook(() => useAuth(), {
+      wrapper: makeWrapper(client),
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    let outcome = true;
+    await act(async () => {
+      outcome = await result.current.verifyRoute('AUTH_ADMIN_V1_SYSTEMS');
+    });
+
+    expect(outcome).toBe(false);
+    expect(result.current.isAuthenticated).toBe(false);
+  });
+
+  test('sem token, retorna false sem chamar a rede', async () => {
+    const client = createClientStub();
+    const { result } = renderHook(() => useAuth(), {
+      wrapper: makeWrapper(client),
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    let outcome = true;
+    await act(async () => {
+      outcome = await result.current.verifyRoute('AUTH_ADMIN_V1_SYSTEMS');
+    });
+
+    expect(outcome).toBe(false);
+    expect(client.get).not.toHaveBeenCalled();
+  });
+
+  test('payload inválido retorna true (libera navegação por segurança de UX)', async () => {
+    await seedPersistedSession();
+    const client = createClientStub();
+    client.get.mockResolvedValueOnce({ valid: 'sim' } as unknown);
+
+    const { result } = renderHook(() => useAuth(), {
+      wrapper: makeWrapper(client),
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    let outcome = false;
+    await act(async () => {
+      outcome = await result.current.verifyRoute('AUTH_ADMIN_V1_SYSTEMS');
+    });
+
+    expect(outcome).toBe(true);
   });
 });

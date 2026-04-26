@@ -1,12 +1,17 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { beforeEach, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+
+import { installFakeIndexedDB, uninstallFakeIndexedDB } from './shared/auth/__helpers__/fakeIndexedDB';
 
 import type { ApiClient } from '@/shared/api';
+import type { CachedPermissions } from '@/shared/auth';
 
 import { AppRoutes } from '@/routes';
 import { AuthProvider } from '@/shared/auth';
+import { permissionsCache, PERMISSIONS_CACHE_KEYS } from '@/shared/auth/permissionsCache';
 import { STORAGE_KEYS } from '@/shared/auth/storage';
+
 
 /**
  * Cliente HTTP stub para os testes de árvore: o `AppLayout` consome
@@ -15,9 +20,9 @@ import { STORAGE_KEYS } from '@/shared/auth/storage';
  * `setState` da hidratação aconteça depois do teste capturar a árvore
  * (gera warnings de `act` desnecessários em assertivas síncronas).
  *
- * Como o estado otimista vindo do `localStorage` já é suficiente para
- * pintar Sidebar/Topbar/conteúdo, a Promise pendente não prejudica os
- * cenários cobertos aqui.
+ * Como o estado otimista vindo do cache em IndexedDB já é suficiente
+ * para pintar Sidebar/Topbar/conteúdo, a Promise pendente não
+ * prejudica os cenários cobertos aqui.
  */
 function makeInertClient(): ApiClient {
   const stub = {
@@ -28,37 +33,39 @@ function makeInertClient(): ApiClient {
     patch: vi.fn(),
     delete: vi.fn(),
     setAuth: vi.fn(),
+    getSystemId: vi.fn(() => 'system-test-uuid'),
   };
   return stub as unknown as ApiClient;
 }
 
 /**
- * Pré-popula `localStorage` com uma sessão de admin.
+ * Pré-popula token (`localStorage`) e catálogo (IndexedDB) para
+ * simular sessão admin completa.
  *
- * Após a Issue #56, `<RequireAuth>` redireciona qualquer rota privada
- * para `/login` quando não há sessão; e `<RequirePermission>` redireciona
- * para `/error/403` quando o code não está presente. Para preservar os
- * cenários originais (Sidebar/Topbar pintadas em `/systems`), semeamos
- * uma sessão com permissões suficientes para todas as rotas listadas.
+ * Após a Issue #122, o token vive em `localStorage` (`tokenStorage`)
+ * e o catálogo de permissões em IndexedDB (`permissionsCache`). Para
+ * preservar os cenários originais (Sidebar/Topbar pintadas em
+ * `/systems`), semeamos uma sessão com permissões suficientes para
+ * todas as rotas listadas.
  */
-function seedAdminSession(): void {
+async function seedAdminSession(): Promise<void> {
   window.localStorage.setItem(STORAGE_KEYS.token, 'jwt-admin-test');
-  window.localStorage.setItem(
-    STORAGE_KEYS.user,
-    JSON.stringify({
-      user: {
-        id: 'u-admin',
-        name: 'Admin',
-        email: 'admin@lfc.com.br',
-      },
-      permissions: [
-        'perm:Systems.Read',
-        'perm:Roles.Read',
-        'perm:Permissions.Read',
-        'perm:Users.Read',
-      ],
-    }),
-  );
+  await permissionsCache.save({
+    user: {
+      id: 'u-admin',
+      name: 'Admin',
+      email: 'admin@lfc.com.br',
+      identity: 1,
+    },
+    permissions: ['11111111-1111-1111-1111-111111111111'],
+    permissionCodes: [
+      'perm:Systems.Read',
+      'perm:Roles.Read',
+      'perm:Permissions.Read',
+      'perm:Users.Read',
+    ],
+    routeCodes: ['AUTH_ADMIN_V1_SYSTEMS'],
+  } as Omit<CachedPermissions, 'cachedAt'>);
 }
 
 function renderAt(path: string) {
@@ -72,25 +79,34 @@ function renderAt(path: string) {
 }
 
 beforeEach(() => {
+  installFakeIndexedDB();
   window.localStorage.clear();
 });
 
-test('renderiza Sidebar e Topbar com itens de navegação', () => {
-  seedAdminSession();
+afterEach(() => {
+  uninstallFakeIndexedDB();
+});
+
+test('renderiza Sidebar e Topbar com itens de navegação', async () => {
+  await seedAdminSession();
   renderAt('/systems');
 
-  expect(screen.getByText('Rotas')).toBeInTheDocument();
+  // O catálogo é hidratado via IndexedDB de forma assíncrona — aguardamos
+  // o conteúdo aparecer antes de asserir os links.
+  await waitFor(() => expect(screen.getByText('Rotas')).toBeInTheDocument());
   expect(screen.getByText('Roles')).toBeInTheDocument();
   expect(screen.getByText('Permissões')).toBeInTheDocument();
   expect(screen.getByText('Usuários')).toBeInTheDocument();
   expect(screen.getByText('Admin Panel')).toBeInTheDocument();
 });
 
-test('exibe o usuário autenticado na Topbar', () => {
-  seedAdminSession();
+test('exibe o usuário autenticado na Topbar', async () => {
+  await seedAdminSession();
   renderAt('/systems');
 
-  expect(screen.getByText('admin@lfc.com.br')).toBeInTheDocument();
+  await waitFor(() =>
+    expect(screen.getByText('admin@lfc.com.br')).toBeInTheDocument(),
+  );
 });
 
 test('rota inexistente exibe pagina 404', () => {
@@ -124,10 +140,22 @@ test('rota /error/:code com codigo desconhecido cai no 404', () => {
   ).toBeInTheDocument();
 });
 
-test('itens da Sidebar apontam para rotas reais', () => {
-  seedAdminSession();
+test('itens da Sidebar apontam para rotas reais', async () => {
+  await seedAdminSession();
   renderAt('/systems');
 
-  const link = screen.getByRole('link', { name: /Roles/i });
-  expect(link).toHaveAttribute('href', '/roles');
+  await waitFor(() => {
+    const link = screen.getByRole('link', { name: /Roles/i });
+    expect(link).toHaveAttribute('href', '/roles');
+  });
+});
+
+test('seedAdminSession grava o catálogo no IndexedDB esperado', async () => {
+  // Smoke test: confirma que o helper de seed gravou na DB esperada,
+  // evitando que regressões na nomenclatura passem despercebidas.
+  await seedAdminSession();
+  expect(PERMISSIONS_CACHE_KEYS.dbName).toBe('lfc-admin-auth');
+  expect(PERMISSIONS_CACHE_KEYS.recordKey).toBe('current');
+  const cached = await permissionsCache.load();
+  expect(cached?.user.email).toBe('admin@lfc.com.br');
 });
