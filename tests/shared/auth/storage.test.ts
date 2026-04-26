@@ -1,24 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
-import type { PersistedSession } from '@/shared/auth/storage';
-
-import { sessionStorage, STORAGE_KEYS } from '@/shared/auth/storage';
+import { STORAGE_KEYS, tokenStorage } from '@/shared/auth/storage';
 
 /**
- * Sessão de exemplo usada como fixture em vários testes. Mantida
- * imutável (`as const`) para evitar mutação acidental entre testes —
- * cada teste que precisar variar campos deve produzir cópia.
+ * Token usado como fixture nos testes. Mantido como constante simples
+ * (`as const`) — qualquer string serve, o storage não interpreta o
+ * conteúdo.
  */
-const SAMPLE_SESSION: PersistedSession = {
-  token: 'jwt-abc-123',
-  user: {
-    id: 'u-1',
-    name: 'Ada Lovelace',
-    email: 'ada@lfc.com.br',
-    identity: 42,
-  },
-  permissions: ['Systems.Read', 'Systems.Create'],
-};
+const SAMPLE_TOKEN = 'jwt-abc-123';
 
 /**
  * Limpa storage entre testes. O `setupTests` global já faz isso em
@@ -33,72 +22,27 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('sessionStorage.load', () => {
+describe('tokenStorage.load', () => {
   test('retorna null quando localStorage está vazio', () => {
-    expect(sessionStorage.load()).toBeNull();
+    expect(tokenStorage.load()).toBeNull();
   });
 
-  test('retorna null quando apenas a chave do token está presente', () => {
-    window.localStorage.setItem(STORAGE_KEYS.token, 'algum-token');
+  test('retorna o token quando a chave está presente', () => {
+    tokenStorage.save(SAMPLE_TOKEN);
 
-    expect(sessionStorage.load()).toBeNull();
+    expect(tokenStorage.load()).toBe(SAMPLE_TOKEN);
   });
 
-  test('retorna null quando apenas a chave do user está presente', () => {
-    window.localStorage.setItem(
-      STORAGE_KEYS.user,
-      JSON.stringify({ user: SAMPLE_SESSION.user, permissions: [] }),
-    );
+  test('retorna null quando o valor é vazio (defensivo)', () => {
+    window.localStorage.setItem(STORAGE_KEYS.token, '');
 
-    expect(sessionStorage.load()).toBeNull();
+    expect(tokenStorage.load()).toBeNull();
   });
 
-  test('retorna sessão válida quando ambas as chaves estão consistentes', () => {
-    sessionStorage.save(SAMPLE_SESSION);
+  test('retorna null quando o valor é apenas whitespace', () => {
+    window.localStorage.setItem(STORAGE_KEYS.token, '   ');
 
-    const loaded = sessionStorage.load();
-
-    expect(loaded).not.toBeNull();
-    expect(loaded?.token).toBe(SAMPLE_SESSION.token);
-    expect(loaded?.user).toEqual(SAMPLE_SESSION.user);
-    expect(loaded?.permissions).toEqual(SAMPLE_SESSION.permissions);
-  });
-
-  test('retorna null quando o JSON do user é inválido', () => {
-    window.localStorage.setItem(STORAGE_KEYS.token, 'algum-token');
-    window.localStorage.setItem(STORAGE_KEYS.user, '{not-json');
-
-    expect(sessionStorage.load()).toBeNull();
-  });
-
-  test('retorna null quando o shape do user não bate (campos faltando)', () => {
-    window.localStorage.setItem(STORAGE_KEYS.token, 'algum-token');
-    window.localStorage.setItem(
-      STORAGE_KEYS.user,
-      JSON.stringify({ user: { id: 'u-1' }, permissions: [] }),
-    );
-
-    expect(sessionStorage.load()).toBeNull();
-  });
-
-  test('retorna null quando permissions não é array', () => {
-    window.localStorage.setItem(STORAGE_KEYS.token, 'algum-token');
-    window.localStorage.setItem(
-      STORAGE_KEYS.user,
-      JSON.stringify({ user: SAMPLE_SESSION.user, permissions: 'admin' }),
-    );
-
-    expect(sessionStorage.load()).toBeNull();
-  });
-
-  test('retorna null quando user é null', () => {
-    window.localStorage.setItem(STORAGE_KEYS.token, 'algum-token');
-    window.localStorage.setItem(
-      STORAGE_KEYS.user,
-      JSON.stringify({ user: null, permissions: [] }),
-    );
-
-    expect(sessionStorage.load()).toBeNull();
+    expect(tokenStorage.load()).toBeNull();
   });
 
   test('retorna null quando localStorage.getItem lança', () => {
@@ -106,35 +50,24 @@ describe('sessionStorage.load', () => {
       throw new Error('storage indisponível');
     });
 
-    expect(sessionStorage.load()).toBeNull();
+    expect(tokenStorage.load()).toBeNull();
   });
 });
 
-describe('sessionStorage.save', () => {
-  test('persiste token e payload do usuário em chaves namespaced', () => {
-    sessionStorage.save(SAMPLE_SESSION);
+describe('tokenStorage.save', () => {
+  test('persiste token na chave namespaced', () => {
+    tokenStorage.save(SAMPLE_TOKEN);
 
-    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBe(SAMPLE_SESSION.token);
-    const userJson = window.localStorage.getItem(STORAGE_KEYS.user);
-    expect(userJson).not.toBeNull();
-    expect(JSON.parse(userJson as string)).toEqual({
-      user: SAMPLE_SESSION.user,
-      permissions: SAMPLE_SESSION.permissions,
-    });
+    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBe(SAMPLE_TOKEN);
   });
 
-  test('sobrescreve sessão existente sem deixar dados antigos', () => {
-    sessionStorage.save(SAMPLE_SESSION);
+  test('sobrescreve token existente', () => {
+    tokenStorage.save(SAMPLE_TOKEN);
     const novoToken = 'jwt-rotacionado';
-    sessionStorage.save({
-      ...SAMPLE_SESSION,
-      token: novoToken,
-      permissions: ['Systems.Delete'],
-    });
+    tokenStorage.save(novoToken);
 
     expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBe(novoToken);
-    const loaded = sessionStorage.load();
-    expect(loaded?.permissions).toEqual(['Systems.Delete']);
+    expect(tokenStorage.load()).toBe(novoToken);
   });
 
   test('não propaga exceção quando setItem lança (quota / private mode)', () => {
@@ -142,22 +75,21 @@ describe('sessionStorage.save', () => {
       throw new Error('quota exceeded');
     });
 
-    expect(() => sessionStorage.save(SAMPLE_SESSION)).not.toThrow();
+    expect(() => tokenStorage.save(SAMPLE_TOKEN)).not.toThrow();
   });
 });
 
-describe('sessionStorage.clear', () => {
-  test('remove ambas as chaves quando há sessão', () => {
-    sessionStorage.save(SAMPLE_SESSION);
+describe('tokenStorage.clear', () => {
+  test('remove a chave do token quando presente', () => {
+    tokenStorage.save(SAMPLE_TOKEN);
 
-    sessionStorage.clear();
+    tokenStorage.clear();
 
     expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
-    expect(window.localStorage.getItem(STORAGE_KEYS.user)).toBeNull();
   });
 
-  test('é idempotente quando não há sessão persistida', () => {
-    expect(() => sessionStorage.clear()).not.toThrow();
+  test('é idempotente quando não há token persistido', () => {
+    expect(() => tokenStorage.clear()).not.toThrow();
     expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
   });
 
@@ -166,13 +98,50 @@ describe('sessionStorage.clear', () => {
       throw new Error('storage indisponível');
     });
 
-    expect(() => sessionStorage.clear()).not.toThrow();
+    expect(() => tokenStorage.clear()).not.toThrow();
   });
 
-  test('não preserva apenas uma das duas chaves após clear', () => {
-    sessionStorage.save(SAMPLE_SESSION);
-    sessionStorage.clear();
+  test('load retorna null após clear', () => {
+    tokenStorage.save(SAMPLE_TOKEN);
+    tokenStorage.clear();
 
-    expect(sessionStorage.load()).toBeNull();
+    expect(tokenStorage.load()).toBeNull();
+  });
+});
+
+describe('tokenStorage.clearLegacyKeys (Issue #122 — migração)', () => {
+  test('remove a chave legada lfc-admin-auth-user quando presente', () => {
+    window.localStorage.setItem(
+      STORAGE_KEYS.legacyUser,
+      JSON.stringify({ user: { id: 'u-1' }, permissions: [] }),
+    );
+
+    tokenStorage.clearLegacyKeys();
+
+    expect(window.localStorage.getItem(STORAGE_KEYS.legacyUser)).toBeNull();
+  });
+
+  test('é idempotente quando a chave legada não existe', () => {
+    expect(() => tokenStorage.clearLegacyKeys()).not.toThrow();
+    expect(window.localStorage.getItem(STORAGE_KEYS.legacyUser)).toBeNull();
+  });
+
+  test('não toca na chave do token (token sobrevive à migração)', () => {
+    tokenStorage.save(SAMPLE_TOKEN);
+    window.localStorage.setItem(STORAGE_KEYS.legacyUser, '{}');
+
+    tokenStorage.clearLegacyKeys();
+
+    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBe(SAMPLE_TOKEN);
+    expect(window.localStorage.getItem(STORAGE_KEYS.legacyUser)).toBeNull();
+  });
+
+  test('não propaga exceção quando removeItem lança', () => {
+    window.localStorage.setItem(STORAGE_KEYS.legacyUser, '{}');
+    vi.spyOn(window.localStorage.__proto__, 'removeItem').mockImplementation(() => {
+      throw new Error('storage indisponível');
+    });
+
+    expect(() => tokenStorage.clearLegacyKeys()).not.toThrow();
   });
 });

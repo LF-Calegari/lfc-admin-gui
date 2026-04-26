@@ -25,14 +25,27 @@ interface RequirePermissionProps {
  *    Manter as responsabilidades separadas evita duplicar a checagem de
  *    `isAuthenticated` em duas camadas e simplifica os testes.
  *
- * 2. **Redirect para `/error/403`** — em vez de criar uma rota `/403`
+ * 2. **Aguarda hidratação antes de decidir (Issue #122)** — quando há
+ *    sessão otimista (`isAuthenticated=true`) mas o catálogo ainda está
+ *    sendo carregado do IndexedDB ou refeito via `/auth/permissions`
+ *    (`isLoading=true`), o guard renderiza `null` em vez de redirecionar
+ *    para `/error/403`. Caso contrário o primeiro render decidiria com
+ *    `permissions: []` (vazio antes do cache hidratar) e o usuário cairia
+ *    em 403 mesmo tendo a permissão.
+ *
+ *    Em produção, a splash do `AuthProvider` cobre esse intervalo —
+ *    `RequirePermission` nunca chega a renderizar até `isLoading=false`.
+ *    Mas em testes com `disableSplash`, o guard precisa lidar com o
+ *    estado intermediário corretamente.
+ *
+ * 3. **Redirect para `/error/403`** — em vez de criar uma rota `/403`
  *    nova, reaproveitamos a página de erro já existente exposta via
  *    `ErrorRouteResolver` (`/error/:code`). Mantém um único ponto de
  *    UX para qualquer caminho que termine em "Acesso negado" e respeita
  *    o critério da issue ("Sem permissão → redireciona para `/403`")
  *    via redirect funcional, sem duplicar página.
  *
- * 3. **`replace`** — a tentativa de acesso a uma rota proibida não deve
+ * 4. **`replace`** — a tentativa de acesso a uma rota proibida não deve
  *    poluir o histórico; ao voltar do `/error/403`, o usuário retorna à
  *    rota anterior em vez de cair de novo na rota negada.
  */
@@ -40,7 +53,14 @@ export const RequirePermission: React.FC<RequirePermissionProps> = ({
   code,
   children,
 }) => {
-  const { hasPermission } = useAuth();
+  const { hasPermission, isLoading } = useAuth();
+
+  // Issue #122: enquanto a hidratação ocorre, defer a decisão. O
+  // `permissions: []` inicial não reflete o catálogo real; decidir
+  // agora redirecionaria erroneamente para 403.
+  if (isLoading) {
+    return null;
+  }
 
   if (!hasPermission(code)) {
     return <Navigate to="/error/403" replace />;
