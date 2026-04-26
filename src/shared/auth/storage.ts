@@ -1,5 +1,3 @@
-import type { User } from './types';
-
 /**
  * Chaves usadas em `localStorage`.
  *
@@ -10,34 +8,14 @@ import type { User } from './types';
  * vir acompanhada de migração.
  */
 const TOKEN_KEY = 'lfc-admin-auth-token';
-const USER_KEY = 'lfc-admin-auth-user';
 
 /**
- * Sessão persistida em storage.
- *
- * Reflete o subset do `LoginResponse` necessário para hidratar o
- * `AuthContext` no mount sem refazer a requisição de login. A
- * revalidação via `verify-token` (Issue #54) substituirá a confiança
- * cega por verificação remota.
+ * Chave **legada** que armazenava `{ user, permissions }` antes da
+ * Issue #122 mover o catálogo para IndexedDB. Mantida apenas para a
+ * migração no boot — `clearLegacyKeys()` remove a entrada se ainda
+ * existir, evitando dado morto em `localStorage`.
  */
-export interface PersistedSession {
-  token: string;
-  user: User;
-  permissions: ReadonlyArray<string>;
-}
-
-/**
- * Estrutura interna gravada na chave `USER_KEY`.
- *
- * Mantida separada do `PersistedSession` porque `token` mora em chave
- * própria — o JSON aqui é apenas `user` + `permissions`, exatamente o
- * que precisamos hidratar de uma vez para evitar duas chamadas a
- * `localStorage.getItem` lado a lado.
- */
-interface StoredUserPayload {
-  user: User;
-  permissions: ReadonlyArray<string>;
-}
+const LEGACY_USER_KEY = 'lfc-admin-auth-user';
 
 /**
  * Acessa `window.localStorage` de forma defensiva.
@@ -62,38 +40,21 @@ function getStorage(): Storage | null {
 }
 
 /**
- * Type guard para o payload do usuário gravado em storage.
+ * API encapsulada para persistir o **token** em `localStorage`.
  *
- * Validamos shape mínimo após `JSON.parse` porque o storage é uma
- * superfície gravável pelo usuário (DevTools, extensões) — confiar
- * cegamente no JSON abriria caminho para crashes ao acessar
- * `payload.user.id` se alguém manualmente substituísse o conteúdo.
- */
-function isValidStoredUserPayload(value: unknown): value is StoredUserPayload {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-  const record = value as Record<string, unknown>;
-  if (!Array.isArray(record.permissions)) {
-    return false;
-  }
-  if (!record.user || typeof record.user !== 'object') {
-    return false;
-  }
-  const user = record.user as Record<string, unknown>;
-  return (
-    typeof user.id === 'string' &&
-    typeof user.name === 'string' &&
-    typeof user.email === 'string'
-  );
-}
-
-/**
- * API encapsulada para persistir a sessão em `localStorage`.
+ * A partir da Issue #122, o `localStorage` carrega apenas o JWT — o
+ * catálogo de permissões mora em IndexedDB (`permissionsCache`).
+ * Manter responsabilidades separadas:
  *
- * Decisão de armazenamento (registrada no PR #53):
+ * - **Token (`localStorage`)** sobrevive a reload e tem leitura síncrona,
+ *   essencial para o cliente HTTP injetar `Authorization` na primeira
+ *   requisição sem aguardar Promise.
+ * - **Catálogo (IndexedDB)** é maior, assíncrono e tolera latência —
+ *   só usado depois que o Provider terminou de hidratar.
  *
- * 1. `sessionStorage` foi descartado — a sessão morreria a cada
+ * Decisão de armazenamento (registrada no PR #53, mantida no #122):
+ *
+ * 1. `sessionStorage` foi descartado — sessão morreria a cada
  *    fechamento de aba, UX inadequada para painel administrativo.
  * 2. Cookie `httpOnly` via BFF é o ideal anti-XSS, mas exigiria
  *    backend proxy próprio (esta SPA consome diretamente
@@ -104,80 +65,64 @@ function isValidStoredUserPayload(value: unknown): value is StoredUserPayload {
  *    deps auditadas, CSP planejado).
  *
  * Todas as operações são tolerantes a falha: ausência de
- * `localStorage` (modo privado), cota cheia ou JSON corrompido nunca
- * propagam exceção — a SPA degrada graciosamente para o
- * comportamento "apenas em memória".
+ * `localStorage` (modo privado), cota cheia ou exceções de runtime
+ * nunca propagam — a SPA degrada graciosamente para o comportamento
+ * "apenas em memória".
  */
-export const sessionStorage = {
+export const tokenStorage = {
   /**
-   * Lê a sessão persistida, validando shape antes de devolver.
+   * Lê o token persistido.
    *
    * Retorna `null` quando:
    * - storage indisponível;
-   * - alguma chave ausente;
-   * - JSON do usuário inválido;
-   * - shape mínimo não bate (token vazio, user/permissions corrompidos).
+   * - chave ausente;
+   * - chave existe mas valor é vazio/whitespace (defensivo).
    *
-   * Uso típico no Provider: chamado no `useState` lazy initializer para
-   * hidratar estado e `tokenRef` em uma única passagem síncrona, antes
+   * Uso típico no Provider: chamado no `useState` lazy initializer e no
+   * `useRef` para hidratar `tokenRef` em uma passagem síncrona, antes
    * do primeiro render — evita flash de tela de login quando o usuário
    * recarrega a página com sessão válida.
    */
-  load(): PersistedSession | null {
+  load(): string | null {
     const storage = getStorage();
     if (!storage) {
       return null;
     }
     try {
       const token = storage.getItem(TOKEN_KEY);
-      const userJson = storage.getItem(USER_KEY);
-      if (!token || !userJson) {
+      if (!token || token.trim().length === 0) {
         return null;
       }
-      const parsed: unknown = JSON.parse(userJson);
-      if (!isValidStoredUserPayload(parsed)) {
-        return null;
-      }
-      return {
-        token,
-        user: parsed.user,
-        permissions: parsed.permissions,
-      };
+      return token;
     } catch {
-      // JSON malformado ou storage lançou — degrada para "sem sessão".
       return null;
     }
   },
 
   /**
-   * Persiste a sessão.
+   * Persiste o token.
    *
    * Falhas (cota, modo privado) são silenciosas: o caller já tem o
-   * estado em memória e a app continua funcionando — apenas perde a
+   * token em memória e a app continua funcionando — apenas perde a
    * sobrevivência ao reload. Não propagamos exceção para evitar derrubar
    * o fluxo de login feliz por uma limitação de storage.
    *
    * O token nunca é logado em console.
    */
-  save(session: PersistedSession): void {
+  save(token: string): void {
     const storage = getStorage();
     if (!storage) {
       return;
     }
     try {
-      const payload: StoredUserPayload = {
-        user: session.user,
-        permissions: session.permissions,
-      };
-      storage.setItem(TOKEN_KEY, session.token);
-      storage.setItem(USER_KEY, JSON.stringify(payload));
+      storage.setItem(TOKEN_KEY, token);
     } catch {
       // setItem pode lançar em quota exceeded ou storage desabilitado.
     }
   },
 
   /**
-   * Remove ambas as chaves.
+   * Remove o token.
    *
    * Idempotente: chamar em estado já limpo é no-op. Usado em três
    * pontos do `AuthContext`:
@@ -193,9 +138,33 @@ export const sessionStorage = {
     }
     try {
       storage.removeItem(TOKEN_KEY);
-      storage.removeItem(USER_KEY);
     } catch {
       // removeItem raramente lança, mas mantemos o try/catch por simetria.
+    }
+  },
+
+  /**
+   * Remove chaves legadas que existiam antes da Issue #122.
+   *
+   * Antes do split em `tokenStorage` (token-only) + `permissionsCache`
+   * (catálogo em IndexedDB), o `localStorage` carregava também
+   * `{ user, permissions }` na chave `lfc-admin-auth-user`. Essa
+   * informação agora vive em IndexedDB; deixar a chave antiga
+   * pendurada ocupa espaço sem propósito e confunde quem inspeciona
+   * o storage.
+   *
+   * Idempotente: se a chave não existir, no-op. Tolerante a falha:
+   * `removeItem` quebrado não impede o boot.
+   */
+  clearLegacyKeys(): void {
+    const storage = getStorage();
+    if (!storage) {
+      return;
+    }
+    try {
+      storage.removeItem(LEGACY_USER_KEY);
+    } catch {
+      // Tolerante a falha: migração best-effort.
     }
   },
 };
@@ -207,5 +176,6 @@ export const sessionStorage = {
  */
 export const STORAGE_KEYS = {
   token: TOKEN_KEY,
-  user: USER_KEY,
+  /** Chave legada (Issue #122) — apenas para teste da migração. */
+  legacyUser: LEGACY_USER_KEY,
 } as const;
