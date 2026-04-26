@@ -89,9 +89,19 @@ export type BodyRequestOptions = Omit<RequestOptions, 'method'>;
  *
  * `onUnauthorized` é chamado quando a API responde 401, permitindo
  * que o consumidor (Provider) limpe sessão e redirecione.
+ *
+ * `systemId` identifica o sistema chamador no `lfc-authenticator`
+ * (Issue #118). Quando presente, o cliente emite o header
+ * `X-System-Id: <systemId>` em todas as requisições — o backend lê o
+ * cabeçalho em endpoints autenticados (`verify-token` cruza com a
+ * claim `sys` do JWT). Mantemos o campo opcional para preservar a
+ * ergonomia em testes que não precisam asserir sobre o header; em
+ * produção o singleton (`src/shared/api/index.ts`) injeta o valor
+ * lido de `VITE_SYSTEM_ID` com fail-fast no boot.
  */
 export interface ApiClientConfig {
   baseUrl: string;
+  systemId?: string;
   getToken?: () => string | null;
   onUnauthorized?: () => void;
 }
@@ -121,4 +131,11 @@ export interface ApiClient {
   delete<T>(path: string, options?: SafeRequestOptions): Promise<T>;
   /** Atualiza callbacks de autenticação sem recriar o cliente. */
   setAuth(config: ApiClientAuthConfig): void;
+  /**
+   * Retorna o `systemId` configurado no cliente, ou `null` quando
+   * ausente. Permite que call sites (ex.: `AuthContext.login()`)
+   * consultem a mesma fonte da verdade que alimenta o header
+   * `X-System-Id`, evitando ler `VITE_SYSTEM_ID` em mais de um lugar.
+   */
+  getSystemId(): string | null;
 }

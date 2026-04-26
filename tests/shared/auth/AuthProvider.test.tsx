@@ -11,15 +11,29 @@ import { AuthProvider, useAuth } from '@/shared/auth';
 import { STORAGE_KEYS } from '@/shared/auth/storage';
 
 /**
+ * UUID fake usado pelos stubs nos testes do Provider — qualquer valor
+ * estável serve, desde que coincida com o que o `AuthContext.login()`
+ * espera ler via `client.getSystemId()` para popular o body do POST
+ * `/auth/login` (Issue #118).
+ */
+const STUB_SYSTEM_ID = 'system-test-uuid';
+
+/**
  * Constrói um stub de `ApiClient` que registra chamadas e devolve
  * respostas controladas. Cada teste configura o comportamento de `post`
  * via `mockResolvedValue` / `mockRejectedValue`.
+ *
+ * `getSystemId` retorna `STUB_SYSTEM_ID` por padrão para que os asserts
+ * de body do `/auth/login` capturem o campo `systemId` esperado em
+ * produção (Issue #118). Testes que precisem simular o cliente sem
+ * `systemId` configurado podem reescrever `getSystemId` localmente.
  */
 function createClientStub(): ApiClient & {
   post: ReturnType<typeof vi.fn>;
   get: ReturnType<typeof vi.fn>;
   setAuth: ReturnType<typeof vi.fn>;
   request: ReturnType<typeof vi.fn>;
+  getSystemId: ReturnType<typeof vi.fn>;
 } {
   return {
     request: vi.fn(),
@@ -29,11 +43,13 @@ function createClientStub(): ApiClient & {
     patch: vi.fn(),
     delete: vi.fn(),
     setAuth: vi.fn(),
+    getSystemId: vi.fn(() => STUB_SYSTEM_ID),
   } as unknown as ApiClient & {
     post: ReturnType<typeof vi.fn>;
     get: ReturnType<typeof vi.fn>;
     setAuth: ReturnType<typeof vi.fn>;
     request: ReturnType<typeof vi.fn>;
+    getSystemId: ReturnType<typeof vi.fn>;
   };
 }
 
@@ -254,6 +270,7 @@ describe('AuthProvider — login', () => {
     expect(client.post).toHaveBeenCalledWith('/auth/login', {
       email: 'ada@lfc.com.br',
       password: 'secret',
+      systemId: STUB_SYSTEM_ID,
     });
     expect(client.get).toHaveBeenCalledWith('/auth/verify-token');
     // `permissions` no estado é o catálogo de `permissionCodes`, não os
@@ -379,6 +396,49 @@ describe('AuthProvider — login', () => {
     // Token injetado no client também foi zerado.
     const latest = lastCall(client.setAuth.mock.calls)?.[0];
     expect(latest?.getToken?.()).toBeNull();
+  });
+
+  test.each([
+    {
+      // Cobre explicitamente a fonte da verdade do `systemId`: o campo
+      // é lido do `apiClient.getSystemId()` (e não de
+      // `import.meta.env`), garantindo que o singleton seja a única
+      // origem do valor enviado no body do `/auth/login` e do header
+      // `X-System-Id` em chamadas autenticadas.
+      name: 'login envia systemId no body lendo do client.getSystemId() (Issue #118)',
+      stubReturnsNull: false,
+      expectedBody: {
+        email: 'ada@lfc.com.br',
+        password: 'secret',
+        systemId: STUB_SYSTEM_ID,
+      },
+    },
+    {
+      // Defesa de retrocompatibilidade: testes que injetam um cliente
+      // sem `systemId` (cenário hipotético; em produção o boot falha
+      // fail-fast antes) precisam continuar verdes — o body sai sem
+      // o campo e o stub controla o comportamento esperado do backend.
+      name: 'login omite systemId do body quando client.getSystemId() retorna null',
+      stubReturnsNull: true,
+      expectedBody: { email: 'ada@lfc.com.br', password: 'secret' },
+    },
+  ])('$name', async ({ stubReturnsNull, expectedBody }) => {
+    const client = createClientStub();
+    if (stubReturnsNull) {
+      client.getSystemId.mockReturnValueOnce(null);
+    }
+    client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
+    client.get.mockResolvedValueOnce(SAMPLE_VERIFY);
+    const { result } = renderHook(() => useAuth(), {
+      wrapper: makeWrapper(client),
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    await act(async () => {
+      await result.current.login('ada@lfc.com.br', 'secret');
+    });
+
+    expect(client.post).toHaveBeenCalledWith('/auth/login', expectedBody);
   });
 
   test('verify-token com payload inválido pós-login limpa sessão e propaga ApiError(parse)', async () => {

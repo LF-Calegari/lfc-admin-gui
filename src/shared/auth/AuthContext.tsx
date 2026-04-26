@@ -454,9 +454,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
       // token "vivo em memória" sem perfil correspondente.
       let tokenAcquired = false;
       try {
+        // Issue #118: o backend exige `systemId` no body do login para
+        // resolver o catálogo de `routeCodes`/`permissionCodes` do
+        // sistema chamador (`authenticator`). Lemos do `apiClient` em
+        // vez de `import.meta.env.VITE_SYSTEM_ID` para manter uma única
+        // fonte da verdade — a validação fail-fast já aconteceu no
+        // boot de `src/shared/api/index.ts`. `getSystemId()` retorna
+        // `null` apenas em testes que injetam um cliente sem o campo;
+        // nesses casos o body sai sem `systemId`, e o stub controla o
+        // comportamento esperado do backend.
+        const systemId = client.getSystemId();
         const loginData = await client.post<LoginResponse>('/auth/login', {
           email,
           password,
+          ...(systemId !== null ? { systemId } : {}),
         });
         // Setar `tokenRef` ANTES do verify é crítico: o cliente HTTP
         // injeta `Authorization: Bearer ${getToken()}` lendo a ref a
