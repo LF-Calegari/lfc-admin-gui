@@ -320,6 +320,10 @@ function resolveRedirectTarget(state: unknown): string {
  * Normaliza um erro arbitrário em mensagem exibível.
  *
  * - 401 (credenciais inválidas) → mensagem fixa não-vazante.
+ * - 400 (validação backend, ex.: `SystemId é obrigatório` ou
+ *   `Sistema inválido ou inativo` da Issue #118) → mensagem genérica
+ *   `FALLBACK_ERROR` para não vazar detalhe técnico de configuração;
+ *   o detalhe vai apenas para `console.warn` para diagnóstico em dev.
  * - Demais `ApiError` com `message` → reutiliza a mensagem do backend.
  * - Qualquer outro erro → mensagem genérica.
  */
@@ -328,6 +332,21 @@ function buildErrorMessage(error: unknown): string {
     const httpError = error as ApiError;
     if (httpError.status === 401) {
       return INVALID_CREDENTIALS_MESSAGE;
+    }
+    if (httpError.status === 400) {
+      // Erros 400 indicam falha de validação no servidor — em geral
+      // problema de configuração local (`VITE_SYSTEM_ID` divergente do
+      // seed do backend, sistema inativo etc.). Expor a mensagem do
+      // backend ao usuário final ("SystemId é obrigatório") seria
+      // confuso e poderia vazar detalhes da arquitetura. Logamos um
+      // warning com o `code`/`message` recebidos para acelerar o
+      // diagnóstico em dev e mostramos o fallback genérico em UI.
+      // eslint-disable-next-line no-console
+      console.warn('[login] backend recusou requisição (400):', {
+        code: httpError.code,
+        message: httpError.message,
+      });
+      return FALLBACK_ERROR;
     }
     if (httpError.message) {
       return httpError.message;
