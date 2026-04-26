@@ -66,9 +66,12 @@ export interface LoginResponse {
  * - `permissions` é uma lista de **GUIDs** internos do backend —
  *   carregamos no tipo por simetria e diagnóstico, mas o frontend
  *   nunca os usa diretamente em `hasPermission`;
- * - `routeCodes` é a lista de códigos semânticos usados por
- *   `hasPermission()` (ex.: `Systems.Read`). É essa lista que o
- *   Provider persiste como `permissions` no estado/storage.
+ * - `permissionCodes` é a lista de códigos semânticos das permissões
+ *   reais do usuário no `lfc-admin-gui` (ex.: `perm:Systems.Read`).
+ *   É essa lista que o Provider persiste como `permissions` no
+ *   estado/storage e que `hasPermission()` consulta;
+ * - `routeCodes` é a lista de códigos de rota filtrada para o sistema
+ *   kurtto (mantida no contrato por simetria; não consumida aqui).
  *
  * O token continua sendo o mesmo já enviado em `Authorization`; o
  * backend apenas confirma sua validade e devolve o snapshot atual do
@@ -81,6 +84,7 @@ export interface VerifyTokenResponse {
   email: string;
   identity: number;
   permissions: ReadonlyArray<string>;
+  permissionCodes: ReadonlyArray<string>;
   routeCodes: ReadonlyArray<string>;
 }
 

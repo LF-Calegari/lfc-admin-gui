@@ -68,6 +68,12 @@ interface FieldErrors {
  * Container raiz — `position: relative` para servir de âncora para a
  * camada de glow absoluta. `overflow: hidden` corta os gradientes que
  * vazam fora do viewport.
+ *
+ * Background transparente: o `<body>` global (em `globals.css`) já
+ * pinta `--bg-base` + grid overlay "engineering tool"
+ * (`identity/README.md:75`); manter o `PageRoot` opaco esconderia o
+ * grid também na tela de login. A `GlowLayer` continua por cima como
+ * camada decorativa absoluta.
  */
 const PageRoot = styled.div`
   min-height: 100vh;
@@ -76,7 +82,7 @@ const PageRoot = styled.div`
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: var(--bg-base);
+  background: transparent;
   padding: var(--space-8) var(--space-4);
   position: relative;
   overflow: hidden;
@@ -128,17 +134,23 @@ const Container = styled.div`
   gap: var(--space-6);
 `;
 
-const Brand = styled.div`
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-2);
-`;
-
+/**
+ * Logo da marca exibida no topo do `FormCard`. Dimensão definida por
+ * `height` literal (`36px`) com `width: auto` para preservar o
+ * aspect-ratio original do SVG (viewBox 200×48 ≈ 4.16:1) e manter o
+ * texto "authenticator" legível. Espelha o padrão do identity kit
+ * (`identity/ui_kits/admin-spa/screens.jsx:19` — `<img height="36">`).
+ *
+ * Decisão sobre o literal `36px`: é dimensão visual de imagem, não
+ * spacing/font/color — tokens semânticos `--space-*` representam outra
+ * coisa. Aceitável literal aqui (consistente com o atributo HTML
+ * `<img height="36">` da referência).
+ */
 const Logo = styled.img`
-  width: var(--space-16);
-  height: var(--space-16);
+  height: 36px;
+  width: auto;
   display: block;
+  margin-bottom: var(--space-4);
 `;
 
 /**
@@ -308,6 +320,10 @@ function resolveRedirectTarget(state: unknown): string {
  * Normaliza um erro arbitrário em mensagem exibível.
  *
  * - 401 (credenciais inválidas) → mensagem fixa não-vazante.
+ * - 400 (validação backend, ex.: `SystemId é obrigatório` ou
+ *   `Sistema inválido ou inativo` da Issue #118) → mensagem genérica
+ *   `FALLBACK_ERROR` para não vazar detalhe técnico de configuração;
+ *   o detalhe vai apenas para `console.warn` para diagnóstico em dev.
  * - Demais `ApiError` com `message` → reutiliza a mensagem do backend.
  * - Qualquer outro erro → mensagem genérica.
  */
@@ -316,6 +332,21 @@ function buildErrorMessage(error: unknown): string {
     const httpError = error as ApiError;
     if (httpError.status === 401) {
       return INVALID_CREDENTIALS_MESSAGE;
+    }
+    if (httpError.status === 400) {
+      // Erros 400 indicam falha de validação no servidor — em geral
+      // problema de configuração local (`VITE_SYSTEM_ID` divergente do
+      // seed do backend, sistema inativo etc.). Expor a mensagem do
+      // backend ao usuário final ("SystemId é obrigatório") seria
+      // confuso e poderia vazar detalhes da arquitetura. Logamos um
+      // warning com o `code`/`message` recebidos para acelerar o
+      // diagnóstico em dev e mostramos o fallback genérico em UI.
+      // eslint-disable-next-line no-console
+      console.warn('[login] backend recusou requisição (400):', {
+        code: httpError.code,
+        message: httpError.message,
+      });
+      return FALLBACK_ERROR;
     }
     if (httpError.message) {
       return httpError.message;
@@ -451,12 +482,9 @@ export const LoginPage: React.FC = () => {
         <ThemeToggle />
       </ThemeSlot>
       <Container>
-        <Brand>
-          <Logo src={logoSrc} alt="LF Calegari Admin" />
-        </Brand>
-
         <FormCard aria-labelledby="login-form-title">
           <VisuallyHidden id="login-form-title">Formulário de login</VisuallyHidden>
+          <Logo src={logoSrc} alt="LF Calegari Admin" />
           <CardHeader>
             <Eyebrow data-testid="login-eyebrow">{EYEBROW_TEXT}</Eyebrow>
             <BrandTitle>Entrar no painel</BrandTitle>

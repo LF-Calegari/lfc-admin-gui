@@ -11,15 +11,29 @@ import { AuthProvider, useAuth } from '@/shared/auth';
 import { STORAGE_KEYS } from '@/shared/auth/storage';
 
 /**
+ * UUID fake usado pelos stubs nos testes do Provider — qualquer valor
+ * estável serve, desde que coincida com o que o `AuthContext.login()`
+ * espera ler via `client.getSystemId()` para popular o body do POST
+ * `/auth/login` (Issue #118).
+ */
+const STUB_SYSTEM_ID = 'system-test-uuid';
+
+/**
  * Constrói um stub de `ApiClient` que registra chamadas e devolve
  * respostas controladas. Cada teste configura o comportamento de `post`
  * via `mockResolvedValue` / `mockRejectedValue`.
+ *
+ * `getSystemId` retorna `STUB_SYSTEM_ID` por padrão para que os asserts
+ * de body do `/auth/login` capturem o campo `systemId` esperado em
+ * produção (Issue #118). Testes que precisem simular o cliente sem
+ * `systemId` configurado podem reescrever `getSystemId` localmente.
  */
 function createClientStub(): ApiClient & {
   post: ReturnType<typeof vi.fn>;
   get: ReturnType<typeof vi.fn>;
   setAuth: ReturnType<typeof vi.fn>;
   request: ReturnType<typeof vi.fn>;
+  getSystemId: ReturnType<typeof vi.fn>;
 } {
   return {
     request: vi.fn(),
@@ -29,11 +43,13 @@ function createClientStub(): ApiClient & {
     patch: vi.fn(),
     delete: vi.fn(),
     setAuth: vi.fn(),
+    getSystemId: vi.fn(() => STUB_SYSTEM_ID),
   } as unknown as ApiClient & {
     post: ReturnType<typeof vi.fn>;
     get: ReturnType<typeof vi.fn>;
     setAuth: ReturnType<typeof vi.fn>;
     request: ReturnType<typeof vi.fn>;
+    getSystemId: ReturnType<typeof vi.fn>;
   };
 }
 
@@ -97,7 +113,7 @@ const SAMPLE_LOGIN: LoginResponse = {
 /**
  * Perfil retornado por `verify-token` logo após o login feliz —
  * espelha o contrato real do `auth-service` (id/name/email/identity +
- * permissions/Guid[] + routeCodes/string[]).
+ * permissions/Guid[] + permissionCodes/string[] + routeCodes/string[]).
  *
  * Usado também em testes de hidratação otimista após reload.
  */
@@ -107,7 +123,8 @@ const SAMPLE_VERIFY: VerifyTokenResponse = {
   email: 'ada@lfc.com.br',
   identity: 42,
   permissions: ['11111111-1111-1111-1111-111111111111'],
-  routeCodes: ['Systems.Read', 'Systems.Create'],
+  permissionCodes: ['perm:Systems.Read', 'perm:Systems.Create'],
+  routeCodes: ['KURTTO_V1_URLS_HOME'],
 };
 
 /**
@@ -121,13 +138,13 @@ const SAMPLE_USER = {
   identity: SAMPLE_VERIFY.identity,
 };
 
-const SAMPLE_PERMISSIONS = SAMPLE_VERIFY.routeCodes;
+const SAMPLE_PERMISSIONS = SAMPLE_VERIFY.permissionCodes;
 
 /**
  * Resposta de `verify-token` para a revalidação periódica — simula o
- * cenário em que o backend acrescentou um `routeCode` (por exemplo, uma
- * permissão recém-concedida) e o Provider precisa refletir o snapshot
- * atualizado.
+ * cenário em que o backend acrescentou um `permissionCode` (por exemplo,
+ * uma permissão recém-concedida) e o Provider precisa refletir o
+ * snapshot atualizado.
  */
 const VERIFY_RESPONSE: VerifyTokenResponse = {
   id: 'u-1',
@@ -135,7 +152,8 @@ const VERIFY_RESPONSE: VerifyTokenResponse = {
   email: 'ada@lfc.com.br',
   identity: 42,
   permissions: ['11111111-1111-1111-1111-111111111111'],
-  routeCodes: ['Systems.Read', 'Systems.Create', 'Systems.Update'],
+  permissionCodes: ['perm:Systems.Read', 'perm:Systems.Create', 'perm:Systems.Update'],
+  routeCodes: ['KURTTO_V1_URLS_HOME'],
 };
 
 const VERIFY_USER = {
@@ -145,7 +163,7 @@ const VERIFY_USER = {
   identity: VERIFY_RESPONSE.identity,
 };
 
-const VERIFY_PERMISSIONS = VERIFY_RESPONSE.routeCodes;
+const VERIFY_PERMISSIONS = VERIFY_RESPONSE.permissionCodes;
 
 const UNAUTHORIZED_ERROR: ApiError = {
   kind: 'http',
@@ -164,8 +182,8 @@ const NETWORK_ERROR: ApiError = {
  * testes de hidratação remota.
  *
  * O shape gravado espelha o `PersistedSession` real (User com `identity`
- * + permissions = routeCodes), de modo que os testes leiam exatamente
- * o que o Provider gravou em sessões anteriores.
+ * + permissions = permissionCodes), de modo que os testes leiam
+ * exatamente o que o Provider gravou em sessões anteriores.
  */
 function seedPersistedSession(): void {
   window.localStorage.setItem(STORAGE_KEYS.token, 'jwt-persistido');
@@ -252,10 +270,12 @@ describe('AuthProvider — login', () => {
     expect(client.post).toHaveBeenCalledWith('/auth/login', {
       email: 'ada@lfc.com.br',
       password: 'secret',
+      systemId: STUB_SYSTEM_ID,
     });
     expect(client.get).toHaveBeenCalledWith('/auth/verify-token');
-    // `permissions` no estado é o catálogo de `routeCodes`, não os GUIDs
-    // brutos retornados em `verify-token.permissions`.
+    // `permissions` no estado é o catálogo de `permissionCodes`, não os
+    // GUIDs brutos em `verify-token.permissions` nem os `routeCodes`
+    // (filtrados para kurtto).
     expect(result.current.user).toEqual(SAMPLE_USER);
     expect(result.current.permissions).toEqual(SAMPLE_PERMISSIONS);
     expect(result.current.isAuthenticated).toBe(true);
@@ -376,6 +396,49 @@ describe('AuthProvider — login', () => {
     // Token injetado no client também foi zerado.
     const latest = lastCall(client.setAuth.mock.calls)?.[0];
     expect(latest?.getToken?.()).toBeNull();
+  });
+
+  test.each([
+    {
+      // Cobre explicitamente a fonte da verdade do `systemId`: o campo
+      // é lido do `apiClient.getSystemId()` (e não de
+      // `import.meta.env`), garantindo que o singleton seja a única
+      // origem do valor enviado no body do `/auth/login` e do header
+      // `X-System-Id` em chamadas autenticadas.
+      name: 'login envia systemId no body lendo do client.getSystemId() (Issue #118)',
+      stubReturnsNull: false,
+      expectedBody: {
+        email: 'ada@lfc.com.br',
+        password: 'secret',
+        systemId: STUB_SYSTEM_ID,
+      },
+    },
+    {
+      // Defesa de retrocompatibilidade: testes que injetam um cliente
+      // sem `systemId` (cenário hipotético; em produção o boot falha
+      // fail-fast antes) precisam continuar verdes — o body sai sem
+      // o campo e o stub controla o comportamento esperado do backend.
+      name: 'login omite systemId do body quando client.getSystemId() retorna null',
+      stubReturnsNull: true,
+      expectedBody: { email: 'ada@lfc.com.br', password: 'secret' },
+    },
+  ])('$name', async ({ stubReturnsNull, expectedBody }) => {
+    const client = createClientStub();
+    if (stubReturnsNull) {
+      client.getSystemId.mockReturnValueOnce(null);
+    }
+    client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
+    client.get.mockResolvedValueOnce(SAMPLE_VERIFY);
+    const { result } = renderHook(() => useAuth(), {
+      wrapper: makeWrapper(client),
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    await act(async () => {
+      await result.current.login('ada@lfc.com.br', 'secret');
+    });
+
+    expect(client.post).toHaveBeenCalledWith('/auth/login', expectedBody);
   });
 
   test('verify-token com payload inválido pós-login limpa sessão e propaga ApiError(parse)', async () => {
@@ -676,7 +739,7 @@ describe('AuthProvider — hasPermission', () => {
     });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    expect(result.current.hasPermission('Systems.Read')).toBe(false);
+    expect(result.current.hasPermission('perm:Systems.Read')).toBe(false);
   });
 
   test('retorna true para permissões presentes após login', async () => {
@@ -691,9 +754,9 @@ describe('AuthProvider — hasPermission', () => {
       await result.current.login('ada@lfc.com.br', 'secret');
     });
 
-    expect(result.current.hasPermission('Systems.Read')).toBe(true);
-    expect(result.current.hasPermission('Systems.Create')).toBe(true);
-    expect(result.current.hasPermission('Systems.Delete')).toBe(false);
+    expect(result.current.hasPermission('perm:Systems.Read')).toBe(true);
+    expect(result.current.hasPermission('perm:Systems.Create')).toBe(true);
+    expect(result.current.hasPermission('perm:Systems.Delete')).toBe(false);
   });
 });
 
@@ -780,7 +843,7 @@ describe('AuthProvider — persistência (Issue #53)', () => {
     const userJson = window.localStorage.getItem(STORAGE_KEYS.user);
     expect(userJson).not.toBeNull();
     // Storage espelha a projeção que o Provider faz: User com `identity`
-    // e permissions = routeCodes (nunca os GUIDs brutos).
+    // e permissions = permissionCodes (nunca os GUIDs brutos).
     expect(JSON.parse(userJson as string)).toEqual({
       user: SAMPLE_USER,
       permissions: SAMPLE_PERMISSIONS,
@@ -853,8 +916,8 @@ describe('AuthProvider — verify-token (Issue #54)', () => {
     expect(result.current.permissions).toEqual(SAMPLE_PERMISSIONS);
 
     // Após o verify-token resolver, permissões são atualizadas com o
-    // snapshot fresco — `routeCodes` é a fonte da verdade para o que
-    // o frontend chama de `permissions`.
+    // snapshot fresco — `permissionCodes` é a fonte da verdade para o
+    // que o frontend chama de `permissions`.
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(client.get).toHaveBeenCalledWith(
       '/auth/verify-token',
@@ -923,8 +986,8 @@ describe('AuthProvider — verify-token (Issue #54)', () => {
   test('verify-token com payload inválido mantém sessão local', async () => {
     seedPersistedSession();
     const client = createClientStub();
-    // Resposta sem `id`/`name`/`email`/`identity`/`routeCodes` válidos —
-    // Provider deve descartar silenciosamente e manter sessão local.
+    // Resposta sem `id`/`name`/`email`/`identity`/`permissionCodes`/`routeCodes`
+    // válidos — Provider deve descartar silenciosamente e manter sessão local.
     client.get.mockResolvedValueOnce({ permissions: [] } as unknown);
 
     const { result } = renderHook(() => useAuth(), {

@@ -21,13 +21,19 @@ interface AuthSplashProps {
   message?: string;
 }
 
+/**
+ * Background transparente: o `<body>` global já pinta `--bg-base` e o
+ * grid overlay "engineering tool" (`identity/README.md:75`); manter o
+ * `SplashRoot` opaco esconderia o grid também durante a validação
+ * inicial da sessão.
+ */
 const SplashRoot = styled.div`
   min-height: 100vh;
   width: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-base);
+  background: transparent;
   padding: var(--space-6) var(--space-4);
 `;
 
@@ -39,9 +45,17 @@ const Container = styled.div`
   text-align: center;
 `;
 
+/**
+ * Logo da marca exibida no splash. Dimensão definida por `height`
+ * literal (`36px`) com `width: auto` para preservar o aspect-ratio
+ * original do SVG (viewBox 200×48 ≈ 4.16:1) — mesma decisão da
+ * `LoginPage`. Sem o `width: auto` o container quadrado de
+ * `--space-16` causava letterboxing e tornava o texto "authenticator"
+ * ilegível (Issue #111).
+ */
 const Logo = styled.img`
-  width: var(--space-16);
-  height: var(--space-16);
+  height: 36px;
+  width: auto;
   display: block;
 `;
 

@@ -15,12 +15,36 @@ html {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/*
+ * Grid overlay "engineering tool" descrito em `identity/README.md:75`.
+ * Duas camadas de `linear-gradient` (horizontal + vertical) desenham
+ * linhas de 1px em `--grid-overlay-color`; o restante das células fica
+ * transparente, deixando aparecer `--bg-base` por baixo. As células
+ * começam em 24px (mobile) e crescem para 40px a partir de `--bp-md`.
+ *
+ * Nota sobre breakpoint: CSS custom properties não funcionam dentro da
+ * condição de `@media (...)` — o token `--bp-md` é mantido em
+ * `tokens.css` apenas como referência documental; aqui usamos o literal
+ * `48em` correspondente.
+ */
 body {
   font-family: var(--font-body);
   font-size: var(--text-base);
   line-height: var(--leading-base);
   color: var(--text-primary);
   background-color: var(--bg-base);
+  background-image:
+    linear-gradient(var(--grid-overlay-color) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-overlay-color) 1px, transparent 1px);
+  background-size: var(--grid-overlay-size-mobile) var(--grid-overlay-size-mobile);
+  background-attachment: fixed;
+}
+
+/* Espelha `--bp-md` (48em ≈ 768px). */
+@media (min-width: 48em) {
+  body {
+    background-size: var(--grid-overlay-size-desktop) var(--grid-overlay-size-desktop);
+  }
 }
 
 button,

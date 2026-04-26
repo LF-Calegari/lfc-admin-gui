@@ -138,6 +138,16 @@
   --grid-cell: 24px;
   --pad-inline: clamp(1.25rem, 5vw, 5rem);
 
+  /* ── Background grid overlay ─────────────────────────────────
+   * Textura "engineering tool" descrita em `identity/README.md:75`.
+   * Linhas de 1px desenhadas em `<body>` via duplo `linear-gradient`
+   * com células de 24px em mobile, alargando para 40px a partir de
+   * `--bp-md` (48em ≈ 768px). A cor é definida por tema em
+   * `--grid-overlay-color` (forest 4% no light, lime 4% no dark).
+   * Estes tamanhos são invariantes — não mudam entre temas. */
+  --grid-overlay-size-mobile: 24px;
+  --grid-overlay-size-desktop: 40px;
+
   /* Larguras semânticas — usadas por blocos de conteúdo centralizado */
   --measure-narrow: 48ch;
   --measure-base: 56ch;
@@ -221,6 +231,10 @@
 
   /* ── UI state colors/shadows ─────────────────────────────── */
   --grid-line: rgba(22, 36, 15, 0.04);
+  /* Cor do grid overlay global aplicado em `<body>`. No light é
+     forest 4% sobre o cream — sutil mas presente, conforme
+     `identity/README.md:75`. */
+  --grid-overlay-color: rgba(22, 36, 15, 0.04);
   --bg-ghost-hover: rgba(22, 36, 15, 0.05);
   --bg-ghost-active: rgba(22, 36, 15, 0.1);
   --bg-danger-soft: rgba(217, 95, 95, 0.1);
@@ -331,6 +345,11 @@
 
   /* ── UI state colors ─────────────────────────────────────── */
   --grid-line: rgba(174, 202, 89, 0.04);
+  /* Cor do grid overlay global no dark — lime sobre fundo profundo.
+     Mantemos alpha 0.04 (mesmo do light) porque nos pretos o lime
+     já tem contraste suficiente: subir o alpha torna o grid ruidoso
+     e quebra o "never noisy" pedido em `identity/README.md:75`. */
+  --grid-overlay-color: rgba(174, 202, 89, 0.04);
   --bg-ghost-hover: rgba(174, 202, 89, 0.08);
   --bg-ghost-active: rgba(174, 202, 89, 0.14);
   --bg-danger-soft: rgba(232, 117, 117, 0.12);

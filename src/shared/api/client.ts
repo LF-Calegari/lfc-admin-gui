@@ -186,12 +186,26 @@ function createHttpError(status: number, payload: unknown): ApiError {
  */
 export function createApiClient(config: ApiClientConfig): ApiClient {
   const { baseUrl } = config;
+  // `systemId` vira `null` quando não configurado para que o getter
+  // exposto no contrato (`getSystemId()`) seja simétrico com
+  // `getToken()` — null sinaliza "ausente" sem ambiguidade.
+  const systemId: string | null = config.systemId ?? null;
   let getToken = config.getToken;
   let onUnauthorized = config.onUnauthorized;
 
   /**
    * Constrói os headers finais da requisição combinando defaults,
-   * `Authorization` (quando há token) e overrides do consumidor.
+   * `Authorization` (quando há token), `X-System-Id` (quando o cliente
+   * foi configurado com `systemId`) e overrides do consumidor.
+   *
+   * Issue #118: o `lfc-authenticator` exige `X-System-Id` em endpoints
+   * autenticados (notadamente `verify-token`, que cruza o header com a
+   * claim `sys` do JWT para detectar uso cross-system). Optamos por
+   * emitir o header em **todas** as chamadas: simplifica o cliente,
+   * mantém o backend como fonte única de validação e remove a
+   * necessidade de listas de endpoints sincronizadas. Endpoints públicos
+   * que ignoram o header (ex.: `POST /auth/login`) não sofrem efeito
+   * colateral porque o backend simplesmente não o lê.
    */
   function buildHeaders(
     options: RequestOptions | undefined,
@@ -201,6 +215,9 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
     headers.set('Accept', 'application/json');
     if (hasJsonBody) {
       headers.set('Content-Type', 'application/json');
+    }
+    if (systemId) {
+      headers.set('X-System-Id', systemId);
     }
     const token = getToken?.();
     if (token) {
@@ -266,6 +283,10 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
     onUnauthorized = next.onUnauthorized;
   }
 
+  function getSystemId(): string | null {
+    return systemId;
+  }
+
   return {
     request,
     get<T>(path: string, options?: SafeRequestOptions): Promise<T> {
@@ -284,5 +305,6 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
       return request<T>(path, { ...options, method: 'DELETE' });
     },
     setAuth,
+    getSystemId,
   };
 }

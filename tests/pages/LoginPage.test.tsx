@@ -11,16 +11,29 @@ import { LoginPage } from '@/pages/LoginPage';
 import { AuthProvider } from '@/shared/auth';
 
 /**
+ * UUID fake usado pelos stubs nos testes da página de login —
+ * coincide com o que o `AuthContext.login()` espera ler via
+ * `client.getSystemId()` para popular o body do POST `/auth/login`
+ * (Issue #118).
+ */
+const STUB_SYSTEM_ID = 'system-test-uuid';
+
+/**
  * Stub mínimo de `ApiClient` injetado no `AuthProvider` durante os
  * testes — isola a página de qualquer chamada real ao backend.
  *
  * Cada teste configura `post` via `mockResolvedValue` ou
  * `mockRejectedValue` conforme o cenário sendo coberto.
+ *
+ * `getSystemId` retorna `STUB_SYSTEM_ID` por padrão para que os
+ * asserts sobre o body do `/auth/login` capturem o campo `systemId`
+ * (Issue #118).
  */
 function createClientStub(): ApiClient & {
   post: ReturnType<typeof vi.fn>;
   get: ReturnType<typeof vi.fn>;
   setAuth: ReturnType<typeof vi.fn>;
+  getSystemId: ReturnType<typeof vi.fn>;
 } {
   return {
     request: vi.fn(),
@@ -30,10 +43,12 @@ function createClientStub(): ApiClient & {
     patch: vi.fn(),
     delete: vi.fn(),
     setAuth: vi.fn(),
+    getSystemId: vi.fn(() => STUB_SYSTEM_ID),
   } as unknown as ApiClient & {
     post: ReturnType<typeof vi.fn>;
     get: ReturnType<typeof vi.fn>;
     setAuth: ReturnType<typeof vi.fn>;
+    getSystemId: ReturnType<typeof vi.fn>;
   };
 }
 
@@ -43,8 +58,9 @@ const SAMPLE_LOGIN: LoginResponse = {
 
 /**
  * Resposta de `verify-token` usada nos cenários de submit feliz —
- * espelha o contrato real do `auth-service` (achatado, com `routeCodes`
- * separado de `permissions`/Guid[]).
+ * espelha o contrato real do `auth-service` (achatado, com
+ * `permissionCodes` consumido por `hasPermission()` e `routeCodes`
+ * separado, ambos paralelos a `permissions`/Guid[]).
  */
 const SAMPLE_VERIFY: VerifyTokenResponse = {
   id: 'u-1',
@@ -52,7 +68,8 @@ const SAMPLE_VERIFY: VerifyTokenResponse = {
   email: 'ada@lfc.com.br',
   identity: 42,
   permissions: ['11111111-1111-1111-1111-111111111111'],
-  routeCodes: ['Systems.Read'],
+  permissionCodes: ['perm:Systems.Read'],
+  routeCodes: ['KURTTO_V1_URLS_HOME'],
 };
 
 type ClientStub = ReturnType<typeof createClientStub>;
@@ -246,6 +263,7 @@ describe('LoginPage — submit feliz', () => {
       expect(client.post).toHaveBeenCalledWith('/auth/login', {
         email: 'ada@lfc.com.br',
         password: 'segredo',
+        systemId: STUB_SYSTEM_ID,
       });
     });
 
@@ -292,6 +310,7 @@ describe('LoginPage — submit feliz', () => {
       expect(client.post).toHaveBeenCalledWith('/auth/login', {
         email: 'ada@lfc.com.br',
         password: 'segredo',
+        systemId: STUB_SYSTEM_ID,
       });
     });
   });
@@ -359,6 +378,49 @@ describe('LoginPage — submit com erro', () => {
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent(/Falha ao entrar/i);
+  });
+
+  it('400 do backend (validação systemId) exibe FALLBACK_ERROR e console.warn detalhado (Issue #118)', async () => {
+    // Cobre o cenário descrito na Issue #118: o backend
+    // `lfc-authenticator` rejeita o login com 400 quando o `systemId`
+    // está ausente ou aponta para um sistema inativo. A UI deve mostrar
+    // a mensagem genérica `FALLBACK_ERROR` (sem expor detalhe técnico)
+    // e o detalhe vai apenas para `console.warn` para diagnóstico em
+    // dev — preserva privacidade da arquitetura sem perder
+    // observabilidade.
+    const apiError: ApiError = {
+      kind: 'http',
+      status: 400,
+      code: 'INVALID_SYSTEM',
+      message: 'Sistema inválido ou inativo',
+    };
+    const client = createClientStub();
+    client.post.mockRejectedValueOnce(apiError);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    renderLogin({ client });
+
+    fireEvent.change(screen.getByLabelText(/E-mail/i), {
+      target: { value: 'ada@lfc.com.br' },
+    });
+    fireEvent.change(screen.getByLabelText(/Senha/i), {
+      target: { value: 'segredo' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Entrar/i }));
+
+    const alert = await screen.findByRole('alert');
+    // Mensagem genérica — não vaza "Sistema inválido ou inativo".
+    expect(alert).toHaveTextContent(/Falha ao entrar/i);
+    expect(alert).not.toHaveTextContent(/Sistema inválido/i);
+    // Detalhe técnico ficou só no console para diagnóstico em dev.
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[login] backend recusou requisição (400):',
+      expect.objectContaining({
+        code: 'INVALID_SYSTEM',
+        message: 'Sistema inválido ou inativo',
+      }),
+    );
+
+    warnSpy.mockRestore();
   });
 
   it('limpa o Alert ao digitar novamente em qualquer campo', async () => {

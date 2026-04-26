@@ -34,6 +34,26 @@ export default defineConfig(({ mode }) => {
       // 10s mantém latência confortável sem deixar testes presos
       // verdadeiramente quebrados rodando indefinidamente.
       testTimeout: 10000,
+      /**
+       * Variáveis de ambiente injetadas em `import.meta.env` durante a
+       * execução dos testes (Issue #118).
+       *
+       * O singleton `apiClient` em `src/shared/api/index.ts` faz
+       * fail-fast no import quando `VITE_SYSTEM_ID` está ausente — em
+       * produção isso protege contra deploys mal configurados. Mas em
+       * CI (GitHub Actions) o `.env` é gitignored e o `loadEnv` não
+       * encontra o valor; sem este `test.env`, qualquer teste que
+       * importe `@/shared/auth` (transitivamente importa o singleton)
+       * falharia no parse antes mesmo do primeiro `it()` rodar.
+       *
+       * O UUID aqui é um valor sintético estável — testes que precisam
+       * asserir sobre o `systemId` enviado no body do `/auth/login` ou
+       * no header `X-System-Id` injetam stubs de `ApiClient` próprios e
+       * não dependem deste default.
+       */
+      env: {
+        VITE_SYSTEM_ID: '00000000-0000-0000-0000-000000000000',
+      },
       coverage: {
         provider: 'v8',
         reporter: ['text', 'lcov'],

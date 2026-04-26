@@ -51,7 +51,12 @@ function seedAdminSession(): void {
         name: 'Admin',
         email: 'admin@lfc.com.br',
       },
-      permissions: ['Systems.Read', 'Roles.Read', 'Permissions.Read', 'Users.Read'],
+      permissions: [
+        'perm:Systems.Read',
+        'perm:Roles.Read',
+        'perm:Permissions.Read',
+        'perm:Users.Read',
+      ],
     }),
   );
 }
