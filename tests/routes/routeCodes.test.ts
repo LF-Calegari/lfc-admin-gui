@@ -15,22 +15,27 @@ interface ResolveCase {
 }
 
 const POSITIVE_CASES: ReadonlyArray<ResolveCase> = [
-  { pathname: '/systems', expected: 'AUTH_ADMIN_V1_SYSTEMS' },
-  { pathname: '/routes', expected: 'AUTH_ADMIN_V1_ROUTES' },
-  { pathname: '/roles', expected: 'AUTH_ADMIN_V1_ROLES' },
-  { pathname: '/permissions', expected: 'AUTH_ADMIN_V1_PERMISSIONS' },
-  { pathname: '/users', expected: 'AUTH_ADMIN_V1_USERS' },
-  { pathname: '/tokens', expected: 'AUTH_ADMIN_V1_TOKENS' },
-  { pathname: '/settings', expected: 'AUTH_ADMIN_V1_SETTINGS' },
-  { pathname: '/showcase', expected: 'AUTH_ADMIN_V1_SHOWCASE' },
+  { pathname: '/systems', expected: 'AUTH_V1_SYSTEMS_LIST' },
+  { pathname: '/routes', expected: 'AUTH_V1_SYSTEMS_ROUTES_LIST' },
+  { pathname: '/roles', expected: 'AUTH_V1_ROLES_LIST' },
+  { pathname: '/permissions', expected: 'AUTH_V1_PERMISSIONS_LIST' },
+  { pathname: '/users', expected: 'AUTH_V1_USERS_LIST' },
+  { pathname: '/tokens', expected: 'AUTH_V1_TOKEN_TYPES_LIST' },
 ];
 
+/**
+ * `/settings` e `/showcase` não têm rota equivalente cadastrada no
+ * `AuthenticatorRoutesSeeder` — `resolveRouteCode` devolve `null` e o
+ * `RequireAuth` pula a chamada de `verify-token`.
+ */
 const NEGATIVE_CASES: ReadonlyArray<string> = [
   '/',
   '/login',
   '/error/403',
   '/error/404',
   '/rota-inexistente',
+  '/settings',
+  '/showcase',
   '',
 ];
 
@@ -46,8 +51,8 @@ describe('resolveRouteCode — paths privados conhecidos', () => {
     // `matchPath({ end: false })` aceita subpaths — útil quando as
     // páginas evoluírem para `:id`/abas/etc sem precisar atualizar a
     // tabela.
-    expect(resolveRouteCode('/systems/123')).toBe('AUTH_ADMIN_V1_SYSTEMS');
-    expect(resolveRouteCode('/users/42/edit')).toBe('AUTH_ADMIN_V1_USERS');
+    expect(resolveRouteCode('/systems/123')).toBe('AUTH_V1_SYSTEMS_LIST');
+    expect(resolveRouteCode('/users/42/edit')).toBe('AUTH_V1_USERS_LIST');
   });
 });
 
@@ -58,9 +63,9 @@ describe('resolveRouteCode — paths não privados ou desconhecidos', () => {
 });
 
 describe('ROUTE_CODE_ENTRIES — sanidade do mapeamento', () => {
-  it('todos os routeCodes começam com prefixo AUTH_ADMIN_V1_ (sistema authenticator)', () => {
+  it('todos os routeCodes começam com prefixo AUTH_V1_ (catálogo do authenticator)', () => {
     for (const entry of ROUTE_CODE_ENTRIES) {
-      expect(entry.routeCode).toMatch(/^AUTH_ADMIN_V1_/);
+      expect(entry.routeCode).toMatch(/^AUTH_V1_/);
     }
   });
 

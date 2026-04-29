@@ -17,7 +17,6 @@ import {
 import type {
   AuthContextValue,
   CachedPermissions,
-  PermissionsResponse,
 } from '@/shared/auth';
 
 import {
@@ -30,31 +29,15 @@ import { permissionsCache } from '@/shared/auth/permissionsCache';
 import { STORAGE_KEYS } from '@/shared/auth/storage';
 
 /**
- * Espelha o contrato do `lfc-authenticator` no novo split (Issue #122):
- * `/auth/permissions` carrega o catálogo completo. Mantemos o tipo aqui
- * apenas para documentar o shape; nenhum teste deste arquivo dispara o
- * endpoint de fato (o stub de `client.get` devolve Promise pendente por
- * padrão para evitar setState pós-assert).
- */
-const PERMISSIONS_RESPONSE: PermissionsResponse = {
-  user: SAMPLE_USER,
-  permissions: ['11111111-1111-1111-1111-111111111111'],
-  permissionCodes: ['perm:Systems.Read'],
-  routeCodes: ['AUTH_ADMIN_V1_SYSTEMS'],
-};
-
-/**
  * Pré-popula token (`localStorage`) e catálogo (IndexedDB).
  */
 async function seedSession(
-  permissionCodes: ReadonlyArray<string> = ['perm:Systems.Read'],
+  routes: ReadonlyArray<string> = ['AUTH_V1_SYSTEMS_LIST'],
 ): Promise<void> {
   window.localStorage.setItem(STORAGE_KEYS.token, 'jwt-test');
   await permissionsCache.save({
     user: SAMPLE_USER,
-    permissions: PERMISSIONS_RESPONSE.permissions,
-    permissionCodes,
-    routeCodes: PERMISSIONS_RESPONSE.routeCodes,
+    routes,
   } as Omit<CachedPermissions, 'cachedAt'>);
 }
 
@@ -249,10 +232,10 @@ describe('RequireAuth', () => {
   it('renderiza children com sessão otimista mesmo enquanto isLoading=true', () => {
     const value = makeAuthContextValue({
       user: { id: 'u-1', name: 'Ada', email: 'ada@lfc.com.br', identity: 42 },
-      permissions: ['perm:Systems.Read'],
+      permissions: ['AUTH_V1_SYSTEMS_LIST'],
       isAuthenticated: true,
       isLoading: true,
-      hasPermission: code => code === 'perm:Systems.Read',
+      hasPermission: code => code === 'AUTH_V1_SYSTEMS_LIST',
     });
 
     renderRequireAuthWithContext({
@@ -298,7 +281,7 @@ describe('RequireAuth', () => {
       const verifyRouteMock = vi.fn().mockResolvedValue(true);
       const value = makeAuthContextValue({
         user: SAMPLE_USER,
-        permissions: ['perm:Systems.Read'],
+        permissions: ['AUTH_V1_SYSTEMS_LIST'],
         isAuthenticated: true,
         hasPermission: () => true,
         verifyRoute: verifyRouteMock,
@@ -313,7 +296,7 @@ describe('RequireAuth', () => {
 
       await waitFor(() => {
         expect(verifyRouteMock).toHaveBeenCalledWith(
-          'AUTH_ADMIN_V1_SYSTEMS',
+          'AUTH_V1_SYSTEMS_LIST',
           expect.any(AbortSignal),
           '/systems',
         );
@@ -324,7 +307,7 @@ describe('RequireAuth', () => {
       const verifyRouteMock = vi.fn().mockResolvedValue(true);
       const value = makeAuthContextValue({
         user: SAMPLE_USER,
-        permissions: ['perm:Systems.Read'],
+        permissions: ['AUTH_V1_SYSTEMS_LIST'],
         isAuthenticated: true,
         hasPermission: () => true,
         verifyRoute: verifyRouteMock,
@@ -352,7 +335,7 @@ describe('RequireAuth', () => {
       );
       const value = makeAuthContextValue({
         user: SAMPLE_USER,
-        permissions: ['perm:Systems.Read', 'perm:Users.Read'],
+        permissions: ['AUTH_V1_SYSTEMS_LIST', 'AUTH_V1_USERS_LIST'],
         isAuthenticated: true,
         hasPermission: () => true,
         verifyRoute: verifyRouteMock,
@@ -419,7 +402,7 @@ describe('RequireAuth', () => {
     });
 
     it('integração: AuthProvider real envia X-Route-Code para a rota corrente', async () => {
-      await seedSession(['perm:Systems.Read']);
+      await seedSession(['AUTH_V1_SYSTEMS_LIST']);
       const client = createInertAuthClientStub();
       // Reset para resolver imediatamente em vez de Promise pendente.
       client.get.mockReset();
@@ -447,7 +430,7 @@ describe('RequireAuth', () => {
           expect(client.get).toHaveBeenCalledWith(
             '/auth/verify-token',
             expect.objectContaining({
-              headers: { 'X-Route-Code': 'AUTH_ADMIN_V1_SYSTEMS' },
+              headers: { 'X-Route-Code': 'AUTH_V1_SYSTEMS_LIST' },
             }),
           );
         });
@@ -540,8 +523,8 @@ const REQUIRE_PERMISSION_CASES: ReadonlyArray<RequirePermissionCase> = [
     name: 'renderiza children quando a permissão exigida está presente',
     options: {
       protectedRoute: '/users',
-      code: 'perm:Users.Read',
-      sessionPermissions: ['perm:Systems.Read', 'perm:Users.Read'],
+      code: 'AUTH_V1_USERS_LIST',
+      sessionPermissions: ['AUTH_V1_SYSTEMS_LIST', 'AUTH_V1_USERS_LIST'],
       protectedTestId: 'users-page',
       protectedLabel: 'users',
     },
@@ -551,8 +534,8 @@ const REQUIRE_PERMISSION_CASES: ReadonlyArray<RequirePermissionCase> = [
     name: 'redireciona para /error/403 quando o code não está presente',
     options: {
       protectedRoute: '/users',
-      code: 'perm:Users.Read',
-      sessionPermissions: ['perm:Systems.Read'],
+      code: 'AUTH_V1_USERS_LIST',
+      sessionPermissions: ['AUTH_V1_SYSTEMS_LIST'],
       protectedTestId: 'users-page',
       protectedLabel: 'users',
       withProbe: true,
@@ -564,7 +547,7 @@ const REQUIRE_PERMISSION_CASES: ReadonlyArray<RequirePermissionCase> = [
     name: 'redireciona para /error/403 quando o usuário não tem permissões',
     options: {
       protectedRoute: '/permissions',
-      code: 'perm:Permissions.Read',
+      code: 'AUTH_V1_PERMISSIONS_LIST',
       sessionPermissions: [],
       protectedTestId: 'permissions-page',
       protectedLabel: 'permissões',
@@ -572,22 +555,22 @@ const REQUIRE_PERMISSION_CASES: ReadonlyArray<RequirePermissionCase> = [
     expectsContent: false,
   },
   {
-    name: 'renderiza children com o code exato presente em permissionCodes',
+    name: 'renderiza children com o code exato presente em routes',
     options: {
       protectedRoute: '/routes',
-      code: 'perm:SystemsRoutes.Read',
-      sessionPermissions: ['perm:SystemsRoutes.Read', 'perm:Systems.Read'],
+      code: 'AUTH_V1_SYSTEMS_ROUTES_LIST',
+      sessionPermissions: ['AUTH_V1_SYSTEMS_ROUTES_LIST', 'AUTH_V1_SYSTEMS_LIST'],
       protectedTestId: 'routes-page',
       protectedLabel: 'rotas',
     },
     expectsContent: true,
   },
   {
-    name: 'redireciona para /error/403 quando o code com prefixo perm: não existe em permissionCodes',
+    name: 'redireciona para /error/403 quando o code AUTH_V1_* não existe em routes',
     options: {
       protectedRoute: '/tokens',
-      code: 'perm:SystemTokensTypes.Read',
-      sessionPermissions: ['perm:Systems.Read'],
+      code: 'AUTH_V1_TOKEN_TYPES_LIST',
+      sessionPermissions: ['AUTH_V1_SYSTEMS_LIST'],
       protectedTestId: 'tokens-page',
       protectedLabel: 'tokens',
       withProbe: true,
@@ -637,7 +620,7 @@ describe('RequireAuth + RequirePermission combinados', () => {
               path="/users"
               element={
                 <RequireAuth>
-                  <RequirePermission code="perm:Users.Read">
+                  <RequirePermission code="AUTH_V1_USERS_LIST">
                     <div data-testid="users-page">users</div>
                   </RequirePermission>
                 </RequireAuth>

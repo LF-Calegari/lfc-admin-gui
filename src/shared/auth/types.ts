@@ -6,8 +6,10 @@
  *
  * - `GET /auth/verify-token` é reduzido a `{ valid, issuedAt, expiresAt }`
  *   e exige o header `X-Route-Code` para autorização por rota.
- * - `GET /auth/permissions` (novo) devolve perfil + catálogos
- *   (`permissions`/`permissionCodes`/`routeCodes`).
+ * - `GET /auth/permissions` (novo) devolve `{ user, routes }` — o backend
+ *   consolidou permissões e rotas em um único catálogo de `routeCodes`
+ *   (ex.: `AUTH_V1_SYSTEMS_LIST`). O frontend usa esses codes tanto para
+ *   `hasPermission` (gating de UI) quanto para `X-Route-Code` (verify).
  */
 
 /**
@@ -83,30 +85,23 @@ export interface VerifyTokenResponse {
 }
 
 /**
- * Payload retornado pelo endpoint `GET /auth/permissions` no novo
- * contrato (Issue #122 / `lfc-authenticator#148`).
+ * Payload retornado pelo endpoint `GET /auth/permissions`.
  *
- * Carrega tudo o que o frontend precisa para hidratar o `AuthContext`:
+ * Contrato real do `lfc-authenticator` (`AuthController.PermissionsResponse`):
  *
  * - `user` é o perfil completo do usuário autenticado (mapeado para
  *   `User` antes de armazenar);
- * - `permissions` é uma lista de **GUIDs** internos do backend —
- *   carregamos no tipo por simetria e diagnóstico, mas o frontend nunca
- *   os usa diretamente em `hasPermission`;
- * - `permissionCodes` é a lista de códigos semânticos das permissões
- *   reais do usuário no `lfc-admin-gui` (ex.: `perm:Systems.Read`).
- *   É essa lista que o Provider persiste como `permissions` no
- *   estado/cache e que `hasPermission()` consulta;
- * - `routeCodes` é a lista de códigos de rota autorizados para o usuário
- *   no sistema chamador. Mantido no cache para uso futuro (ex.: filtrar
- *   itens da Sidebar) — hoje a checagem cliente continua sendo por
- *   `permissionCode` no `RequirePermission`.
+ * - `routes` é a lista de codes das rotas autorizadas para o usuário
+ *   no sistema do header `X-System-Id` (ex.: `AUTH_V1_SYSTEMS_LIST`,
+ *   `AUTH_V1_USERS_CREATE`). É a única fonte de "o que o usuário pode
+ *   fazer" — o backend consolidou permissões e rotas em um único
+ *   catálogo. O Provider usa essa lista tanto para popular
+ *   `state.permissions` (consultada por `hasPermission`) quanto como
+ *   conjunto autoritativo para `verify-token` no `X-Route-Code`.
  */
 export interface PermissionsResponse {
   user: User;
-  permissions: ReadonlyArray<string>;
-  permissionCodes: ReadonlyArray<string>;
-  routeCodes: ReadonlyArray<string>;
+  routes: ReadonlyArray<string>;
 }
 
 /**
@@ -119,36 +114,21 @@ export interface PermissionsResponse {
  * - `permissionsCache.isValidCachedPermissions` para o registro lido
  *   de IndexedDB (que adiciona apenas `cachedAt: number`).
  *
- * Sem a extração, os dois guards repetiam ~16 linhas de validação
- * (Sonar Quality Gate falhou em new code duplication, PR #123). Manter
- * uma fonte da verdade evita drift quando o shape evoluir.
- *
  * Não valida `cachedAt` — é responsabilidade do caller (cache) checar
  * o campo extra. A função aqui valida apenas o subset comum.
  */
 export function isValidPermissionsCatalog(value: unknown): value is {
   user: User;
-  permissions: ReadonlyArray<string>;
-  permissionCodes: ReadonlyArray<string>;
-  routeCodes: ReadonlyArray<string>;
+  routes: ReadonlyArray<string>;
 } {
   if (!value || typeof value !== 'object') {
     return false;
   }
   const record = value as Record<string, unknown>;
-  if (!Array.isArray(record.permissions)) {
+  if (!Array.isArray(record.routes)) {
     return false;
   }
-  if (!Array.isArray(record.permissionCodes)) {
-    return false;
-  }
-  if (!record.permissionCodes.every(item => typeof item === 'string')) {
-    return false;
-  }
-  if (!Array.isArray(record.routeCodes)) {
-    return false;
-  }
-  if (!record.routeCodes.every(item => typeof item === 'string')) {
+  if (!record.routes.every(item => typeof item === 'string')) {
     return false;
   }
   if (!record.user || typeof record.user !== 'object') {

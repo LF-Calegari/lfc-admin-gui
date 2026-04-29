@@ -28,9 +28,7 @@ const SAMPLE: Omit<CachedPermissions, 'cachedAt'> = {
     email: 'ada@lfc.com.br',
     identity: 42,
   },
-  permissions: ['11111111-1111-1111-1111-111111111111'],
-  permissionCodes: ['perm:Systems.Read', 'perm:Systems.Create'],
-  routeCodes: ['AUTH_ADMIN_V1_SYSTEMS'],
+  routes: ['AUTH_V1_SYSTEMS_LIST', 'AUTH_V1_SYSTEMS_CREATE'],
 };
 
 beforeEach(() => {
@@ -53,9 +51,7 @@ describe('permissionsCache.load', () => {
 
     expect(loaded).not.toBeNull();
     expect(loaded?.user).toEqual(SAMPLE.user);
-    expect(loaded?.permissions).toEqual(SAMPLE.permissions);
-    expect(loaded?.permissionCodes).toEqual(SAMPLE.permissionCodes);
-    expect(loaded?.routeCodes).toEqual(SAMPLE.routeCodes);
+    expect(loaded?.routes).toEqual(SAMPLE.routes);
     expect(typeof loaded?.cachedAt).toBe('number');
   });
 
@@ -86,12 +82,12 @@ describe('permissionsCache.save', () => {
 
     const novo: Omit<CachedPermissions, 'cachedAt'> = {
       ...SAMPLE,
-      permissionCodes: ['perm:Permissions.Read'],
+      routes: ['AUTH_V1_PERMISSIONS_LIST'],
     };
     await permissionsCache.save(novo);
 
     const loaded = await permissionsCache.load();
-    expect(loaded?.permissionCodes).toEqual(['perm:Permissions.Read']);
+    expect(loaded?.routes).toEqual(['AUTH_V1_PERMISSIONS_LIST']);
   });
 
   test('não propaga exceção quando IndexedDB está indisponível', async () => {
