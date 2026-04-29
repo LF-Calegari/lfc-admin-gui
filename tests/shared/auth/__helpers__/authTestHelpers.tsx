@@ -149,9 +149,7 @@ export async function seedPersistedSession(): Promise<void> {
   window.localStorage.setItem(STORAGE_KEYS.token, 'jwt-persistido');
   await permissionsCache.save({
     user: SAMPLE_USER,
-    permissions: SAMPLE_PERMISSIONS.permissions,
-    permissionCodes: SAMPLE_PERMISSION_CODES,
-    routeCodes: SAMPLE_PERMISSIONS.routeCodes,
+    routes: SAMPLE_PERMISSIONS.routes,
   } as Omit<CachedPermissions, 'cachedAt'>);
 }
 
@@ -208,6 +206,11 @@ export const SAMPLE_LOGIN: LoginResponse = {
 /**
  * Resposta de `GET /auth/permissions` (Issue #122). Usado em cenários
  * de login feliz e hidratação a partir de cache vazio.
+ *
+ * O backend retorna apenas `{ user, routes }` — o array `routes`
+ * carrega tanto os codes usados em `hasPermission` quanto em
+ * `X-Route-Code`, já que o backend consolidou permissões e rotas em
+ * um único catálogo.
  */
 export const SAMPLE_PERMISSIONS: PermissionsResponse = {
   user: {
@@ -216,13 +219,15 @@ export const SAMPLE_PERMISSIONS: PermissionsResponse = {
     email: 'ada@lfc.com.br',
     identity: 42,
   },
-  permissions: ['11111111-1111-1111-1111-111111111111'],
-  permissionCodes: ['perm:Systems.Read', 'perm:Systems.Create'],
-  routeCodes: ['AUTH_ADMIN_V1_SYSTEMS'],
+  routes: ['AUTH_V1_SYSTEMS_LIST', 'AUTH_V1_SYSTEMS_CREATE'],
 };
 
 export const SAMPLE_USER = SAMPLE_PERMISSIONS.user;
-export const SAMPLE_PERMISSION_CODES = SAMPLE_PERMISSIONS.permissionCodes;
+/**
+ * Alias mantido para reduzir churn em testes que asseriam contra os
+ * codes do estado: `state.permissions` é populado com `routes`.
+ */
+export const SAMPLE_PERMISSION_CODES = SAMPLE_PERMISSIONS.routes;
 
 /**
  * Resposta do novo `verify-token` reduzido (Issue #122) — usado em

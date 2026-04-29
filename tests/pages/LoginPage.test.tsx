@@ -71,9 +71,7 @@ const SAMPLE_PERMISSIONS: PermissionsResponse = {
     email: 'ada@lfc.com.br',
     identity: 42,
   },
-  permissions: ['11111111-1111-1111-1111-111111111111'],
-  permissionCodes: ['perm:Systems.Read'],
-  routeCodes: ['AUTH_ADMIN_V1_SYSTEMS'],
+  routes: ['AUTH_V1_SYSTEMS_LIST'],
 };
 
 type ClientStub = ReturnType<typeof createClientStub>;

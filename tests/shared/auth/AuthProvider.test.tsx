@@ -130,8 +130,7 @@ describe('AuthProvider — login (Issue #122)', () => {
       expect(cached?.user.email).toBe('ada@lfc.com.br');
     });
     const cached = await permissionsCache.load();
-    expect(cached?.permissionCodes).toEqual(SAMPLE_PERMISSION_CODES);
-    expect(cached?.routeCodes).toEqual(SAMPLE_PERMISSIONS.routeCodes);
+    expect(cached?.routes).toEqual(SAMPLE_PERMISSIONS.routes);
     void _;
   });
 
@@ -240,8 +239,8 @@ describe('AuthProvider — login (Issue #122)', () => {
   test('/auth/permissions com payload inválido pós-login limpa sessão e propaga ApiError(parse)', async () => {
     const client = createAuthClientStub();
     client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
-    // Resposta sem campos obrigatórios — o type guard deve rejeitar.
-    client.get.mockResolvedValueOnce({ permissions: [] } as unknown);
+    // Resposta sem `routes`/`user` — o type guard deve rejeitar.
+    client.get.mockResolvedValueOnce({ routes: 'no' } as unknown);
     const { result } = await renderAuthHook(client);
 
     let captured: unknown;
@@ -412,15 +411,15 @@ describe('AuthProvider — hasPermission', () => {
     const client = createAuthClientStub();
     const { result } = await renderAuthHook(client);
 
-    expect(result.current.hasPermission('perm:Systems.Read')).toBe(false);
+    expect(result.current.hasPermission('AUTH_V1_SYSTEMS_LIST')).toBe(false);
   });
 
-  test('retorna true para permissões presentes após login', async () => {
+  test('retorna true para codes presentes em routes após login', async () => {
     const { result } = await setupLoggedInProvider();
 
-    expect(result.current.hasPermission('perm:Systems.Read')).toBe(true);
-    expect(result.current.hasPermission('perm:Systems.Create')).toBe(true);
-    expect(result.current.hasPermission('perm:Systems.Delete')).toBe(false);
+    expect(result.current.hasPermission('AUTH_V1_SYSTEMS_LIST')).toBe(true);
+    expect(result.current.hasPermission('AUTH_V1_SYSTEMS_CREATE')).toBe(true);
+    expect(result.current.hasPermission('AUTH_V1_SYSTEMS_DELETE')).toBe(false);
   });
 });
 
@@ -641,7 +640,7 @@ describe('AuthProvider — verifyRoute (Issue #122 / adendo)', () => {
 
     let outcome = false;
     await act(async () => {
-      outcome = await result.current.verifyRoute('AUTH_ADMIN_V1_SYSTEMS');
+      outcome = await result.current.verifyRoute('AUTH_V1_SYSTEMS_LIST');
     });
 
     expect(outcome).toBe(expectedOutcome);
@@ -658,13 +657,13 @@ describe('AuthProvider — verifyRoute (Issue #122 / adendo)', () => {
 
     const { result } = await renderAuthHook(client);
     await act(async () => {
-      await result.current.verifyRoute('AUTH_ADMIN_V1_SYSTEMS');
+      await result.current.verifyRoute('AUTH_V1_SYSTEMS_LIST');
     });
 
     expect(client.get).toHaveBeenCalledWith(
       '/auth/verify-token',
       expect.objectContaining({
-        headers: { 'X-Route-Code': 'AUTH_ADMIN_V1_SYSTEMS' },
+        headers: { 'X-Route-Code': 'AUTH_V1_SYSTEMS_LIST' },
       }),
     );
   });
@@ -695,7 +694,7 @@ describe('AuthProvider — verifyRoute (Issue #122 / adendo)', () => {
             data-testid="trigger-verify"
             onClick={() => {
               void authValue.verifyRoute(
-                'AUTH_ADMIN_V1_USERS',
+                'AUTH_V1_USERS_LIST',
                 undefined,
                 location.pathname,
               );
@@ -744,7 +743,7 @@ describe('AuthProvider — verifyRoute (Issue #122 / adendo)', () => {
 
     let outcome = true;
     await act(async () => {
-      outcome = await result.current.verifyRoute('AUTH_ADMIN_V1_SYSTEMS');
+      outcome = await result.current.verifyRoute('AUTH_V1_SYSTEMS_LIST');
     });
 
     expect(outcome).toBe(false);
@@ -757,7 +756,7 @@ describe('AuthProvider — verifyRoute (Issue #122 / adendo)', () => {
 
     let outcome = true;
     await act(async () => {
-      outcome = await result.current.verifyRoute('AUTH_ADMIN_V1_SYSTEMS');
+      outcome = await result.current.verifyRoute('AUTH_V1_SYSTEMS_LIST');
     });
 
     expect(outcome).toBe(false);

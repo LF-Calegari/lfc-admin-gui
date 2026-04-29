@@ -23,13 +23,16 @@ import { matchPath } from 'react-router-dom';
  * de rotas (`tests/routes/routeCodes.test.ts`) garante que toda rota
  * privada do `AppRoutes` esteja mapeada.
  *
- * Os `routeCode`s aqui usam o prefixo do sistema `authenticator`
- * (`AUTH_ADMIN_V1_*`). O backend ainda **não cadastra** as rotas do
- * sistema `authenticator` em `_db.Routes` (apenas `kurtto` está
- * seedado), então em runtime o `verify-token` retornará 400
- * `"Rota inválida"` para qualquer `routeCode` daqui — o `AuthContext`
- * trata esse status como falha de rede (não bloqueia o destino) até a
- * issue separada no `lfc-authenticator` cadastrar as rotas.
+ * Os codes aqui são os mesmos cadastrados pelo
+ * `AuthenticatorRoutesSeeder` no `lfc-authenticator` (prefixo
+ * `AUTH_V1_*`). Cada página privada navega via o code de "list" do
+ * recurso correspondente — o backend consolidou permissões e rotas em
+ * um único catálogo, então o `X-Route-Code` é o mesmo code consultado
+ * em `hasPermission` no gating cliente.
+ *
+ * Páginas sem mapeamento (ex.: `/settings`, `/showcase`) não disparam
+ * `verify-token` — `resolveRouteCode` devolve `null` e o `RequireAuth`
+ * pula a chamada para evitar 400 `"Rota inválida"` do backend.
  */
 interface RouteCodeEntry {
   /** `path` exatamente como declarado no `<Route>` (suporta params). */
@@ -48,14 +51,12 @@ interface RouteCodeEntry {
  * privadas.
  */
 const ROUTE_CODES: ReadonlyArray<RouteCodeEntry> = [
-  { pattern: '/systems', routeCode: 'AUTH_ADMIN_V1_SYSTEMS' },
-  { pattern: '/routes', routeCode: 'AUTH_ADMIN_V1_ROUTES' },
-  { pattern: '/roles', routeCode: 'AUTH_ADMIN_V1_ROLES' },
-  { pattern: '/permissions', routeCode: 'AUTH_ADMIN_V1_PERMISSIONS' },
-  { pattern: '/users', routeCode: 'AUTH_ADMIN_V1_USERS' },
-  { pattern: '/tokens', routeCode: 'AUTH_ADMIN_V1_TOKENS' },
-  { pattern: '/settings', routeCode: 'AUTH_ADMIN_V1_SETTINGS' },
-  { pattern: '/showcase', routeCode: 'AUTH_ADMIN_V1_SHOWCASE' },
+  { pattern: '/systems', routeCode: 'AUTH_V1_SYSTEMS_LIST' },
+  { pattern: '/routes', routeCode: 'AUTH_V1_SYSTEMS_ROUTES_LIST' },
+  { pattern: '/roles', routeCode: 'AUTH_V1_ROLES_LIST' },
+  { pattern: '/permissions', routeCode: 'AUTH_V1_PERMISSIONS_LIST' },
+  { pattern: '/users', routeCode: 'AUTH_V1_USERS_LIST' },
+  { pattern: '/tokens', routeCode: 'AUTH_V1_TOKEN_TYPES_LIST' },
 ];
 
 /**

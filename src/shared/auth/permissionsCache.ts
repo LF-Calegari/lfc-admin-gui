@@ -5,17 +5,15 @@ import type { User } from './types';
 /**
  * Catálogo persistido em IndexedDB.
  *
- * Espelha exatamente o payload de `GET /auth/permissions` projetado
- * para uso no frontend, mais um carimbo de tempo para validações
- * futuras (TTL, invalidação por staleness). O timestamp já é gravado
- * mesmo sem consumidor — adicioná-lo depois exigiria migração de
- * versão do store, e o custo de gravar agora é zero.
+ * Espelha o payload de `GET /auth/permissions` (`{ user, routes }`),
+ * mais um carimbo de tempo para validações futuras (TTL, invalidação
+ * por staleness). O timestamp já é gravado mesmo sem consumidor —
+ * adicioná-lo depois exigiria migração de versão do store, e o custo
+ * de gravar agora é zero.
  */
 export interface CachedPermissions {
   user: User;
-  permissions: ReadonlyArray<string>;
-  permissionCodes: ReadonlyArray<string>;
-  routeCodes: ReadonlyArray<string>;
+  routes: ReadonlyArray<string>;
   /** Epoch (ms) no momento do `save()`. */
   cachedAt: number;
 }

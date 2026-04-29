@@ -57,14 +57,12 @@ async function seedAdminSession(): Promise<void> {
       email: 'admin@lfc.com.br',
       identity: 1,
     },
-    permissions: ['11111111-1111-1111-1111-111111111111'],
-    permissionCodes: [
-      'perm:Systems.Read',
-      'perm:Roles.Read',
-      'perm:Permissions.Read',
-      'perm:Users.Read',
+    routes: [
+      'AUTH_V1_SYSTEMS_LIST',
+      'AUTH_V1_ROLES_LIST',
+      'AUTH_V1_PERMISSIONS_LIST',
+      'AUTH_V1_USERS_LIST',
     ],
-    routeCodes: ['AUTH_ADMIN_V1_SYSTEMS'],
   } as Omit<CachedPermissions, 'cachedAt'>);
 }
 

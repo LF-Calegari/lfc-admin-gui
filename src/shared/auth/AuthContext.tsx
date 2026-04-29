@@ -329,25 +329,46 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
     }
   }, [navigate]);
 
-  // Injeta callbacks no cliente HTTP. Reexecuta quando o cliente muda
-  // (cenário de teste); em produção, é one-shot.
+  // `onUnauthorized` precisa do `clearSession`/`redirectToLogin` mais
+  // recentes, mas registrar isso direto no `client.setAuth` faria o
+  // `useEffect` abaixo re-rodar a cada navegação (porque `useNavigate`
+  // do react-router devolve nova referência em cada mudança de location,
+  // o que muda `redirectToLogin` e por consequência o callback
+  // memoizado). O cleanup desse effect chamava `client.setAuth({})`,
+  // zerando `getToken` por uma janela síncrona — e o `RequireAuth`
+  // (também disparado pela mesma mudança de location) construía um
+  // `fetch` sem `Authorization`, recebendo 401 e expulsando o usuário
+  // para `/login`. Indireção via ref quebra esse acoplamento: o effect
+  // de `setAuth` roda só quando `client` muda; o effect que mantém o
+  // ref atualizado roda livremente sem mexer no singleton.
+  const onUnauthorizedRef = useRef<() => void>(() => undefined);
+  useEffect(() => {
+    onUnauthorizedRef.current = () => {
+      const wasAuthenticated = wasAuthenticatedRef.current;
+      clearSession();
+      if (wasAuthenticated) {
+        redirectToLogin();
+      }
+    };
+  }, [clearSession, redirectToLogin]);
+
+  // Injeta callbacks no cliente HTTP. Roda apenas quando `client` muda
+  // (singleton em produção → one-shot; testes podem injetar stub
+  // diferente, daí a dep). `getToken` lê `tokenRef` direto — closure
+  // estável sobre uma ref mutável. `onUnauthorized` delega para o ref
+  // atualizado pelo effect acima — assim o singleton sempre executa a
+  // versão mais recente do handler sem precisar reinjetar.
+  //
+  // Sem cleanup: zerar callbacks no unmount abriria a mesma janela de
+  // race descrita acima e, em produção, o Provider só desmonta no
+  // teardown da app — não há cenário onde o singleton precise voltar
+  // ao estado vazio.
   useEffect(() => {
     client.setAuth({
       getToken: () => tokenRef.current,
-      onUnauthorized: () => {
-        const wasAuthenticated = wasAuthenticatedRef.current;
-        clearSession();
-        if (wasAuthenticated) {
-          redirectToLogin();
-        }
-      },
+      onUnauthorized: () => onUnauthorizedRef.current(),
     });
-    return () => {
-      // Em desmontagem (HMR/teste), zera callbacks para evitar que o
-      // singleton mantenha referência a um Provider extinto.
-      client.setAuth({});
-    };
-  }, [client, clearSession, redirectToLogin]);
+  }, [client]);
 
   /**
    * Carrega o catálogo do IndexedDB ou refaz `GET /auth/permissions`.
@@ -374,9 +395,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
       // `cachedAt` é injetado pelo próprio `permissionsCache.save()`.
       void permissionsCache.save({
         user,
-        permissions: data.permissions,
-        permissionCodes: data.permissionCodes,
-        routeCodes: data.routeCodes,
+        routes: data.routes,
       });
       return data;
     },
@@ -418,7 +437,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
           // Hidratação otimista a partir do cache, sem rede.
           setState({
             user: cached.user,
-            permissions: cached.permissionCodes,
+            permissions: cached.routes,
             isAuthenticated: true,
             isLoading: false,
           });
@@ -430,7 +449,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
         if (cancelled) return;
         setState({
           user: toUser(data),
-          permissions: data.permissionCodes,
+          permissions: data.routes,
           isAuthenticated: true,
           isLoading: false,
         });
@@ -580,10 +599,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
         const permissionsData = await fetchAndCachePermissions();
 
         const user = toUser(permissionsData);
-        const permissions = permissionsData.permissionCodes;
         setState({
           user,
-          permissions,
+          permissions: permissionsData.routes,
           isAuthenticated: true,
           isLoading: false,
         });

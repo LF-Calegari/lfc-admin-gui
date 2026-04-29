@@ -63,13 +63,14 @@ const ErrorRouteResolver: React.FC = () => {
  *
  * Convenção de codes de permissão:
  *
- * Os codes seguem o padrão real do backend `perm:<Recurso>.<Acao>`,
- * espelhando exatamente as constantes definidas em
- * `auth-service/AuthService/Auth/PermissionPolicies.cs`. Atenção a
- * nomes não óbvios: rotas de sistemas são `SystemsRoutes` (não
- * `Routes`) e tokens são `SystemTokensTypes` (não `Tokens`). O
- * catálogo consumido é `permissionCodes` no `verify-token`, populado
- * em `state.permissions` pelo Provider.
+ * Os codes seguem o padrão real do backend (`AuthenticatorRoutesSeeder`)
+ * `AUTH_V1_<RECURSO>_<ACAO>` — cada code identifica uma rota de API.
+ * O backend consolidou permissões e rotas em um único catálogo, então
+ * o gating de cada página usa o code de "list" do recurso correspondente
+ * (`AUTH_V1_SYSTEMS_LIST` para `/systems`, etc.). O `state.permissions`
+ * exposto pelo Provider é populado com a lista `routes` de
+ * `GET /auth/permissions`, então `hasPermission(code)` consulta a mesma
+ * lista usada no `X-Route-Code` do `verify-token`.
  */
 export const AppRoutes: React.FC = () => (
   <Routes>
@@ -87,7 +88,7 @@ export const AppRoutes: React.FC = () => (
       <Route
         path="/systems"
         element={
-          <RequirePermission code="perm:Systems.Read">
+          <RequirePermission code="AUTH_V1_SYSTEMS_LIST">
             <SystemsPage />
           </RequirePermission>
         }
@@ -95,7 +96,7 @@ export const AppRoutes: React.FC = () => (
       <Route
         path="/routes"
         element={
-          <RequirePermission code="perm:SystemsRoutes.Read">
+          <RequirePermission code="AUTH_V1_SYSTEMS_ROUTES_LIST">
             <PlaceholderPage
               eyebrow="02 Rotas"
               title="Rotas registradas"
@@ -107,7 +108,7 @@ export const AppRoutes: React.FC = () => (
       <Route
         path="/roles"
         element={
-          <RequirePermission code="perm:Roles.Read">
+          <RequirePermission code="AUTH_V1_ROLES_LIST">
             <RolesPage />
           </RequirePermission>
         }
@@ -115,7 +116,7 @@ export const AppRoutes: React.FC = () => (
       <Route
         path="/permissions"
         element={
-          <RequirePermission code="perm:Permissions.Read">
+          <RequirePermission code="AUTH_V1_PERMISSIONS_LIST">
             <PermissionsPage />
           </RequirePermission>
         }
@@ -123,7 +124,7 @@ export const AppRoutes: React.FC = () => (
       <Route
         path="/users"
         element={
-          <RequirePermission code="perm:Users.Read">
+          <RequirePermission code="AUTH_V1_USERS_LIST">
             <UsersPage />
           </RequirePermission>
         }
@@ -131,7 +132,7 @@ export const AppRoutes: React.FC = () => (
       <Route
         path="/tokens"
         element={
-          <RequirePermission code="perm:SystemTokensTypes.Read">
+          <RequirePermission code="AUTH_V1_TOKEN_TYPES_LIST">
             <PlaceholderPage
               eyebrow="06 Tokens"
               title="Tokens JWT"
