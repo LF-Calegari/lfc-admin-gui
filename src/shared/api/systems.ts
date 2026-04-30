@@ -235,19 +235,7 @@ export async function createSystem(
   options?: BodyRequestOptions,
   client: ApiClient = apiClient,
 ): Promise<SystemDto> {
-  // Trim defensivo no boundary do cliente: garante que a UI não envie
-  // valores diferentes do que persistir, mesmo se o caller esqueceu de
-  // sanitizar. Description vazia depois de trim vira `undefined` para
-  // que o serializador omita o campo (backend converte para `null`).
-  const body: CreateSystemPayload = {
-    name: payload.name.trim(),
-    code: payload.code.trim(),
-  };
-  const trimmedDescription = payload.description?.trim();
-  if (trimmedDescription && trimmedDescription.length > 0) {
-    body.description = trimmedDescription;
-  }
-
+  const body = buildSystemMutationBody(payload);
   const data = await client.post<unknown>('/systems', body, options);
   if (!isSystemDto(data)) {
     throw {
@@ -256,4 +244,78 @@ export async function createSystem(
     };
   }
   return data;
+}
+
+/**
+ * Body aceito pelo `PUT /systems/{id}` no `lfc-authenticator`
+ * (`SystemsController.UpdateSystemRequest`).
+ *
+ * O backend declara um `UpdateSystemRequest` separado, mas com o mesmo
+ * shape do `CreateSystemRequest` (Name obrigatório/máx. 80, Code
+ * obrigatório/máx. 50, Description opcional/máx. 500). Para evitar
+ * divergência silenciosa entre os dois tipos no frontend e replicar
+ * fielmente a simetria do backend, declaramos o payload de update como
+ * alias do de create — qualquer ajuste no contrato pega os dois call
+ * sites de uma só vez.
+ */
+export type UpdateSystemPayload = CreateSystemPayload;
+
+/**
+ * Atualiza um sistema existente via `PUT /systems/{id}`.
+ *
+ * Retorna o `SystemDto` atualizado (`200 OK` com `SystemResponse` no
+ * corpo). Lança `ApiError` em qualquer falha — o caller tipicamente
+ * trata:
+ *
+ * - `kind: 'http'` com `status === 409` → conflito de `code` único
+ *   (outro sistema já usa o code informado); a UI exibe mensagem inline
+ *   no campo `code` ("Já existe outro sistema com este Code.").
+ * - `kind: 'http'` com `status === 404` → sistema não encontrado ou
+ *   soft-deleted; a UI fecha o modal, dispara toast e força refetch.
+ * - `kind: 'http'` com `status === 400` → erros de validação por campo
+ *   em `details` (mesmo shape de `ValidationProblemDetails` do create).
+ * - `kind: 'http'` com `status === 401` → cliente HTTP já lidou com
+ *   `onUnauthorized`; a UI não precisa fazer nada extra.
+ * - Outros erros → toast vermelho genérico.
+ *
+ * O parâmetro `client` é injetável para isolar testes (passa-se um stub
+ * tipado como `ApiClient`); em produção usa-se o singleton `apiClient`.
+ */
+export async function updateSystem(
+  id: string,
+  payload: UpdateSystemPayload,
+  options?: BodyRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<SystemDto> {
+  const body = buildSystemMutationBody(payload);
+  const data = await client.put<unknown>(`/systems/${id}`, body, options);
+  if (!isSystemDto(data)) {
+    throw {
+      kind: 'parse',
+      message: 'Resposta inválida do servidor.',
+    };
+  }
+  return data;
+}
+
+/**
+ * Constrói o body para `POST /systems` e `PUT /systems/{id}` aplicando
+ * trim defensivo nos campos. Description vazia depois de trim vira
+ * `undefined` para que o serializador omita o campo (backend converte
+ * para `null`). Centralizar essa montagem garante que create e update
+ * enviem exatamente o mesmo payload — qualquer divergência futura no
+ * shape (ex.: backend aceitando `tags`) ajusta um único helper.
+ */
+function buildSystemMutationBody(
+  payload: CreateSystemPayload | UpdateSystemPayload,
+): CreateSystemPayload {
+  const body: CreateSystemPayload = {
+    name: payload.name.trim(),
+    code: payload.code.trim(),
+  };
+  const trimmedDescription = payload.description?.trim();
+  if (trimmedDescription && trimmedDescription.length > 0) {
+    body.description = trimmedDescription;
+  }
+  return body;
 }

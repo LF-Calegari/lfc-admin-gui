@@ -75,5 +75,12 @@ export {
   isPagedSystemsResponse,
   isSystemDto,
   listSystems,
+  updateSystem,
 } from './systems';
-export type { CreateSystemPayload, ListSystemsParams, PagedResponse, SystemDto } from './systems';
+export type {
+  CreateSystemPayload,
+  ListSystemsParams,
+  PagedResponse,
+  SystemDto,
+  UpdateSystemPayload,
+} from './systems';
