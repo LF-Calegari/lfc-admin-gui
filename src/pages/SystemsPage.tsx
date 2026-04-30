@@ -27,6 +27,7 @@ import { DeleteSystemConfirm } from './systems/DeleteSystemConfirm';
 import { EditSystemModal } from './systems/EditSystemModal';
 import { NewSystemModal } from './systems/NewSystemModal';
 import { RestoreSystemConfirm } from './systems/RestoreSystemConfirm';
+import { SystemsStatsRow } from './systems/SystemsStatsRow';
 
 import type { TableColumn } from '../components/ui';
 import type { ApiClient, PagedResponse, SystemDto } from '../shared/api';
@@ -89,6 +90,16 @@ interface SystemsPageProps {
    * testes, o caller passa um stub tipado.
    */
   client?: ApiClient;
+  /**
+   * Quando `true`, omite o painel de stats (`SystemsStatsRow`). Default
+   * `false` — em produção o painel sempre aparece. Os testes da EPIC #45
+   * (criar/editar/desativar/restaurar) passam `true` para evitar que as
+   * 2 chamadas extras a `GET /systems` (sem includeDeleted + com) consumam
+   * o `mockResolvedValueOnce` montado para a listagem da própria suíte.
+   * Os testes do painel em si rodam o `SystemsStatsRow` direto, sem o
+   * shell da `SystemsPage`.
+   */
+  hideStats?: boolean;
 }
 
 interface PageData {
@@ -287,7 +298,7 @@ function extractErrorMessage(error: unknown): string {
 
 /* ─── Component ──────────────────────────────────────────── */
 
-export const SystemsPage: React.FC<SystemsPageProps> = ({ client }) => {
+export const SystemsPage: React.FC<SystemsPageProps> = ({ client, hideStats = false }) => {
   const { hasPermission } = useAuth();
   const canCreateSystem = hasPermission(SYSTEMS_CREATE_PERMISSION);
   const canUpdateSystem = hasPermission(SYSTEMS_UPDATE_PERMISSION);
@@ -666,6 +677,8 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client }) => {
         title="Sistemas cadastrados"
         desc="Serviços registrados no ecossistema de autenticação. Cada sistema possui suas próprias rotas, roles e permissões."
       />
+
+      {!hideStats && <SystemsStatsRow refreshKey={retryNonce} client={client} />}
 
       <Toolbar>
         <SearchSlot>

@@ -97,7 +97,7 @@ describe('SystemsPage — render inicial', () => {
     });
     client.get.mockReturnValueOnce(pending);
 
-    render(<SystemsPage client={client} />);
+    render(<SystemsPage client={client} hideStats />);
 
     expect(screen.getByTestId('systems-loading')).toBeInTheDocument();
 
@@ -119,7 +119,7 @@ describe('SystemsPage — render inicial', () => {
     const client = createSystemsClientStub();
     client.get.mockResolvedValueOnce(makePagedResponse(SAMPLE_ROWS));
 
-    render(<SystemsPage client={client} />);
+    render(<SystemsPage client={client} hideStats />);
 
     await waitFor(() => {
       expect(screen.queryByTestId('systems-loading')).not.toBeInTheDocument();
@@ -132,7 +132,7 @@ describe('SystemsPage — render inicial', () => {
     const client = createSystemsClientStub();
     client.get.mockResolvedValueOnce(makePagedResponse(SAMPLE_ROWS));
 
-    render(<SystemsPage client={client} />);
+    render(<SystemsPage client={client} hideStats />);
 
     await waitFor(() => expect(client.get).toHaveBeenCalled());
     expect(lastGetPath(client)).toBe('/systems');
@@ -156,7 +156,7 @@ describe('SystemsPage — render inicial', () => {
       ]),
     );
 
-    render(<SystemsPage client={client} />);
+    render(<SystemsPage client={client} hideStats />);
 
     await waitFor(() => {
       expect(screen.queryByTestId('systems-loading')).not.toBeInTheDocument();
@@ -176,7 +176,7 @@ describe('SystemsPage — busca debounced', () => {
     const client = createSystemsClientStub();
     client.get.mockResolvedValue(makePagedResponse(SAMPLE_ROWS));
 
-    render(<SystemsPage client={client} />);
+    render(<SystemsPage client={client} hideStats />);
 
     await waitFor(() => expect(client.get).toHaveBeenCalledTimes(1));
 
@@ -199,7 +199,7 @@ describe('SystemsPage — busca debounced', () => {
     const client = createSystemsClientStub();
     client.get.mockResolvedValue(makePagedResponse(SAMPLE_ROWS));
 
-    render(<SystemsPage client={client} />);
+    render(<SystemsPage client={client} hideStats />);
 
     await waitFor(() => expect(client.get).toHaveBeenCalledTimes(1));
 
@@ -223,7 +223,7 @@ describe('SystemsPage — busca debounced', () => {
     const client = createSystemsClientStub();
     client.get.mockResolvedValue(makePagedResponse(SAMPLE_ROWS));
 
-    render(<SystemsPage client={client} />);
+    render(<SystemsPage client={client} hideStats />);
     await waitFor(() => expect(client.get).toHaveBeenCalledTimes(1));
 
     const input = screen.getByTestId('systems-search') as HTMLInputElement;
@@ -252,7 +252,7 @@ describe('SystemsPage — paginação', () => {
     const client = createSystemsClientStub();
     client.get.mockResolvedValue(makePagedResponse(SAMPLE_ROWS, { page: 1, total: 50 }));
 
-    render(<SystemsPage client={client} />);
+    render(<SystemsPage client={client} hideStats />);
 
     await waitFor(() => expect(client.get).toHaveBeenCalledTimes(1));
 
@@ -269,7 +269,7 @@ describe('SystemsPage — paginação', () => {
     const client = createSystemsClientStub();
     client.get.mockResolvedValueOnce(makePagedResponse(SAMPLE_ROWS, { page: 1, total: 50 }));
 
-    render(<SystemsPage client={client} />);
+    render(<SystemsPage client={client} hideStats />);
 
     await waitFor(() => {
       expect(screen.queryByTestId('systems-loading')).not.toBeInTheDocument();
@@ -286,7 +286,7 @@ describe('SystemsPage — paginação', () => {
       makePagedResponse(SAMPLE_ROWS, { page: 1, total: 15, pageSize: 20 }),
     );
 
-    render(<SystemsPage client={client} />);
+    render(<SystemsPage client={client} hideStats />);
 
     await waitFor(() => {
       expect(screen.queryByTestId('systems-loading')).not.toBeInTheDocument();
@@ -300,7 +300,7 @@ describe('SystemsPage — paginação', () => {
     const client = createSystemsClientStub();
     client.get.mockResolvedValueOnce(makePagedResponse(SAMPLE_ROWS, { page: 1, total: 42 }));
 
-    render(<SystemsPage client={client} />);
+    render(<SystemsPage client={client} hideStats />);
 
     await waitFor(() => {
       expect(screen.queryByTestId('systems-loading')).not.toBeInTheDocument();
@@ -317,7 +317,7 @@ describe('SystemsPage — filtro de inativos', () => {
     const client = createSystemsClientStub();
     client.get.mockResolvedValue(makePagedResponse(SAMPLE_ROWS));
 
-    render(<SystemsPage client={client} />);
+    render(<SystemsPage client={client} hideStats />);
     await waitFor(() => expect(client.get).toHaveBeenCalledTimes(1));
 
     const toggle = screen.getByTestId('systems-include-deleted') as HTMLInputElement;
@@ -340,7 +340,7 @@ describe('SystemsPage — filtro de inativos', () => {
       ]),
     );
 
-    render(<SystemsPage client={client} />);
+    render(<SystemsPage client={client} hideStats />);
 
     await waitFor(() => {
       expect(screen.queryByTestId('systems-loading')).not.toBeInTheDocument();
@@ -358,7 +358,7 @@ describe('SystemsPage — estados vazios', () => {
     // Após busca debounced: backend devolve vazio.
     client.get.mockResolvedValueOnce(makePagedResponse([], { total: 0 }));
 
-    render(<SystemsPage client={client} />);
+    render(<SystemsPage client={client} hideStats />);
     await waitFor(() => expect(client.get).toHaveBeenCalledTimes(1));
 
     fireEvent.change(screen.getByTestId('systems-search'), {
@@ -385,7 +385,7 @@ describe('SystemsPage — estados vazios', () => {
     const client = createSystemsClientStub();
     client.get.mockResolvedValueOnce(makePagedResponse([], { total: 0 }));
 
-    render(<SystemsPage client={client} />);
+    render(<SystemsPage client={client} hideStats />);
 
     await waitFor(() => {
       expect(screen.queryByTestId('systems-loading')).not.toBeInTheDocument();
@@ -403,7 +403,7 @@ describe('SystemsPage — estados vazios', () => {
       .mockResolvedValueOnce(makePagedResponse([], { total: 0 }))
       .mockResolvedValueOnce(makePagedResponse(SAMPLE_ROWS));
 
-    render(<SystemsPage client={client} />);
+    render(<SystemsPage client={client} hideStats />);
     await waitFor(() => expect(client.get).toHaveBeenCalledTimes(1));
 
     fireEvent.change(screen.getByTestId('systems-search'), {
@@ -437,7 +437,7 @@ describe('SystemsPage — erro de rede', () => {
       .mockRejectedValueOnce(apiError)
       .mockResolvedValueOnce(makePagedResponse(SAMPLE_ROWS));
 
-    render(<SystemsPage client={client} />);
+    render(<SystemsPage client={client} hideStats />);
 
     expect(await screen.findByText(/Falha de conexão com o servidor\./i)).toBeInTheDocument();
 
@@ -454,7 +454,7 @@ describe('SystemsPage — erro de rede', () => {
     const client = createSystemsClientStub();
     client.get.mockRejectedValueOnce(new Error('boom'));
 
-    render(<SystemsPage client={client} />);
+    render(<SystemsPage client={client} hideStats />);
 
     expect(
       await screen.findByText(/Falha ao carregar a lista de sistemas\. Tente novamente\./i),
@@ -476,7 +476,7 @@ describe('SystemsPage — cancelamento de request', () => {
       },
     );
 
-    render(<SystemsPage client={client} />);
+    render(<SystemsPage client={client} hideStats />);
     await waitFor(() => expect(client.get).toHaveBeenCalledTimes(1));
 
     // Dispara duas buscas rapidamente — sem debounce, segunda mudança

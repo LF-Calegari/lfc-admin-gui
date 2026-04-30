@@ -387,6 +387,54 @@ export async function restoreSystem(
 }
 
 /**
+ * Estatísticas agregadas de sistemas para o painel de overview da
+ * `SystemsPage` (Issue #131). Calculadas a partir do `total` de duas
+ * chamadas paralelas a `GET /systems`:
+ *
+ * - `active` — contagem sem `includeDeleted` (escopo padrão).
+ * - `total` — contagem com `includeDeleted=true` (ativos + soft-deleted).
+ * - `inactive` — derivado: `total - active`.
+ *
+ * Usar `pageSize=1` minimiza payload — só queremos o `total` do envelope,
+ * não os registros. Sem novo endpoint backend.
+ */
+export interface SystemsStats {
+  /** Total de sistemas ativos (não soft-deletados). */
+  active: number;
+  /** Total de sistemas soft-deletados. */
+  inactive: number;
+  /** Total geral (ativos + soft-deletados). */
+  total: number;
+}
+
+/**
+ * Busca estatísticas agregadas de sistemas via duas chamadas paralelas a
+ * `GET /systems` com `pageSize=1`. Reusa `listSystems` (mesma rota,
+ * mesmos type guards, mesmo cliente HTTP injetável) — não há novo
+ * endpoint nem nova lógica de transporte.
+ *
+ * Erro em qualquer uma das chamadas propaga (caller decide se faz
+ * fallback para "—" ou retry); cancelamento via `signal` em options
+ * cancela ambas.
+ */
+export async function getSystemsStats(
+  options?: SafeRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<SystemsStats> {
+  const [activeOnly, includingDeleted] = await Promise.all([
+    listSystems({ pageSize: 1, includeDeleted: false }, options, client),
+    listSystems({ pageSize: 1, includeDeleted: true }, options, client),
+  ]);
+  const active = activeOnly.total;
+  const total = includingDeleted.total;
+  return {
+    active,
+    inactive: Math.max(0, total - active),
+    total,
+  };
+}
+
+/**
  * Constrói o body para `POST /systems` e `PUT /systems/{id}` aplicando
  * trim defensivo nos campos. Description vazia depois de trim vira
  * `undefined` para que o serializador omita o campo (backend converte

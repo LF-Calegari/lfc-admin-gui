@@ -107,11 +107,17 @@ export function makePagedResponse(
  * `NewSystemModal` consome `useToast()` internamente para disparar
  * feedback de sucesso/erro. Centraliza para que cada suíte não repita o
  * provider boilerplate.
+ *
+ * `hideStats={true}` é passado por padrão para isolar as suítes da
+ * EPIC #45 (criar/editar/desativar/restaurar) das 2 chamadas extras a
+ * `GET /systems` que o `SystemsStatsRow` faz no mount (Issue #131).
+ * Os testes do painel em si renderizam o `SystemsStatsRow` direto,
+ * sem o shell da `SystemsPage`.
  */
 export function renderSystemsPage(client: ApiClientStub): void {
   render(
     <ToastProvider>
-      <SystemsPage client={client} />
+      <SystemsPage client={client} hideStats />
     </ToastProvider>,
   );
 }
