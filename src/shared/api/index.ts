@@ -72,6 +72,7 @@ export {
   DEFAULT_INCLUDE_DELETED,
   DEFAULT_PAGE,
   DEFAULT_PAGE_SIZE,
+  deleteSystem,
   isPagedSystemsResponse,
   isSystemDto,
   listSystems,

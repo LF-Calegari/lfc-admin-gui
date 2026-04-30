@@ -307,6 +307,40 @@ export async function updateSystem(
 }
 
 /**
+ * Desativa (soft-delete) um sistema via `DELETE /systems/{id}` (Issue #60).
+ *
+ * O backend (`SystemsController.DeleteById`) seta `DeletedAt = UtcNow` e
+ * responde `204 No Content` em sucesso. O método não devolve corpo — a
+ * função resolve `void` e a UI faz refetch para sincronizar a lista.
+ *
+ * Lança `ApiError` em qualquer falha:
+ *
+ * - `kind: 'http'` com `status === 404` → sistema inexistente ou já
+ *   soft-deleted (o backend filtra por `DeletedAt == null` por padrão
+ *   via global query filter); a UI fecha o modal, dispara toast e força
+ *   refetch.
+ * - `kind: 'http'` com `status === 401` → sessão expirada; cliente HTTP
+ *   já lidou com `onUnauthorized`. UI mantém-se silenciosa além do toast.
+ * - `kind: 'http'` com `status === 403` → falta permissão
+ *   `AUTH_V1_SYSTEMS_DELETE`; toast vermelho com mensagem do backend.
+ * - `kind: 'network'`/outros → toast vermelho genérico.
+ *
+ * Diferente de `createSystem`/`updateSystem`, não há type guard de
+ * resposta porque `204` não tem corpo — `client.delete<void>` resolve
+ * `undefined` e descartamos.
+ *
+ * O parâmetro `client` é injetável para isolar testes (passa-se um stub
+ * tipado como `ApiClient`); em produção usa-se o singleton `apiClient`.
+ */
+export async function deleteSystem(
+  id: string,
+  options?: SafeRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<void> {
+  await client.delete<void>(`/systems/${id}`, options);
+}
+
+/**
  * Constrói o body para `POST /systems` e `PUT /systems/{id}` aplicando
  * trim defensivo nos campos. Description vazia depois de trim vira
  * `undefined` para que o serializador omita o campo (backend converte

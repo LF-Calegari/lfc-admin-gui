@@ -1,4 +1,12 @@
-import { ChevronLeft, ChevronRight, Pencil, Plus, RotateCcw, Search } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Pencil,
+  Plus,
+  RotateCcw,
+  Search,
+  Trash2,
+} from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import styled from 'styled-components';
 
@@ -14,6 +22,7 @@ import {
 } from '../shared/api';
 import { useAuth } from '../shared/auth';
 
+import { DeleteSystemConfirm } from './systems/DeleteSystemConfirm';
 import { EditSystemModal } from './systems/EditSystemModal';
 import { NewSystemModal } from './systems/NewSystemModal';
 
@@ -49,6 +58,15 @@ const SYSTEMS_CREATE_PERMISSION = 'AUTH_V1_SYSTEMS_CREATE';
  * ações que o usuário não pode executar.
  */
 const SYSTEMS_UPDATE_PERMISSION = 'AUTH_V1_SYSTEMS_UPDATE';
+
+/**
+ * Code de permissão exigido para o botão "Desativar" por linha (Issue
+ * #60). Espelha o `AUTH_V1_SYSTEMS_DELETE` no `lfc-authenticator` — o
+ * backend é a fonte autoritativa (`DELETE /systems/{id}` exige
+ * `PermissionPolicies.SystemsDelete`). Gating client-side é UX:
+ * esconder ações que o usuário não pode executar.
+ */
+const SYSTEMS_DELETE_PERMISSION = 'AUTH_V1_SYSTEMS_DELETE';
 
 interface SystemsPageProps {
   /**
@@ -259,6 +277,7 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client }) => {
   const { hasPermission } = useAuth();
   const canCreateSystem = hasPermission(SYSTEMS_CREATE_PERMISSION);
   const canUpdateSystem = hasPermission(SYSTEMS_UPDATE_PERMISSION);
+  const canDeleteSystem = hasPermission(SYSTEMS_DELETE_PERMISSION);
 
   // Termo digitado pelo usuário em tempo real (input controlado).
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -284,6 +303,12 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client }) => {
   // payload pronto.
   const [editingSystem, setEditingSystem] = useState<SystemDto | null>(null);
 
+  // Sistema selecionado para desativação (Issue #60). Mesma estratégia
+  // do `editingSystem`: manter o objeto completo evita round-trip e
+  // permite que o `DeleteSystemConfirm` exiba `name`/`code` no copy de
+  // confirmação. `null` mantém o modal fechado.
+  const [deletingSystem, setDeletingSystem] = useState<SystemDto | null>(null);
+
   const handleOpenCreateModal = useCallback(() => {
     setIsCreateModalOpen(true);
   }, []);
@@ -298,6 +323,14 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client }) => {
 
   const handleCloseEditModal = useCallback(() => {
     setEditingSystem(null);
+  }, []);
+
+  const handleOpenDeleteConfirm = useCallback((row: SystemDto) => {
+    setDeletingSystem(row);
+  }, []);
+
+  const handleCloseDeleteConfirm = useCallback(() => {
+    setDeletingSystem(null);
   }, []);
 
   // Controller da request mais recente — usado para cancelar a anterior
@@ -495,34 +528,55 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client }) => {
       },
     ];
 
-    if (canUpdateSystem) {
-      // Coluna de ações por linha — só renderiza quando o usuário tem
-      // permissão de update. Sem permissão, omitimos a coluna toda
-      // (em vez de só o botão) para não deixar uma coluna "Ações" vazia
-      // ocupando espaço para usuários read-only.
+    // Coluna "Ações" só aparece quando o usuário tem **alguma** ação
+    // disponível (update ou delete). Esconder a coluna inteira para
+    // perfis read-only mantém a tabela compacta sem coluna vazia.
+    // Cada botão dentro tem seu próprio gating individual + (no caso
+    // do delete) check por linha (`row.deletedAt`).
+    if (canUpdateSystem || canDeleteSystem) {
       base.push({
         key: 'actions',
         label: 'Ações',
         isActions: true,
         render: (row) => (
           <RowActions>
-            <Button
-              variant="ghost"
-              size="sm"
-              icon={<Pencil size={14} strokeWidth={1.5} />}
-              onClick={() => handleOpenEditModal(row)}
-              aria-label={`Editar sistema ${row.name}`}
-              data-testid={`systems-edit-${row.id}`}
-            >
-              Editar
-            </Button>
+            {canUpdateSystem && (
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<Pencil size={14} strokeWidth={1.5} />}
+                onClick={() => handleOpenEditModal(row)}
+                aria-label={`Editar sistema ${row.name}`}
+                data-testid={`systems-edit-${row.id}`}
+              >
+                Editar
+              </Button>
+            )}
+            {canDeleteSystem && row.deletedAt === null && (
+              // Botão "Desativar" só aparece em linhas ativas — não faz
+              // sentido oferecer "desativar" pra um sistema já soft-
+              // deletado (#61 vai adicionar "Restaurar" pra essas
+              // linhas). O backend devolve 404 nesse caso, mas
+              // esconder no UI é o caminho ergonômico (lê a coluna
+              // Status como referência).
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<Trash2 size={14} strokeWidth={1.5} />}
+                onClick={() => handleOpenDeleteConfirm(row)}
+                aria-label={`Desativar sistema ${row.name}`}
+                data-testid={`systems-delete-${row.id}`}
+              >
+                Desativar
+              </Button>
+            )}
           </RowActions>
         ),
       });
     }
 
     return base;
-  }, [canUpdateSystem, handleOpenEditModal]);
+  }, [canDeleteSystem, canUpdateSystem, handleOpenDeleteConfirm, handleOpenEditModal]);
 
   const showOverlay = isFetching && !isInitialLoading;
 
@@ -699,6 +753,16 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client }) => {
           system={editingSystem}
           onClose={handleCloseEditModal}
           onUpdated={handleRefetch}
+          client={client}
+        />
+      )}
+
+      {canDeleteSystem && (
+        <DeleteSystemConfirm
+          open={deletingSystem !== null}
+          system={deletingSystem}
+          onClose={handleCloseDeleteConfirm}
+          onDeleted={handleRefetch}
           client={client}
         />
       )}
