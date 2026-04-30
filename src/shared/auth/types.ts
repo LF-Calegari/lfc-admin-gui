@@ -1,14 +1,20 @@
 /**
  * Tipos públicos do contexto de autenticação.
  *
- * Mantemos o shape mínimo nesta Epic — campos adicionais do usuário e
- * suporte a refresh token serão introduzidos na Epic #44 conforme as
- * features (Login, persistência, verify-token) forem entrando.
+ * Refletem o contrato real do `lfc-authenticator` após o split em dois
+ * endpoints (Issue #122 / `lfc-authenticator#148`):
+ *
+ * - `GET /auth/verify-token` é reduzido a `{ valid, issuedAt, expiresAt }`
+ *   e exige o header `X-Route-Code` para autorização por rota.
+ * - `GET /auth/permissions` (novo) devolve `{ user, routes }` — o backend
+ *   consolidou permissões e rotas em um único catálogo de `routeCodes`
+ *   (ex.: `AUTH_V1_SYSTEMS_LIST`). O frontend usa esses codes tanto para
+ *   `hasPermission` (gating de UI) quanto para `X-Route-Code` (verify).
  */
 
 /**
  * Representação do usuário autenticado tal como devolvido pelo
- * `lfc-authenticator` no payload de `verify-token`.
+ * `lfc-authenticator` no payload de `GET /auth/permissions`.
  *
  * `identity` é o discriminador numérico do registro do usuário no
  * backend — necessário para chamadas que referenciam o usuário por
@@ -32,8 +38,9 @@ export interface User {
  * Estado observável do contexto.
  *
  * `isLoading` cobre dois momentos:
- * - hidratação inicial (montagem do Provider) — Epic #44 fará via
- *   `verify-token`; aqui é resolvido imediatamente como `false`;
+ * - hidratação inicial (montagem do Provider) — chama `verify-token`
+ *   contra a rota corrente e/ou repopula `/auth/permissions` se o cache
+ *   estiver vazio;
  * - chamadas de `login` em andamento.
  */
 export interface AuthState {
@@ -48,7 +55,7 @@ export interface AuthState {
  *
  * O `lfc-authenticator` retorna apenas `{ token }`; o perfil do usuário
  * e o catálogo de permissões vêm em uma chamada subsequente a
- * `GET /auth/verify-token`. Manter este tipo enxuto evita que call sites
+ * `GET /auth/permissions`. Manter este tipo enxuto evita que call sites
  * passem a depender de campos que o backend nunca enviou.
  */
 export interface LoginResponse {
@@ -56,36 +63,84 @@ export interface LoginResponse {
 }
 
 /**
- * Payload retornado pelo endpoint `GET /auth/verify-token`.
+ * Payload retornado pelo endpoint `GET /auth/verify-token` no novo
+ * contrato (Issue #122 / `lfc-authenticator#148`).
  *
- * Shape achatado, espelhando exatamente o contrato real do
- * `auth-service`:
+ * Shape reduzido: o backend apenas confirma a validade do token e a
+ * autorização do usuário para a rota informada via header
+ * `X-Route-Code`. Perfil e catálogos saíram para o endpoint dedicado
+ * `GET /auth/permissions`.
  *
- * - `id`, `name`, `email`, `identity` formam o perfil completo do
- *   usuário autenticado (mapeados para `User` antes de armazenar);
- * - `permissions` é uma lista de **GUIDs** internos do backend —
- *   carregamos no tipo por simetria e diagnóstico, mas o frontend
- *   nunca os usa diretamente em `hasPermission`;
- * - `permissionCodes` é a lista de códigos semânticos das permissões
- *   reais do usuário no `lfc-admin-gui` (ex.: `perm:Systems.Read`).
- *   É essa lista que o Provider persiste como `permissions` no
- *   estado/storage e que `hasPermission()` consulta;
- * - `routeCodes` é a lista de códigos de rota filtrada para o sistema
- *   kurtto (mantida no contrato por simetria; não consumida aqui).
- *
- * O token continua sendo o mesmo já enviado em `Authorization`; o
- * backend apenas confirma sua validade e devolve o snapshot atual do
- * usuário — permitindo que o frontend reaja a mudanças server-side
- * (role atualizada, permissões revogadas) sem exigir novo login.
+ * - `valid`: sempre `true` quando a resposta é 200; o cliente HTTP já
+ *   normaliza falhas em `ApiError`. Mantido no contrato por simetria
+ *   com o backend e para facilitar diagnósticos.
+ * - `issuedAt` / `expiresAt`: strings ISO8601 (DateTimeOffset C#).
+ *   Ainda não consumidas pela UI, mas mantidas no tipo para evolução
+ *   futura (ex.: indicador de expiração próxima).
  */
 export interface VerifyTokenResponse {
-  id: string;
-  name: string;
-  email: string;
-  identity: number;
-  permissions: ReadonlyArray<string>;
-  permissionCodes: ReadonlyArray<string>;
-  routeCodes: ReadonlyArray<string>;
+  valid: boolean;
+  issuedAt: string;
+  expiresAt: string;
+}
+
+/**
+ * Payload retornado pelo endpoint `GET /auth/permissions`.
+ *
+ * Contrato real do `lfc-authenticator` (`AuthController.PermissionsResponse`):
+ *
+ * - `user` é o perfil completo do usuário autenticado (mapeado para
+ *   `User` antes de armazenar);
+ * - `routes` é a lista de codes das rotas autorizadas para o usuário
+ *   no sistema do header `X-System-Id` (ex.: `AUTH_V1_SYSTEMS_LIST`,
+ *   `AUTH_V1_USERS_CREATE`). É a única fonte de "o que o usuário pode
+ *   fazer" — o backend consolidou permissões e rotas em um único
+ *   catálogo. O Provider usa essa lista tanto para popular
+ *   `state.permissions` (consultada por `hasPermission`) quanto como
+ *   conjunto autoritativo para `verify-token` no `X-Route-Code`.
+ */
+export interface PermissionsResponse {
+  user: User;
+  routes: ReadonlyArray<string>;
+}
+
+/**
+ * Type guard compartilhado para o catálogo de permissões.
+ *
+ * Centraliza a validação de shape usada em dois call sites distintos:
+ *
+ * - `AuthContext.isValidPermissionsResponse` para o payload bruto de
+ *   `GET /auth/permissions`;
+ * - `permissionsCache.isValidCachedPermissions` para o registro lido
+ *   de IndexedDB (que adiciona apenas `cachedAt: number`).
+ *
+ * Não valida `cachedAt` — é responsabilidade do caller (cache) checar
+ * o campo extra. A função aqui valida apenas o subset comum.
+ */
+export function isValidPermissionsCatalog(value: unknown): value is {
+  user: User;
+  routes: ReadonlyArray<string>;
+} {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  if (!Array.isArray(record.routes)) {
+    return false;
+  }
+  if (!record.routes.every(item => typeof item === 'string')) {
+    return false;
+  }
+  if (!record.user || typeof record.user !== 'object') {
+    return false;
+  }
+  const user = record.user as Record<string, unknown>;
+  return (
+    typeof user.id === 'string' &&
+    typeof user.name === 'string' &&
+    typeof user.email === 'string' &&
+    typeof user.identity === 'number'
+  );
 }
 
 /**
@@ -103,10 +158,39 @@ export interface AuthContextValue extends AuthState {
    *
    * Best-effort: chama `GET /auth/logout` para incrementar
    * `tokenVersion` no backend (invalidando JWTs emitidos antes); falha
-   * remota não bloqueia a limpeza local. Sempre limpa storage/estado e
+   * remota não bloqueia a limpeza local. Sempre limpa storage/cache e
    * redireciona para `/login`.
    */
   logout(): Promise<void>;
   /** Retorna `true` quando `code` está presente em `permissions`. */
   hasPermission(code: string): boolean;
+  /**
+   * Verifica autorização do usuário para um `routeCode` específico no
+   * backend, via `GET /auth/verify-token` com header `X-Route-Code`.
+   *
+   * Usado pelo `RequireAuth` em toda mudança de rota privada (Issue
+   * #122 / adendo). O Provider centraliza a lógica para:
+   * - injetar o header `X-Route-Code` correto;
+   * - tratar 401/403/falha de rede de forma uniforme (401 limpa
+   *   sessão, 403 redireciona para `/error/403`, falha de rede não
+   *   bloqueia o destino);
+   * - aceitar `AbortSignal` para cancelar a chamada quando o usuário
+   *   navega novamente antes da resposta.
+   *
+   * Retorna `true` quando o backend autoriza, `false` em qualquer
+   * outro caso (incluindo abort, falha de rede, 4xx). O caller pode
+   * usar o retorno para decisões finas, mas o redirect em 403 e a
+   * limpeza em 401 acontecem aqui dentro.
+   *
+   * `fromPathname` (opcional): rota de origem usada para popular
+   * `state.from` no redirect 403. Quando ausente, usa
+   * `window.location.pathname` como fallback. O `RequireAuth` sempre
+   * passa o pathname capturado via `useLocation()` para evitar
+   * dependência de `window.location` em jsdom/MemoryRouter.
+   */
+  verifyRoute(
+    routeCode: string,
+    signal?: AbortSignal,
+    fromPathname?: string,
+  ): Promise<boolean>;
 }

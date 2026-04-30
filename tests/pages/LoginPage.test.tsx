@@ -1,14 +1,17 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { installFakeIndexedDB, uninstallFakeIndexedDB } from '../shared/auth/__helpers__/fakeIndexedDB';
 
 import type { ApiClient, ApiError } from '@/shared/api';
-import type { LoginResponse, VerifyTokenResponse } from '@/shared/auth';
+import type { LoginResponse, PermissionsResponse } from '@/shared/auth';
 
 import { ToastProvider } from '@/components/ui';
 import { LoginPage } from '@/pages/LoginPage';
 import { AuthProvider } from '@/shared/auth';
+
 
 /**
  * UUID fake usado pelos stubs nos testes da página de login —
@@ -57,19 +60,18 @@ const SAMPLE_LOGIN: LoginResponse = {
 };
 
 /**
- * Resposta de `verify-token` usada nos cenários de submit feliz —
- * espelha o contrato real do `auth-service` (achatado, com
- * `permissionCodes` consumido por `hasPermission()` e `routeCodes`
- * separado, ambos paralelos a `permissions`/Guid[]).
+ * Resposta de `GET /auth/permissions` (Issue #122) usada nos cenários
+ * de submit feliz — agora o catálogo vem do endpoint dedicado, não
+ * mais do `verify-token`.
  */
-const SAMPLE_VERIFY: VerifyTokenResponse = {
-  id: 'u-1',
-  name: 'Ada Lovelace',
-  email: 'ada@lfc.com.br',
-  identity: 42,
-  permissions: ['11111111-1111-1111-1111-111111111111'],
-  permissionCodes: ['perm:Systems.Read'],
-  routeCodes: ['KURTTO_V1_URLS_HOME'],
+const SAMPLE_PERMISSIONS: PermissionsResponse = {
+  user: {
+    id: 'u-1',
+    name: 'Ada Lovelace',
+    email: 'ada@lfc.com.br',
+    identity: 42,
+  },
+  routes: ['AUTH_V1_SYSTEMS_LIST'],
 };
 
 type ClientStub = ReturnType<typeof createClientStub>;
@@ -109,8 +111,13 @@ function renderLogin(options: RenderOptions = {}): { client: ClientStub } {
 }
 
 beforeEach(() => {
+  installFakeIndexedDB();
   window.localStorage.clear();
   document.documentElement.removeAttribute('data-theme');
+});
+
+afterEach(() => {
+  uninstallFakeIndexedDB();
 });
 
 describe('LoginPage — render inicial', () => {
@@ -248,7 +255,7 @@ describe('LoginPage — submit feliz', () => {
     // Login encadeia POST /auth/login + GET /auth/verify-token; ambos
     // precisam estar mockados para o submit feliz completar.
     client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
-    client.get.mockResolvedValueOnce(SAMPLE_VERIFY);
+    client.get.mockResolvedValueOnce(SAMPLE_PERMISSIONS);
     renderLogin({ client });
 
     fireEvent.change(screen.getByLabelText(/E-mail/i), {
@@ -273,7 +280,7 @@ describe('LoginPage — submit feliz', () => {
   it('redireciona para a rota original preservada em location.state.from', async () => {
     const client = createClientStub();
     client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
-    client.get.mockResolvedValueOnce(SAMPLE_VERIFY);
+    client.get.mockResolvedValueOnce(SAMPLE_PERMISSIONS);
     renderLogin({
       client,
       initialEntries: [
@@ -295,7 +302,7 @@ describe('LoginPage — submit feliz', () => {
   it('faz trim do e-mail antes de submeter', async () => {
     const client = createClientStub();
     client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
-    client.get.mockResolvedValueOnce(SAMPLE_VERIFY);
+    client.get.mockResolvedValueOnce(SAMPLE_PERMISSIONS);
     renderLogin({ client });
 
     fireEvent.change(screen.getByLabelText(/E-mail/i), {
@@ -458,7 +465,7 @@ describe('LoginPage — estado loading', () => {
     client.post.mockReturnValueOnce(pending);
     // `verify-token` resolve imediatamente assim que for chamado (após
     // `resolveLogin` liberar a 1ª etapa).
-    client.get.mockResolvedValueOnce(SAMPLE_VERIFY);
+    client.get.mockResolvedValueOnce(SAMPLE_PERMISSIONS);
     renderLogin({ client });
 
     fireEvent.change(screen.getByLabelText(/E-mail/i), {
@@ -483,7 +490,7 @@ describe('LoginPage — já autenticado', () => {
   it('redireciona imediatamente para /systems quando sessão já está ativa', async () => {
     const client = createClientStub();
     client.post.mockResolvedValueOnce(SAMPLE_LOGIN);
-    client.get.mockResolvedValueOnce(SAMPLE_VERIFY);
+    client.get.mockResolvedValueOnce(SAMPLE_PERMISSIONS);
     renderLogin({ client });
 
     fireEvent.change(screen.getByLabelText(/E-mail/i), {
