@@ -317,6 +317,49 @@ export async function confirmDelete(
 }
 
 /**
+ * Mocka o GET inicial com uma página contendo o `system` informado e
+ * abre o `RestoreSystemConfirm` clicando no botão "Restaurar" da linha
+ * (Issue #61). Diferente de `openDeleteConfirm`, o sistema default já
+ * vem com `deletedAt` preenchido — restaurar só faz sentido em linhas
+ * soft-deletadas, e o gating no `SystemsPage` esconde o botão em
+ * linhas ativas. Helpers de teste devem refletir o gating.
+ *
+ * Quem precisar de mocks diferentes pode chamar `client.get.mockXxx`
+ * antes para sobrescrever a fila — a detecção de mocks pré-existentes
+ * preserva o caso "fila customizada de respostas" (ex.: cenários de
+ * erro 404 com refetch).
+ */
+export async function openRestoreConfirm(
+  client: ApiClientStub,
+  system: SystemDto = makeSystem({ deletedAt: '2026-02-01T00:00:00Z' }),
+): Promise<void> {
+  if (client.get.mock.calls.length === 0 && client.get.mock.results.length === 0) {
+    client.get.mockResolvedValueOnce(makePagedResponse([system]));
+  }
+  renderSystemsPage(client);
+  await waitForInitialList(client);
+  fireEvent.click(screen.getByTestId(`systems-restore-${system.id}`));
+}
+
+/**
+ * Confirma a restauração clicando em "Restaurar" no `RestoreSystemConfirm`
+ * e aguarda o `client.post` ser chamado pelo menos `expectedPostCalls`
+ * vezes (default `1`). Espelha `confirmDelete` mas com POST (em
+ * `/systems/{id}/restore`) em vez de DELETE. Faz `act(async)` para
+ * flushar a microtask do click handler antes do `waitFor`.
+ */
+export async function confirmRestore(
+  client: ApiClientStub,
+  expectedPostCalls = 1,
+): Promise<void> {
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('restore-system-confirm'));
+    await Promise.resolve();
+  });
+  await waitFor(() => expect(client.post).toHaveBeenCalledTimes(expectedPostCalls));
+}
+
+/**
  * Caso de teste declarativo para os cenários `it.each(ERROR_CASES)` das
  * suítes de criação (#58/#127) e edição (#59).
  *
@@ -477,7 +520,15 @@ export function buildSharedSubmitErrorCases(
 }
 
 /**
- * Asserções compartilhadas de gating de botão de linha (Issue #59 e #60).
+ * Tipo da ação por linha cujos botões são testados (Issues #59, #60 e
+ * #61). Cada valor mapeia para o `data-testid` `systems-<verb>-<id>` do
+ * botão correspondente na coluna "Ações" da `SystemsPage`.
+ */
+export type SystemRowActionVerb = 'edit' | 'delete' | 'restore';
+
+/**
+ * Asserções compartilhadas de gating de botão de linha (Issue #59, #60
+ * e #61).
  *
  * O bloco "renderiza sistema → confere ausência/presença do botão por
  * `data-testid` da linha" se repetia entre as suítes de edição (`edit-`)
@@ -490,14 +541,28 @@ export function buildSharedSubmitErrorCases(
  * cliente já mockado pela suíte chamadora (que controla quais sistemas
  * aparecem na lista). Asserts são independentes do verbo — espelham o
  * padrão de teste "renderSystemsPage + waitForInitialList + assert".
+ *
+ * **Restore** (Issue #61): o gating do botão "Restaurar" depende de
+ * `row.deletedAt !== null`, então o helper popula automaticamente
+ * `deletedAt` quando o verbo é `'restore'` — caso contrário o botão
+ * nunca apareceria mesmo com a permissão. Edit/delete continuam usando
+ * sistemas ativos por default (`deletedAt: null`).
  */
 export async function assertRowActionAbsent(
   client: ApiClientStub,
-  testIdPrefix: 'edit' | 'delete',
+  testIdPrefix: SystemRowActionVerb,
   systemId: string = ID_SYS_AUTH,
 ): Promise<void> {
   if (client.get.mock.calls.length === 0 && client.get.mock.results.length === 0) {
-    client.get.mockResolvedValueOnce(makePagedResponse([makeSystem({ id: systemId })]));
+    // Para restore, o sistema precisa estar soft-deletado para o gating
+    // de permissão ser o único motivo da ausência do botão (caso
+    // contrário, o teste não diferenciaria "sem permissão" de "linha
+    // ativa filtrada pelo `row.deletedAt !== null`").
+    const overrides: Partial<SystemDto> =
+      testIdPrefix === 'restore'
+        ? { id: systemId, deletedAt: '2026-02-01T00:00:00Z' }
+        : { id: systemId };
+    client.get.mockResolvedValueOnce(makePagedResponse([makeSystem(overrides)]));
   }
   renderSystemsPage(client);
   await waitForInitialList(client);
@@ -506,14 +571,30 @@ export async function assertRowActionAbsent(
 
 export async function assertRowActionPresent(
   client: ApiClientStub,
-  testIdPrefix: 'edit' | 'delete',
-  ariaVerb: 'Editar' | 'Desativar',
+  testIdPrefix: SystemRowActionVerb,
+  ariaVerb: 'Editar' | 'Desativar' | 'Restaurar',
 ): Promise<void> {
   if (client.get.mock.calls.length === 0 && client.get.mock.results.length === 0) {
+    // Para restore, ambos os sistemas precisam estar soft-deletados —
+    // só assim o botão aparece nas duas linhas (gating
+    // `row.deletedAt !== null`). Edit/delete usam sistemas ativos por
+    // default.
+    const baseOverrides: Partial<SystemDto> =
+      testIdPrefix === 'restore' ? { deletedAt: '2026-02-01T00:00:00Z' } : {};
     client.get.mockResolvedValueOnce(
       makePagedResponse([
-        makeSystem({ id: ID_SYS_AUTH, name: 'lfc-authenticator', code: 'AUTH' }),
-        makeSystem({ id: ID_SYS_KURTTO, name: 'lfc-kurtto', code: 'KURTTO' }),
+        makeSystem({
+          ...baseOverrides,
+          id: ID_SYS_AUTH,
+          name: 'lfc-authenticator',
+          code: 'AUTH',
+        }),
+        makeSystem({
+          ...baseOverrides,
+          id: ID_SYS_KURTTO,
+          name: 'lfc-kurtto',
+          code: 'KURTTO',
+        }),
       ]),
     );
   }

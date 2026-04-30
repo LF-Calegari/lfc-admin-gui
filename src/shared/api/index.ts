@@ -76,6 +76,7 @@ export {
   isPagedSystemsResponse,
   isSystemDto,
   listSystems,
+  restoreSystem,
   updateSystem,
 } from './systems';
 export type {
