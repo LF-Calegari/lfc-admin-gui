@@ -1,6 +1,6 @@
 import { apiClient } from './index';
 
-import type { ApiClient, SafeRequestOptions } from './types';
+import type { ApiClient, BodyRequestOptions, SafeRequestOptions } from './types';
 
 /**
  * Envelope genérico de resposta paginada do `lfc-authenticator`
@@ -46,8 +46,14 @@ export interface SystemDto {
  * Type guard para `SystemDto`. Tolera `description`/`deletedAt` ausentes
  * (tratados como `null`) — outros campos são obrigatórios e checados em
  * runtime.
+ *
+ * Exportado para que outros call sites (ex.: `createSystem` validando o
+ * `SystemResponse` devolvido pelo backend) reusem a mesma fonte de
+ * verdade — evita duplicação de validação de shape (lição PR #123,
+ * "type guards quase idênticos em arquivos diferentes precisam de helper
+ * compartilhado").
  */
-function isSystemDto(value: unknown): value is SystemDto {
+export function isSystemDto(value: unknown): value is SystemDto {
   if (!value || typeof value !== 'object') {
     return false;
   }
@@ -73,9 +79,7 @@ function isSystemDto(value: unknown): value is SystemDto {
  * entre frontend e backend (proxy intermediário cortando campos, deploy
  * desalinhado).
  */
-export function isPagedSystemsResponse(
-  value: unknown,
-): value is PagedResponse<SystemDto> {
+export function isPagedSystemsResponse(value: unknown): value is PagedResponse<SystemDto> {
   if (!value || typeof value !== 'object') {
     return false;
   }
@@ -138,10 +142,7 @@ function buildQueryString(params: ListSystemsParams): string {
     search.set('page', String(params.page));
   }
 
-  if (
-    typeof params.pageSize === 'number' &&
-    params.pageSize !== DEFAULT_PAGE_SIZE
-  ) {
+  if (typeof params.pageSize === 'number' && params.pageSize !== DEFAULT_PAGE_SIZE) {
     search.set('pageSize', String(params.pageSize));
   }
 
@@ -179,6 +180,76 @@ export async function listSystems(
   const path = `/systems${buildQueryString(params)}`;
   const data = await client.get<unknown>(path, options);
   if (!isPagedSystemsResponse(data)) {
+    throw {
+      kind: 'parse',
+      message: 'Resposta inválida do servidor.',
+    };
+  }
+  return data;
+}
+
+/**
+ * Body aceito pelo `POST /systems` no `lfc-authenticator`
+ * (`SystemsController.CreateSystemRequest`).
+ *
+ * - `name` (obrigatório, máx. 80 chars) — nome amigável do sistema.
+ * - `code` (obrigatório, máx. 50 chars) — identificador único usado em
+ *   `X-System-Id`/JWT claims. O backend valida unicidade ignorando
+ *   filtro de soft-delete (409 caso já exista, mesmo que removido).
+ * - `description` (opcional, máx. 500 chars) — descrição livre.
+ *
+ * O backend faz `Trim()` em `Name`/`Code` e converte `Description`
+ * vazia (após trim) em `null`. Mantemos os campos como `string` aqui —
+ * a UI já trima antes de enviar para preservar simetria com o que é
+ * persistido (e evita 400 por "Code é obrigatório e não pode ser apenas
+ * espaços" quando o usuário digita só whitespace).
+ */
+export interface CreateSystemPayload {
+  name: string;
+  code: string;
+  description?: string;
+}
+
+/**
+ * Cria um novo sistema via `POST /systems`.
+ *
+ * Retorna o `SystemDto` recém-criado (`201 Created` com `SystemResponse`
+ * no corpo). Lança `ApiError` em qualquer falha — o caller tipicamente
+ * trata:
+ *
+ * - `kind: 'http'` com `status === 409` → conflito de `code` único; a UI
+ *   exibe mensagem inline no campo `code`.
+ * - `kind: 'http'` com `status === 400` → erros de validação por campo
+ *   no payload de `details` (formato `ValidationProblemDetails` do
+ *   ASP.NET — `details.errors[campo] = string[]`).
+ * - `kind: 'http'` com `status === 401` → cliente HTTP já lidou com
+ *   `onUnauthorized`; a UI não precisa fazer nada além de não tentar
+ *   re-renderizar.
+ * - Outros erros → toast vermelho genérico.
+ *
+ * O parâmetro `client` é injetável para isolar testes (passa-se um stub
+ * tipado como `ApiClient`); em produção usa-se o singleton `apiClient`.
+ */
+export async function createSystem(
+  payload: CreateSystemPayload,
+  options?: BodyRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<SystemDto> {
+  // Trim defensivo no boundary do cliente: garante que a UI não envie
+  // valores diferentes do que persistir, mesmo se o caller esqueceu de
+  // sanitizar. Description vazia depois de trim vira `undefined` para
+  // que o serializador omita o campo (backend converte para `null`).
+  const body: CreateSystemPayload = {
+    name: payload.name.trim(),
+    code: payload.code.trim(),
+  };
+  const trimmedDescription = payload.description?.trim();
+  if (trimmedDescription && trimmedDescription.length > 0) {
+    body.description = trimmedDescription;
+  }
+
+  const data = await client.post<unknown>('/systems', body, options);
+  if (!isSystemDto(data)) {
     throw {
       kind: 'parse',
       message: 'Resposta inválida do servidor.',

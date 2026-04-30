@@ -68,14 +68,12 @@ export type {
   SafeRequestOptions,
 } from './types';
 export {
+  createSystem,
   DEFAULT_INCLUDE_DELETED,
   DEFAULT_PAGE,
   DEFAULT_PAGE_SIZE,
   isPagedSystemsResponse,
+  isSystemDto,
   listSystems,
 } from './systems';
-export type {
-  ListSystemsParams,
-  PagedResponse,
-  SystemDto,
-} from './systems';
+export type { CreateSystemPayload, ListSystemsParams, PagedResponse, SystemDto } from './systems';

@@ -1,8 +1,41 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ApiClient, ApiError, PagedResponse, SystemDto } from '@/shared/api';
+/**
+ * Mock do `useAuth` consumido pela `SystemsPage` (Issue #58 — gating do
+ * botão "Novo sistema" pelo code `AUTH_V1_SYSTEMS_CREATE`).
+ *
+ * A suíte de listagem renderiza `<SystemsPage client={...} />` direto,
+ * sem `<AuthProvider>`. O hook real lançaria por estar fora do
+ * Provider; o mock devolve um valor estável que satisfaz o
+ * `useAuth()` chamado dentro do componente. Os testes desta suíte
+ * não dependem de `hasPermission` (são de listagem); o caso de gating
+ * fica isolado em `SystemsPage.create.test.tsx`.
+ */
+vi.mock('@/shared/auth', () => ({
+  useAuth: () => ({
+    user: null,
+    permissions: [],
+    isAuthenticated: true,
+    isLoading: false,
+    login: vi.fn(),
+    logout: vi.fn(),
+    hasPermission: () => false,
+    verifyRoute: vi.fn().mockResolvedValue(true),
+  }),
+}));
+
+import {
+  createSystemsClientStub,
+  ID_SYS_AUTH,
+  ID_SYS_KURTTO,
+  ID_SYS_LEGACY,
+  makePagedResponse,
+  makeSystem,
+} from './__helpers__/systemsTestHelpers';
+
+import type { ApiClientStub } from './__helpers__/systemsTestHelpers';
+import type { ApiError, PagedResponse, SystemDto } from '@/shared/api';
 
 import { SystemsPage } from '@/pages/SystemsPage';
 
@@ -13,76 +46,6 @@ import { SystemsPage } from '@/pages/SystemsPage';
  * compartilhado quando outras páginas reusarem o mesmo padrão.
  */
 const SEARCH_DEBOUNCE_MS = 300;
-
-/**
- * UUID de um sistema arbitrário fixado para que asserts comparem strings
- * estáveis em vez de gerar GUIDs aleatórios a cada execução.
- */
-const ID_SYS_AUTH = '11111111-1111-1111-1111-111111111111';
-const ID_SYS_KURTTO = '22222222-2222-2222-2222-222222222222';
-const ID_SYS_LEGACY = '33333333-3333-3333-3333-333333333333';
-
-/**
- * Stub de `ApiClient` injetado em `<SystemsPage client={stub} />` —
- * mesmo padrão de injeção usado nos testes de auth (PR #122/#123).
- */
-type ApiClientStub = ApiClient & {
-  get: ReturnType<typeof vi.fn>;
-  post: ReturnType<typeof vi.fn>;
-  put: ReturnType<typeof vi.fn>;
-  patch: ReturnType<typeof vi.fn>;
-  delete: ReturnType<typeof vi.fn>;
-  request: ReturnType<typeof vi.fn>;
-  setAuth: ReturnType<typeof vi.fn>;
-  getSystemId: ReturnType<typeof vi.fn>;
-};
-
-function createClientStub(): ApiClientStub {
-  return {
-    request: vi.fn(),
-    get: vi.fn(),
-    post: vi.fn(),
-    put: vi.fn(),
-    patch: vi.fn(),
-    delete: vi.fn(),
-    setAuth: vi.fn(),
-    getSystemId: vi.fn(() => 'system-test-uuid'),
-  } as unknown as ApiClientStub;
-}
-
-/**
- * Constrói um `SystemDto` com defaults — testes só sobrescrevem o que
- * importa para o cenário sem repetir todos os campos do contrato.
- */
-function makeSystem(overrides: Partial<SystemDto> = {}): SystemDto {
-  return {
-    id: ID_SYS_AUTH,
-    name: 'lfc-authenticator',
-    code: 'AUTH',
-    description: null,
-    createdAt: '2026-01-10T12:00:00Z',
-    updatedAt: '2026-01-10T12:00:00Z',
-    deletedAt: null,
-    ...overrides,
-  };
-}
-
-/**
- * Constrói o envelope paginado mockado pelo backend — `total` reflete o
- * `data.length` por default; testes que cobrem paginação sobrescrevem.
- */
-function makePagedResponse(
-  data: ReadonlyArray<SystemDto>,
-  overrides: Partial<PagedResponse<SystemDto>> = {},
-): PagedResponse<SystemDto> {
-  return {
-    data,
-    page: 1,
-    pageSize: 20,
-    total: data.length,
-    ...overrides,
-  };
-}
 
 const SAMPLE_ROWS: ReadonlyArray<SystemDto> = [
   makeSystem({
@@ -133,9 +96,9 @@ afterEach(() => {
 
 describe('SystemsPage — render inicial', () => {
   it('exibe spinner enquanto a primeira request está em curso e depois popula a tabela', async () => {
-    const client = createClientStub();
+    const client = createSystemsClientStub();
     let resolveFn: (value: PagedResponse<SystemDto>) => void = () => undefined;
-    const pending = new Promise<PagedResponse<SystemDto>>(resolve => {
+    const pending = new Promise<PagedResponse<SystemDto>>((resolve) => {
       resolveFn = resolve;
     });
     client.get.mockReturnValueOnce(pending);
@@ -159,7 +122,7 @@ describe('SystemsPage — render inicial', () => {
   });
 
   it('renderiza header com título e descrição da página', async () => {
-    const client = createClientStub();
+    const client = createSystemsClientStub();
     client.get.mockResolvedValueOnce(makePagedResponse(SAMPLE_ROWS));
 
     render(<SystemsPage client={client} />);
@@ -168,13 +131,11 @@ describe('SystemsPage — render inicial', () => {
       expect(screen.queryByTestId('systems-loading')).not.toBeInTheDocument();
     });
 
-    expect(
-      screen.getByRole('heading', { name: /Sistemas cadastrados/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Sistemas cadastrados/i })).toBeInTheDocument();
   });
 
   it('chama backend com defaults e sem querystring no primeiro render', async () => {
-    const client = createClientStub();
+    const client = createSystemsClientStub();
     client.get.mockResolvedValueOnce(makePagedResponse(SAMPLE_ROWS));
 
     render(<SystemsPage client={client} />);
@@ -184,10 +145,14 @@ describe('SystemsPage — render inicial', () => {
   });
 
   it('renderiza badge "Inativo" para sistemas com deletedAt e "Ativo" para os demais', async () => {
-    const client = createClientStub();
+    const client = createSystemsClientStub();
     client.get.mockResolvedValueOnce(
       makePagedResponse([
-        makeSystem({ id: ID_SYS_AUTH, name: 'lfc-authenticator', code: 'AUTH' }),
+        makeSystem({
+          id: ID_SYS_AUTH,
+          name: 'lfc-authenticator',
+          code: 'AUTH',
+        }),
         makeSystem({
           id: ID_SYS_LEGACY,
           name: 'lfc-legacy-bridge',
@@ -214,7 +179,7 @@ describe('SystemsPage — render inicial', () => {
 
 describe('SystemsPage — busca debounced', () => {
   it('digitar não dispara request imediato; após 300ms dispara com q=auth', async () => {
-    const client = createClientStub();
+    const client = createSystemsClientStub();
     client.get.mockResolvedValue(makePagedResponse(SAMPLE_ROWS));
 
     render(<SystemsPage client={client} />);
@@ -237,7 +202,7 @@ describe('SystemsPage — busca debounced', () => {
   });
 
   it('cliques de teclado em sequência só disparam a última busca', async () => {
-    const client = createClientStub();
+    const client = createSystemsClientStub();
     client.get.mockResolvedValue(makePagedResponse(SAMPLE_ROWS));
 
     render(<SystemsPage client={client} />);
@@ -261,7 +226,7 @@ describe('SystemsPage — busca debounced', () => {
   });
 
   it('busca limpa volta para o caminho default (sem querystring)', async () => {
-    const client = createClientStub();
+    const client = createSystemsClientStub();
     client.get.mockResolvedValue(makePagedResponse(SAMPLE_ROWS));
 
     render(<SystemsPage client={client} />);
@@ -290,10 +255,8 @@ describe('SystemsPage — busca debounced', () => {
 
 describe('SystemsPage — paginação', () => {
   it('clicar "próxima" chama com page=2; "anterior" volta para page default', async () => {
-    const client = createClientStub();
-    client.get.mockResolvedValue(
-      makePagedResponse(SAMPLE_ROWS, { page: 1, total: 50 }),
-    );
+    const client = createSystemsClientStub();
+    client.get.mockResolvedValue(makePagedResponse(SAMPLE_ROWS, { page: 1, total: 50 }));
 
     render(<SystemsPage client={client} />);
 
@@ -309,10 +272,8 @@ describe('SystemsPage — paginação', () => {
   });
 
   it('botão "anterior" desabilita na primeira página', async () => {
-    const client = createClientStub();
-    client.get.mockResolvedValueOnce(
-      makePagedResponse(SAMPLE_ROWS, { page: 1, total: 50 }),
-    );
+    const client = createSystemsClientStub();
+    client.get.mockResolvedValueOnce(makePagedResponse(SAMPLE_ROWS, { page: 1, total: 50 }));
 
     render(<SystemsPage client={client} />);
 
@@ -325,7 +286,7 @@ describe('SystemsPage — paginação', () => {
   });
 
   it('botão "próxima" desabilita na última página', async () => {
-    const client = createClientStub();
+    const client = createSystemsClientStub();
     // total=15, pageSize=20 → totalPages=1 → ambos desabilitados.
     client.get.mockResolvedValueOnce(
       makePagedResponse(SAMPLE_ROWS, { page: 1, total: 15, pageSize: 20 }),
@@ -342,10 +303,8 @@ describe('SystemsPage — paginação', () => {
   });
 
   it('exibe indicador "página X de Y" com total filtrado', async () => {
-    const client = createClientStub();
-    client.get.mockResolvedValueOnce(
-      makePagedResponse(SAMPLE_ROWS, { page: 1, total: 42 }),
-    );
+    const client = createSystemsClientStub();
+    client.get.mockResolvedValueOnce(makePagedResponse(SAMPLE_ROWS, { page: 1, total: 42 }));
 
     render(<SystemsPage client={client} />);
 
@@ -361,7 +320,7 @@ describe('SystemsPage — paginação', () => {
 
 describe('SystemsPage — filtro de inativos', () => {
   it('liga toggle dispara request com includeDeleted=true', async () => {
-    const client = createClientStub();
+    const client = createSystemsClientStub();
     client.get.mockResolvedValue(makePagedResponse(SAMPLE_ROWS));
 
     render(<SystemsPage client={client} />);
@@ -375,7 +334,7 @@ describe('SystemsPage — filtro de inativos', () => {
   });
 
   it('badge "Inativo" aparece quando deletedAt está presente', async () => {
-    const client = createClientStub();
+    const client = createSystemsClientStub();
     client.get.mockResolvedValueOnce(
       makePagedResponse([
         makeSystem({
@@ -399,7 +358,7 @@ describe('SystemsPage — filtro de inativos', () => {
 
 describe('SystemsPage — estados vazios', () => {
   it('vazio com busca: exibe termo + botão limpar', async () => {
-    const client = createClientStub();
+    const client = createSystemsClientStub();
     // Primeiro carregamento: lista normal.
     client.get.mockResolvedValueOnce(makePagedResponse(SAMPLE_ROWS));
     // Após busca debounced: backend devolve vazio.
@@ -423,15 +382,13 @@ describe('SystemsPage — estados vazios', () => {
     // aria-live span (acessibilidade) quanto na EmptyMessage visual —
     // a duplicação é proposital. Asserir presença sem exigir unicidade.
     await waitFor(() => {
-      expect(
-        screen.getAllByText(/Nenhum sistema encontrado para/i).length,
-      ).toBeGreaterThan(0);
+      expect(screen.getAllByText(/Nenhum sistema encontrado para/i).length).toBeGreaterThan(0);
     });
     expect(screen.getByTestId('systems-empty-clear')).toBeInTheDocument();
   });
 
   it('vazio sem busca: mensagem dedicada de "nenhum cadastrado"', async () => {
-    const client = createClientStub();
+    const client = createSystemsClientStub();
     client.get.mockResolvedValueOnce(makePagedResponse([], { total: 0 }));
 
     render(<SystemsPage client={client} />);
@@ -441,14 +398,12 @@ describe('SystemsPage — estados vazios', () => {
     });
 
     // Idem: aria-live + EmptyMessage repetem o texto.
-    expect(
-      screen.getAllByText(/Nenhum sistema cadastrado\./i).length,
-    ).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Nenhum sistema cadastrado\./i).length).toBeGreaterThan(0);
     expect(screen.queryByTestId('systems-empty-clear')).not.toBeInTheDocument();
   });
 
   it('clicar em "limpar busca" reseta termo e dispara nova request', async () => {
-    const client = createClientStub();
+    const client = createSystemsClientStub();
     client.get
       .mockResolvedValueOnce(makePagedResponse(SAMPLE_ROWS))
       .mockResolvedValueOnce(makePagedResponse([], { total: 0 }))
@@ -483,16 +438,14 @@ describe('SystemsPage — erro de rede', () => {
       kind: 'network',
       message: 'Falha de conexão com o servidor.',
     };
-    const client = createClientStub();
+    const client = createSystemsClientStub();
     client.get
       .mockRejectedValueOnce(apiError)
       .mockResolvedValueOnce(makePagedResponse(SAMPLE_ROWS));
 
     render(<SystemsPage client={client} />);
 
-    expect(
-      await screen.findByText(/Falha de conexão com o servidor\./i),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/Falha de conexão com o servidor\./i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('systems-retry'));
 
@@ -504,29 +457,24 @@ describe('SystemsPage — erro de rede', () => {
   });
 
   it('erro desconhecido exibe mensagem genérica', async () => {
-    const client = createClientStub();
+    const client = createSystemsClientStub();
     client.get.mockRejectedValueOnce(new Error('boom'));
 
     render(<SystemsPage client={client} />);
 
     expect(
-      await screen.findByText(
-        /Falha ao carregar a lista de sistemas\. Tente novamente\./i,
-      ),
+      await screen.findByText(/Falha ao carregar a lista de sistemas\. Tente novamente\./i),
     ).toBeInTheDocument();
   });
 });
 
 describe('SystemsPage — cancelamento de request', () => {
   it('navegação rápida (busca + paginação) cancela a request anterior via AbortController', async () => {
-    const client = createClientStub();
+    const client = createSystemsClientStub();
     // Capturar os signals para asserir abort.
     const signals: AbortSignal[] = [];
     client.get.mockImplementation(
-      (
-        _path: string,
-        options?: { signal?: AbortSignal },
-      ): Promise<PagedResponse<SystemDto>> => {
+      (_path: string, options?: { signal?: AbortSignal }): Promise<PagedResponse<SystemDto>> => {
         if (options?.signal) {
           signals.push(options.signal);
         }
