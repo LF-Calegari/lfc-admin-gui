@@ -73,6 +73,7 @@ export {
   DEFAULT_PAGE,
   DEFAULT_PAGE_SIZE,
   deleteSystem,
+  getSystemsStats,
   isPagedSystemsResponse,
   isSystemDto,
   listSystems,
@@ -84,5 +85,6 @@ export type {
   ListSystemsParams,
   PagedResponse,
   SystemDto,
+  SystemsStats,
   UpdateSystemPayload,
 } from './systems';
