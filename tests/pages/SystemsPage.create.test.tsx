@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { buildAuthMock } from './__helpers__/mockUseAuth';
 import {
+  buildCloseCases,
+  buildSharedSubmitErrorCases,
   createSystemsClientStub,
   fillNewSystemForm,
   makePagedResponse,
@@ -10,10 +12,11 @@ import {
   openCreateModal,
   renderSystemsPage,
   submitNewSystemForm,
+  toCaseInsensitiveMatcher,
   waitForInitialList,
 } from './__helpers__/systemsTestHelpers';
 
-import type { ApiError } from '@/shared/api';
+import type { SystemsErrorCase } from './__helpers__/systemsTestHelpers';
 
 /**
  * Mock controlável de `useAuth` — cada teste seta `permissionsMock`
@@ -86,22 +89,11 @@ describe('SystemsPage — criação (Issue #58)', () => {
      * Cenários de fechamento sem persistir — Esc, botão Cancelar e
      * clique no backdrop. Colapsados em `it.each` (lição PR #123 — a
      * mesma estrutura mudando apenas 1 ação dispara duplicação Sonar
-     * quando deixada como `it` separados).
+     * quando deixada como `it` separados). Helper compartilhado com a
+     * suíte de edição (`buildCloseCases`) para evitar duplicação do
+     * array literal de 14 linhas (lição PR #127).
      */
-    const CLOSE_CASES: ReadonlyArray<{ name: string; close: () => void }> = [
-      {
-        name: 'Esc',
-        close: () => fireEvent.keyDown(window, { key: 'Escape' }),
-      },
-      {
-        name: 'botão Cancelar',
-        close: () => fireEvent.click(screen.getByTestId('new-system-cancel')),
-      },
-      {
-        name: 'clique no backdrop',
-        close: () => fireEvent.mouseDown(screen.getByTestId('modal-backdrop')),
-      },
-    ];
+    const CLOSE_CASES = buildCloseCases('new-system-cancel');
 
     it.each(CLOSE_CASES)('fechar via $name não dispara POST', async ({ close }) => {
       const client = createSystemsClientStub();
@@ -233,17 +225,20 @@ describe('SystemsPage — criação (Issue #58)', () => {
      * - `client.post` é chamado exatamente 1 vez (asserção feita pelo
      *   `submitNewSystemForm`).
      * - O modal segue aberto (usuário corrige inline ou tenta de novo).
+     *
+     * O tipo `SystemsErrorCase` vive em `__helpers__/systemsTestHelpers.tsx`
+     * para ser reusado pela suíte de edição (#59) — mesmo padrão de
+     * extração de tipos compartilhados aplicado em
+     * `tests/shared/auth/__helpers__` (lição PR #127).
      */
-    type ErrorCase = {
-      name: string;
-      error: ApiError;
-      /** Texto que deve aparecer em algum lugar visível após o submit. */
-      expectedText: RegExp | string;
-      /** Modal continua aberto (default true). */
-      modalStaysOpen?: boolean;
-    };
-
-    const ERROR_CASES: ReadonlyArray<ErrorCase> = [
+    /**
+     * Caso específico do create: 409 com mensagem `'Já existe um sistema...'`.
+     * Os 5 cenários comuns (400 com/sem errors, 401, 403, network) vêm de
+     * `buildSharedSubmitErrorCases('criar')` — diferenciam apenas no verbo
+     * e ficavam duplicados literalmente entre create e edit (lição PR #128
+     * sobre 4ª recorrência de duplicação Sonar).
+     */
+    const ERROR_CASES: ReadonlyArray<SystemsErrorCase> = [
       {
         name: '409 (code duplicado) exibe mensagem inline no campo code',
         error: {
@@ -253,56 +248,7 @@ describe('SystemsPage — criação (Issue #58)', () => {
         },
         expectedText: 'Já existe um sistema com este Code.',
       },
-      {
-        name: '400 com errors mapeia mensagens para os campos correspondentes',
-        error: {
-          kind: 'http',
-          status: 400,
-          message: 'Erro de validação.',
-          details: {
-            errors: {
-              Name: ['Name é obrigatório e não pode ser apenas espaços.'],
-              Code: ['Code deve ter no máximo 50 caracteres.'],
-            },
-          },
-        },
-        expectedText: 'Name é obrigatório e não pode ser apenas espaços.',
-      },
-      {
-        name: '400 sem errors mapeáveis exibe Alert no topo do form',
-        error: {
-          kind: 'http',
-          status: 400,
-          message: 'Payload inválido para criação de sistema.',
-        },
-        expectedText: 'Payload inválido para criação de sistema.',
-      },
-      {
-        name: '401 dispara toast vermelho com mensagem do backend',
-        error: {
-          kind: 'http',
-          status: 401,
-          message: 'Sessão expirada. Faça login novamente.',
-        },
-        expectedText: 'Sessão expirada. Faça login novamente.',
-      },
-      {
-        name: '403 dispara toast vermelho com mensagem do backend',
-        error: {
-          kind: 'http',
-          status: 403,
-          message: 'Você não tem permissão para esta ação.',
-        },
-        expectedText: 'Você não tem permissão para esta ação.',
-      },
-      {
-        name: 'erro genérico de rede dispara toast vermelho genérico',
-        error: {
-          kind: 'network',
-          message: 'Falha de conexão com o servidor.',
-        },
-        expectedText: 'Não foi possível criar o sistema. Tente novamente.',
-      },
+      ...buildSharedSubmitErrorCases('criar'),
     ];
 
     it.each(ERROR_CASES)('mapeia $name', async ({ error, expectedText, modalStaysOpen = true }) => {
@@ -316,11 +262,7 @@ describe('SystemsPage — criação (Issue #58)', () => {
       fillNewSystemForm({ name: 'Algum Sistema', code: 'CODE' });
       await submitNewSystemForm(client);
 
-      const matcher =
-        typeof expectedText === 'string'
-          ? new RegExp(expectedText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
-          : expectedText;
-      expect(await screen.findByText(matcher)).toBeInTheDocument();
+      expect(await screen.findByText(toCaseInsensitiveMatcher(expectedText))).toBeInTheDocument();
 
       if (modalStaysOpen) {
         expect(screen.getByRole('dialog')).toBeInTheDocument();

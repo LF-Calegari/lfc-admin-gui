@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Plus, RotateCcw, Search } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Pencil, Plus, RotateCcw, Search } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import styled from 'styled-components';
 
@@ -14,6 +14,7 @@ import {
 } from '../shared/api';
 import { useAuth } from '../shared/auth';
 
+import { EditSystemModal } from './systems/EditSystemModal';
 import { NewSystemModal } from './systems/NewSystemModal';
 
 import type { TableColumn } from '../components/ui';
@@ -38,6 +39,16 @@ const SEARCH_DEBOUNCE_MS = 300;
  * executar.
  */
 const SYSTEMS_CREATE_PERMISSION = 'AUTH_V1_SYSTEMS_CREATE';
+
+/**
+ * Code de permissão exigido para o botão "Editar" por linha (Issue #59).
+ *
+ * Espelha o `AUTH_V1_SYSTEMS_UPDATE` no `lfc-authenticator` — o backend
+ * é a fonte autoritativa (`PUT /systems/{id}` exige
+ * `PermissionPolicies.SystemsUpdate`). O gating client-side só esconde
+ * ações que o usuário não pode executar.
+ */
+const SYSTEMS_UPDATE_PERMISSION = 'AUTH_V1_SYSTEMS_UPDATE';
 
 interface SystemsPageProps {
   /**
@@ -200,6 +211,18 @@ const Mono = styled.span`
   color: var(--fg2);
 `;
 
+/**
+ * Wrapper das ações por linha. Mantém os botões alinhados à direita e
+ * permite múltiplas ações futuras (#60 desativar, #61 restaurar) sem
+ * remontar o layout.
+ */
+const RowActions = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  justify-content: flex-end;
+`;
+
 /* ─── Helpers ─────────────────────────────────────────────── */
 
 /**
@@ -235,6 +258,7 @@ function extractErrorMessage(error: unknown): string {
 export const SystemsPage: React.FC<SystemsPageProps> = ({ client }) => {
   const { hasPermission } = useAuth();
   const canCreateSystem = hasPermission(SYSTEMS_CREATE_PERMISSION);
+  const canUpdateSystem = hasPermission(SYSTEMS_UPDATE_PERMISSION);
 
   // Termo digitado pelo usuário em tempo real (input controlado).
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -253,12 +277,27 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client }) => {
   // botão por permissão sem perder o ciclo de vida do form.
   const [isCreateModalOpen, setIsCreateModalOpen] = useState<boolean>(false);
 
+  // Sistema selecionado para edição (Issue #59). Quando definido, abre o
+  // `EditSystemModal` pré-populado com seus dados; `null` mantém o modal
+  // fechado. Manter o sistema completo (em vez de só o id) evita
+  // round-trip extra para refazer fetch no modal — a tabela já tem o
+  // payload pronto.
+  const [editingSystem, setEditingSystem] = useState<SystemDto | null>(null);
+
   const handleOpenCreateModal = useCallback(() => {
     setIsCreateModalOpen(true);
   }, []);
 
   const handleCloseCreateModal = useCallback(() => {
     setIsCreateModalOpen(false);
+  }, []);
+
+  const handleOpenEditModal = useCallback((row: SystemDto) => {
+    setEditingSystem(row);
+  }, []);
+
+  const handleCloseEditModal = useCallback(() => {
+    setEditingSystem(null);
   }, []);
 
   // Controller da request mais recente — usado para cancelar a anterior
@@ -427,8 +466,8 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client }) => {
     );
   }, [handleClearSearch, hasActiveSearch, includeDeleted, trimmedSearch]);
 
-  const columns = useMemo<ReadonlyArray<TableColumn<SystemDto>>>(
-    () => [
+  const columns = useMemo<ReadonlyArray<TableColumn<SystemDto>>>(() => {
+    const base: Array<TableColumn<SystemDto>> = [
       {
         key: 'name',
         label: 'Nome',
@@ -454,9 +493,36 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client }) => {
             </Badge>
           ),
       },
-    ],
-    [],
-  );
+    ];
+
+    if (canUpdateSystem) {
+      // Coluna de ações por linha — só renderiza quando o usuário tem
+      // permissão de update. Sem permissão, omitimos a coluna toda
+      // (em vez de só o botão) para não deixar uma coluna "Ações" vazia
+      // ocupando espaço para usuários read-only.
+      base.push({
+        key: 'actions',
+        label: 'Ações',
+        isActions: true,
+        render: (row) => (
+          <RowActions>
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<Pencil size={14} strokeWidth={1.5} />}
+              onClick={() => handleOpenEditModal(row)}
+              aria-label={`Editar sistema ${row.name}`}
+              data-testid={`systems-edit-${row.id}`}
+            >
+              Editar
+            </Button>
+          </RowActions>
+        ),
+      });
+    }
+
+    return base;
+  }, [canUpdateSystem, handleOpenEditModal]);
 
   const showOverlay = isFetching && !isInitialLoading;
 
@@ -623,6 +689,16 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client }) => {
           open={isCreateModalOpen}
           onClose={handleCloseCreateModal}
           onCreated={handleRefetch}
+          client={client}
+        />
+      )}
+
+      {canUpdateSystem && (
+        <EditSystemModal
+          open={editingSystem !== null}
+          system={editingSystem}
+          onClose={handleCloseEditModal}
+          onUpdated={handleRefetch}
           client={client}
         />
       )}
