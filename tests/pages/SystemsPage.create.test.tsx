@@ -1,0 +1,330 @@
+import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { buildAuthMock } from './__helpers__/mockUseAuth';
+import {
+  createSystemsClientStub,
+  fillNewSystemForm,
+  makePagedResponse,
+  makeSystem,
+  openCreateModal,
+  renderSystemsPage,
+  submitNewSystemForm,
+  waitForInitialList,
+} from './__helpers__/systemsTestHelpers';
+
+import type { ApiError } from '@/shared/api';
+
+/**
+ * Mock controlável de `useAuth` — cada teste seta `permissionsMock`
+ * antes de renderizar a página para simular usuário com/sem permissão
+ * `AUTH_V1_SYSTEMS_CREATE`.
+ *
+ * Usamos `buildAuthMock` (helper compartilhado com a suíte de listagem)
+ * passando um *getter* de permissions, porque `vi.mock` é içado pelo
+ * Vitest antes dos imports e não pode capturar valores mutáveis
+ * diretamente. O getter lê `permissionsMock` no momento da chamada de
+ * `hasPermission`, permitindo alternar permissões dentro da mesma suíte.
+ */
+let permissionsMock: ReadonlyArray<string> = [];
+
+vi.mock('@/shared/auth', () => buildAuthMock(() => permissionsMock));
+
+const SYSTEMS_CREATE_PERMISSION = 'AUTH_V1_SYSTEMS_CREATE';
+
+beforeEach(() => {
+  permissionsMock = [];
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  document.documentElement.style.overflow = '';
+});
+
+describe('SystemsPage — criação (Issue #58)', () => {
+  describe('gating do botão "Novo sistema"', () => {
+    it('não exibe o botão quando o usuário não possui AUTH_V1_SYSTEMS_CREATE', async () => {
+      permissionsMock = [];
+      const client = createSystemsClientStub();
+      client.get.mockResolvedValueOnce(makePagedResponse([makeSystem()]));
+
+      renderSystemsPage(client);
+      await waitForInitialList(client);
+
+      expect(screen.queryByTestId('systems-create-open')).not.toBeInTheDocument();
+    });
+
+    it('exibe o botão quando o usuário possui AUTH_V1_SYSTEMS_CREATE', async () => {
+      permissionsMock = [SYSTEMS_CREATE_PERMISSION];
+      const client = createSystemsClientStub();
+      client.get.mockResolvedValueOnce(makePagedResponse([makeSystem()]));
+
+      renderSystemsPage(client);
+      await waitForInitialList(client);
+
+      expect(screen.getByTestId('systems-create-open')).toBeInTheDocument();
+      expect(screen.getByTestId('systems-create-open')).toHaveTextContent(/Novo sistema/i);
+    });
+  });
+
+  describe('abertura e fechamento do modal', () => {
+    beforeEach(() => {
+      permissionsMock = [SYSTEMS_CREATE_PERMISSION];
+    });
+
+    it('clicar em "Novo sistema" abre o diálogo com os campos do form', async () => {
+      const client = createSystemsClientStub();
+      await openCreateModal(client);
+
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+      expect(screen.getByTestId('new-system-name')).toBeInTheDocument();
+      expect(screen.getByTestId('new-system-code')).toBeInTheDocument();
+      expect(screen.getByTestId('new-system-description')).toBeInTheDocument();
+    });
+
+    /**
+     * Cenários de fechamento sem persistir — Esc, botão Cancelar e
+     * clique no backdrop. Colapsados em `it.each` (lição PR #123 — a
+     * mesma estrutura mudando apenas 1 ação dispara duplicação Sonar
+     * quando deixada como `it` separados).
+     */
+    const CLOSE_CASES: ReadonlyArray<{ name: string; close: () => void }> = [
+      {
+        name: 'Esc',
+        close: () => fireEvent.keyDown(window, { key: 'Escape' }),
+      },
+      {
+        name: 'botão Cancelar',
+        close: () => fireEvent.click(screen.getByTestId('new-system-cancel')),
+      },
+      {
+        name: 'clique no backdrop',
+        close: () => fireEvent.mouseDown(screen.getByTestId('modal-backdrop')),
+      },
+    ];
+
+    it.each(CLOSE_CASES)('fechar via $name não dispara POST', async ({ close }) => {
+      const client = createSystemsClientStub();
+      await openCreateModal(client);
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+      close();
+
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      });
+      expect(client.post).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('validação client-side', () => {
+    beforeEach(() => {
+      permissionsMock = [SYSTEMS_CREATE_PERMISSION];
+    });
+
+    it('submeter com campos vazios mostra erros inline e não chama POST', async () => {
+      const client = createSystemsClientStub();
+      await openCreateModal(client);
+
+      fireEvent.submit(screen.getByTestId('new-system-form'));
+
+      expect(screen.getByText('Nome é obrigatório.')).toBeInTheDocument();
+      expect(screen.getByText('Código é obrigatório.')).toBeInTheDocument();
+      expect(client.post).not.toHaveBeenCalled();
+    });
+
+    it('campos com apenas espaços também são tratados como vazios', async () => {
+      const client = createSystemsClientStub();
+      await openCreateModal(client);
+
+      fillNewSystemForm({ name: '   ', code: '  ' });
+      fireEvent.submit(screen.getByTestId('new-system-form'));
+
+      expect(screen.getByText('Nome é obrigatório.')).toBeInTheDocument();
+      expect(screen.getByText('Código é obrigatório.')).toBeInTheDocument();
+      expect(client.post).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('submissão bem-sucedida', () => {
+    beforeEach(() => {
+      permissionsMock = [SYSTEMS_CREATE_PERMISSION];
+    });
+
+    it('envia POST /systems com body trimado, fecha modal, exibe toast e refaz listSystems', async () => {
+      const created = makeSystem({
+        id: '99999999-9999-9999-9999-999999999999',
+        name: 'Novo Sistema',
+        code: 'NEW',
+        description: 'Sistema cadastrado pelo teste.',
+      });
+      const client = createSystemsClientStub();
+      // Fila de respostas: GET inicial → GET refetch após sucesso → POST.
+      client.get
+        .mockResolvedValueOnce(makePagedResponse([makeSystem()]))
+        .mockResolvedValueOnce(makePagedResponse([makeSystem(), created]));
+      client.post.mockResolvedValueOnce(created);
+
+      await openCreateModal(client);
+
+      fillNewSystemForm({
+        name: '  Novo Sistema  ',
+        code: '  NEW  ',
+        description: '  Sistema cadastrado pelo teste.  ',
+      });
+      await submitNewSystemForm(client);
+
+      expect(client.post).toHaveBeenCalledWith(
+        '/systems',
+        {
+          name: 'Novo Sistema',
+          code: 'NEW',
+          description: 'Sistema cadastrado pelo teste.',
+        },
+        undefined,
+      );
+
+      // Modal fecha após sucesso.
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      });
+
+      // Toast verde "Sistema criado." (status do ToastProvider).
+      expect(await screen.findByText('Sistema criado.')).toBeInTheDocument();
+
+      // Refetch da lista — `client.get` chamado uma 2ª vez.
+      await waitFor(() => {
+        expect(client.get).toHaveBeenCalledTimes(2);
+      });
+    });
+
+    it('envia body sem o campo description quando o usuário deixa vazio', async () => {
+      const created = makeSystem({
+        id: '88888888-8888-8888-8888-888888888888',
+        name: 'Sem Desc',
+        code: 'NODESC',
+      });
+      const client = createSystemsClientStub();
+      client.post.mockResolvedValueOnce(created);
+
+      await openCreateModal(client);
+
+      fillNewSystemForm({ name: 'Sem Desc', code: 'NODESC' });
+      await submitNewSystemForm(client);
+
+      const [, body] = client.post.mock.calls[0];
+      expect(body).toEqual({ name: 'Sem Desc', code: 'NODESC' });
+      expect(body).not.toHaveProperty('description');
+    });
+  });
+
+  describe('tratamento de erros do backend', () => {
+    beforeEach(() => {
+      permissionsMock = [SYSTEMS_CREATE_PERMISSION];
+    });
+
+    /**
+     * Cenários colapsados em `it.each` (lição PR #123 — testes com a
+     * mesma estrutura mudando 1-2 mocks são `it.each`, não `it`
+     * separados). Cada caso descreve o erro retornado pelo backend e a
+     * asserção visível no UI.
+     *
+     * Guards comuns a todos os casos:
+     * - `client.post` é chamado exatamente 1 vez (asserção feita pelo
+     *   `submitNewSystemForm`).
+     * - O modal segue aberto (usuário corrige inline ou tenta de novo).
+     */
+    type ErrorCase = {
+      name: string;
+      error: ApiError;
+      /** Texto que deve aparecer em algum lugar visível após o submit. */
+      expectedText: RegExp | string;
+      /** Modal continua aberto (default true). */
+      modalStaysOpen?: boolean;
+    };
+
+    const ERROR_CASES: ReadonlyArray<ErrorCase> = [
+      {
+        name: '409 (code duplicado) exibe mensagem inline no campo code',
+        error: {
+          kind: 'http',
+          status: 409,
+          message: 'Já existe um sistema com este Code.',
+        },
+        expectedText: 'Já existe um sistema com este Code.',
+      },
+      {
+        name: '400 com errors mapeia mensagens para os campos correspondentes',
+        error: {
+          kind: 'http',
+          status: 400,
+          message: 'Erro de validação.',
+          details: {
+            errors: {
+              Name: ['Name é obrigatório e não pode ser apenas espaços.'],
+              Code: ['Code deve ter no máximo 50 caracteres.'],
+            },
+          },
+        },
+        expectedText: 'Name é obrigatório e não pode ser apenas espaços.',
+      },
+      {
+        name: '400 sem errors mapeáveis exibe Alert no topo do form',
+        error: {
+          kind: 'http',
+          status: 400,
+          message: 'Payload inválido para criação de sistema.',
+        },
+        expectedText: 'Payload inválido para criação de sistema.',
+      },
+      {
+        name: '401 dispara toast vermelho com mensagem do backend',
+        error: {
+          kind: 'http',
+          status: 401,
+          message: 'Sessão expirada. Faça login novamente.',
+        },
+        expectedText: 'Sessão expirada. Faça login novamente.',
+      },
+      {
+        name: '403 dispara toast vermelho com mensagem do backend',
+        error: {
+          kind: 'http',
+          status: 403,
+          message: 'Você não tem permissão para esta ação.',
+        },
+        expectedText: 'Você não tem permissão para esta ação.',
+      },
+      {
+        name: 'erro genérico de rede dispara toast vermelho genérico',
+        error: {
+          kind: 'network',
+          message: 'Falha de conexão com o servidor.',
+        },
+        expectedText: 'Não foi possível criar o sistema. Tente novamente.',
+      },
+    ];
+
+    it.each(ERROR_CASES)('mapeia $name', async ({ error, expectedText, modalStaysOpen = true }) => {
+      const client = createSystemsClientStub();
+      client.post.mockRejectedValueOnce(error);
+
+      await openCreateModal(client);
+      // Valores genéricos válidos para passar a validação client-side; o
+      // teste foca no comportamento de erro vindo do backend, não na
+      // validação local.
+      fillNewSystemForm({ name: 'Algum Sistema', code: 'CODE' });
+      await submitNewSystemForm(client);
+
+      const matcher =
+        typeof expectedText === 'string'
+          ? new RegExp(expectedText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
+          : expectedText;
+      expect(await screen.findByText(matcher)).toBeInTheDocument();
+
+      if (modalStaysOpen) {
+        expect(screen.getByRole('dialog')).toBeInTheDocument();
+      }
+    });
+  });
+});

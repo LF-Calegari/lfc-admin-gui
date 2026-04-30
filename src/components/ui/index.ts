@@ -23,6 +23,8 @@ export { Table } from './Table';
 export type { TableProps, TableColumn, ColumnAlign } from './Table';
 export { ToastProvider, useToast } from './Toast';
 export type { ToastVariant, ToastOptions } from './Toast';
+export { Modal } from './Modal';
+export type { ModalProps } from './Modal';
 export { Heading, Body, Caption, Label, Typography } from './Typography';
 export type { HeadingLevel, HeadingProps, TextProps, LabelProps } from './Typography';
 export { Icon } from './Icon';

@@ -1,17 +1,9 @@
-import { ChevronLeft, ChevronRight, RotateCcw, Search } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, RotateCcw, Search } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import styled from 'styled-components';
 
 import { PageHeader } from '../components/layout/PageHeader';
-import {
-  Alert,
-  Badge,
-  Button,
-  Input,
-  Spinner,
-  Switch,
-  Table,
-} from '../components/ui';
+import { Alert, Badge, Button, Input, Spinner, Switch, Table } from '../components/ui';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import {
   DEFAULT_INCLUDE_DELETED,
@@ -20,6 +12,9 @@ import {
   isApiError,
   listSystems,
 } from '../shared/api';
+import { useAuth } from '../shared/auth';
+
+import { NewSystemModal } from './systems/NewSystemModal';
 
 import type { TableColumn } from '../components/ui';
 import type { ApiClient, PagedResponse, SystemDto } from '../shared/api';
@@ -31,6 +26,18 @@ import type { ApiClient, PagedResponse, SystemDto } from '../shared/api';
  * digitação fluida não dispare 1 request por caractere.
  */
 const SEARCH_DEBOUNCE_MS = 300;
+
+/**
+ * Code de permissão exigido para o botão "Novo sistema" (Issue #58).
+ *
+ * Espelha o `AUTH_V1_SYSTEMS_CREATE` cadastrado pelo
+ * `AuthenticatorRoutesSeeder` no `lfc-authenticator`. O backend é a
+ * fonte autoritativa (o `POST /systems` valida via
+ * `[Authorize(Policy = PermissionPolicies.SystemsCreate)]`); o gating
+ * client-side é apenas UX — esconder ações que o usuário não pode
+ * executar.
+ */
+const SYSTEMS_CREATE_PERMISSION = 'AUTH_V1_SYSTEMS_CREATE';
 
 interface SystemsPageProps {
   /**
@@ -84,6 +91,25 @@ const SearchSlot = styled.div`
 const ToggleSlot = styled.div`
   display: flex;
   align-items: center;
+`;
+
+/**
+ * Container à direita da Toolbar agrupando o toggle "Mostrar inativos"
+ * e o botão "Novo sistema" (gated por permissão). Em viewports estreitos
+ * empilha vertical; a partir de 48em alinha em linha mantendo o toggle
+ * antes da CTA — leitura natural "filtro → ação".
+ */
+const ToolbarActions = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-3);
+
+  @media (min-width: 48em) {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-4);
+  }
 `;
 
 const TableShell = styled.div`
@@ -207,19 +233,33 @@ function extractErrorMessage(error: unknown): string {
 /* ─── Component ──────────────────────────────────────────── */
 
 export const SystemsPage: React.FC<SystemsPageProps> = ({ client }) => {
+  const { hasPermission } = useAuth();
+  const canCreateSystem = hasPermission(SYSTEMS_CREATE_PERMISSION);
+
   // Termo digitado pelo usuário em tempo real (input controlado).
   const [searchTerm, setSearchTerm] = useState<string>('');
   const debouncedSearch = useDebouncedValue(searchTerm, SEARCH_DEBOUNCE_MS);
 
-  const [includeDeleted, setIncludeDeleted] = useState<boolean>(
-    DEFAULT_INCLUDE_DELETED,
-  );
+  const [includeDeleted, setIncludeDeleted] = useState<boolean>(DEFAULT_INCLUDE_DELETED);
   const [page, setPage] = useState<number>(DEFAULT_PAGE);
 
   const [data, setData] = useState<PageData>(INITIAL_PAGE_DATA);
   const [isInitialLoading, setIsInitialLoading] = useState<boolean>(true);
   const [isFetching, setIsFetching] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Estado de abertura do modal "Novo sistema" (Issue #58). O modal é
+  // controlado por essa página para que a Toolbar consiga ocultar o
+  // botão por permissão sem perder o ciclo de vida do form.
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState<boolean>(false);
+
+  const handleOpenCreateModal = useCallback(() => {
+    setIsCreateModalOpen(true);
+  }, []);
+
+  const handleCloseCreateModal = useCallback(() => {
+    setIsCreateModalOpen(false);
+  }, []);
 
   // Controller da request mais recente — usado para cancelar a anterior
   // em mudanças rápidas de busca/paginação/toggle.
@@ -251,10 +291,21 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client }) => {
   }, []);
 
   // Bumper monotônico para forçar refetch via "Tentar novamente" sem
-  // mexer em filtros — dependência sintética do useEffect.
+  // mexer em filtros — dependência sintética do useEffect. Reusado pelo
+  // callback `onCreated` do modal de criação (Issue #58): após criação
+  // bem-sucedida, incrementamos o nonce para reexecutar `listSystems`
+  // mantendo a página/filtros atuais. Mais simples que exigir que o pai
+  // conheça `setData` e propagar manualmente o item novo (ainda que
+  // custe um round-trip extra, é coerente com o resto dos refetches da
+  // página e evita estado inconsistente quando outras pessoas estão
+  // criando sistemas em paralelo).
+  //
+  // O mesmo callback (`handleRefetch`) cobre os dois call sites — antes
+  // havia duas funções idênticas (`handleRetry` + `handleCreatedRefetch`)
+  // que o Sonar marcou como duplicação no PR #127. Colapsadas em uma só.
   const [retryNonce, setRetryNonce] = useState<number>(0);
-  const handleRetry = useCallback(() => {
-    setRetryNonce(n => n + 1);
+  const handleRefetch = useCallback(() => {
+    setRetryNonce((n) => n + 1);
   }, []);
 
   /**
@@ -294,10 +345,7 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client }) => {
         if (cancelled) return;
         // Cancelamento explícito (fetch abortado) é fluxo normal —
         // não vira erro de UI.
-        if (
-          error instanceof DOMException &&
-          error.name === 'AbortError'
-        ) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
           return;
         }
         if (
@@ -331,11 +379,11 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client }) => {
   const isLastPage = page >= totalPages;
 
   const handlePrevPage = useCallback(() => {
-    setPage(prev => (prev > 1 ? prev - 1 : prev));
+    setPage((prev) => (prev > 1 ? prev - 1 : prev));
   }, []);
 
   const handleNextPage = useCallback(() => {
-    setPage(prev => (prev < totalPages ? prev + 1 : prev));
+    setPage((prev) => (prev < totalPages ? prev + 1 : prev));
   }, [totalPages]);
 
   const trimmedSearch = debouncedSearch.trim();
@@ -384,18 +432,18 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client }) => {
       {
         key: 'name',
         label: 'Nome',
-        render: row => row.name,
+        render: (row) => row.name,
       },
       {
         key: 'code',
         label: 'Código',
-        render: row => <Mono>{row.code}</Mono>,
+        render: (row) => <Mono>{row.code}</Mono>,
       },
       {
         key: 'status',
         label: 'Status',
         width: '140px',
-        render: row =>
+        render: (row) =>
           row.deletedAt ? (
             <Badge variant="danger" dot>
               Inativo
@@ -457,15 +505,28 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client }) => {
             data-testid="systems-search"
           />
         </SearchSlot>
-        <ToggleSlot>
-          <Switch
-            label="Mostrar inativos"
-            helperText="Inclui sistemas com remoção lógica."
-            checked={includeDeleted}
-            onChange={handleIncludeDeletedChange}
-            data-testid="systems-include-deleted"
-          />
-        </ToggleSlot>
+        <ToolbarActions>
+          <ToggleSlot>
+            <Switch
+              label="Mostrar inativos"
+              helperText="Inclui sistemas com remoção lógica."
+              checked={includeDeleted}
+              onChange={handleIncludeDeletedChange}
+              data-testid="systems-include-deleted"
+            />
+          </ToggleSlot>
+          {canCreateSystem && (
+            <Button
+              variant="primary"
+              size="md"
+              icon={<Plus size={14} strokeWidth={1.75} />}
+              onClick={handleOpenCreateModal}
+              data-testid="systems-create-open"
+            >
+              Novo sistema
+            </Button>
+          )}
+        </ToolbarActions>
       </Toolbar>
 
       <span
@@ -500,7 +561,7 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client }) => {
             variant="secondary"
             size="sm"
             icon={<RotateCcw size={14} strokeWidth={1.5} />}
-            onClick={handleRetry}
+            onClick={handleRefetch}
             data-testid="systems-retry"
           >
             Tentar novamente
@@ -514,7 +575,7 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client }) => {
             caption="Lista de sistemas cadastrados no auth-service."
             columns={columns}
             data={data.rows}
-            getRowKey={row => row.id}
+            getRowKey={(row) => row.id}
             emptyState={emptyContent}
           />
           {showOverlay && (
@@ -555,6 +616,15 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client }) => {
             </Button>
           </PageNav>
         </FootBar>
+      )}
+
+      {canCreateSystem && (
+        <NewSystemModal
+          open={isCreateModalOpen}
+          onClose={handleCloseCreateModal}
+          onCreated={handleRefetch}
+          client={client}
+        />
       )}
     </>
   );
