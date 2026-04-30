@@ -292,18 +292,19 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client }) => {
 
   // Bumper monotônico para forçar refetch via "Tentar novamente" sem
   // mexer em filtros — dependência sintética do useEffect. Reusado pelo
-  // callback `handleCreated` do modal de criação (Issue #58): após
-  // criação bem-sucedida, incrementamos o nonce para reexecutar
-  // `listSystems` mantendo a página/filtros atuais. Mais simples que
-  // exigir que o pai conheça `setData` e propagar manualmente o item
-  // novo (ainda que custe um round-trip extra, é coerente com o resto
-  // dos refetches da página e evita estado inconsistente quando outras
-  // pessoas estão criando sistemas em paralelo).
+  // callback `onCreated` do modal de criação (Issue #58): após criação
+  // bem-sucedida, incrementamos o nonce para reexecutar `listSystems`
+  // mantendo a página/filtros atuais. Mais simples que exigir que o pai
+  // conheça `setData` e propagar manualmente o item novo (ainda que
+  // custe um round-trip extra, é coerente com o resto dos refetches da
+  // página e evita estado inconsistente quando outras pessoas estão
+  // criando sistemas em paralelo).
+  //
+  // O mesmo callback (`handleRefetch`) cobre os dois call sites — antes
+  // havia duas funções idênticas (`handleRetry` + `handleCreatedRefetch`)
+  // que o Sonar marcou como duplicação no PR #127. Colapsadas em uma só.
   const [retryNonce, setRetryNonce] = useState<number>(0);
-  const handleRetry = useCallback(() => {
-    setRetryNonce((n) => n + 1);
-  }, []);
-  const handleCreatedRefetch = useCallback(() => {
+  const handleRefetch = useCallback(() => {
     setRetryNonce((n) => n + 1);
   }, []);
 
@@ -560,7 +561,7 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client }) => {
             variant="secondary"
             size="sm"
             icon={<RotateCcw size={14} strokeWidth={1.5} />}
-            onClick={handleRetry}
+            onClick={handleRefetch}
             data-testid="systems-retry"
           >
             Tentar novamente
@@ -621,7 +622,7 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client }) => {
         <NewSystemModal
           open={isCreateModalOpen}
           onClose={handleCloseCreateModal}
-          onCreated={handleCreatedRefetch}
+          onCreated={handleRefetch}
           client={client}
         />
       )}

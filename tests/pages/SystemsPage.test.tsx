@@ -1,30 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-/**
- * Mock do `useAuth` consumido pela `SystemsPage` (Issue #58 — gating do
- * botão "Novo sistema" pelo code `AUTH_V1_SYSTEMS_CREATE`).
- *
- * A suíte de listagem renderiza `<SystemsPage client={...} />` direto,
- * sem `<AuthProvider>`. O hook real lançaria por estar fora do
- * Provider; o mock devolve um valor estável que satisfaz o
- * `useAuth()` chamado dentro do componente. Os testes desta suíte
- * não dependem de `hasPermission` (são de listagem); o caso de gating
- * fica isolado em `SystemsPage.create.test.tsx`.
- */
-vi.mock('@/shared/auth', () => ({
-  useAuth: () => ({
-    user: null,
-    permissions: [],
-    isAuthenticated: true,
-    isLoading: false,
-    login: vi.fn(),
-    logout: vi.fn(),
-    hasPermission: () => false,
-    verifyRoute: vi.fn().mockResolvedValue(true),
-  }),
-}));
-
+import { buildAuthMock } from './__helpers__/mockUseAuth';
 import {
   createSystemsClientStub,
   ID_SYS_AUTH,
@@ -38,6 +15,23 @@ import type { ApiClientStub } from './__helpers__/systemsTestHelpers';
 import type { ApiError, PagedResponse, SystemDto } from '@/shared/api';
 
 import { SystemsPage } from '@/pages/SystemsPage';
+
+/**
+ * Mock do `useAuth` consumido pela `SystemsPage` (Issue #58 — gating do
+ * botão "Novo sistema" pelo code `AUTH_V1_SYSTEMS_CREATE`).
+ *
+ * A suíte de listagem renderiza `<SystemsPage client={...} />` direto,
+ * sem `<AuthProvider>`. O hook real lançaria por estar fora do
+ * Provider; o mock devolve um valor estável (sem permissões) que
+ * satisfaz o `useAuth()` chamado dentro do componente. Os testes desta
+ * suíte não dependem de `hasPermission` (são de listagem); o caso de
+ * gating fica isolado em `SystemsPage.create.test.tsx`. Reusa
+ * `buildAuthMock` para evitar duplicação entre as duas suítes (lição
+ * PR #127 — Sonar conta blocos de 10+ linhas como duplicação). O
+ * Vitest faz hoisting tanto de imports como de `vi.mock`, garantindo
+ * que `buildAuthMock` esteja disponível quando o mock é registrado.
+ */
+vi.mock('@/shared/auth', () => buildAuthMock(() => []));
 
 /**
  * Atraso de debounce esperado pela página (300 ms). Espelha o valor

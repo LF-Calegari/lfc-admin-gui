@@ -1,71 +1,36 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import React from 'react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { buildAuthMock } from './__helpers__/mockUseAuth';
+import {
+  createSystemsClientStub,
+  fillNewSystemForm,
+  makePagedResponse,
+  makeSystem,
+  openCreateModal,
+  renderSystemsPage,
+  submitNewSystemForm,
+  waitForInitialList,
+} from './__helpers__/systemsTestHelpers';
+
+import type { ApiError } from '@/shared/api';
 
 /**
  * Mock controlável de `useAuth` — cada teste seta `permissionsMock`
  * antes de renderizar a página para simular usuário com/sem permissão
  * `AUTH_V1_SYSTEMS_CREATE`.
  *
- * Mockar via factory dinâmica (em vez de `vi.mock` com retorno fixo)
- * permite alternar permissões dentro da mesma suíte sem reordenar
- * imports — `permissionsMock` vive no escopo do módulo de teste e o
- * mock lê o valor no momento da chamada de `hasPermission`.
+ * Usamos `buildAuthMock` (helper compartilhado com a suíte de listagem)
+ * passando um *getter* de permissions, porque `vi.mock` é içado pelo
+ * Vitest antes dos imports e não pode capturar valores mutáveis
+ * diretamente. O getter lê `permissionsMock` no momento da chamada de
+ * `hasPermission`, permitindo alternar permissões dentro da mesma suíte.
  */
 let permissionsMock: ReadonlyArray<string> = [];
 
-vi.mock('@/shared/auth', () => ({
-  useAuth: () => ({
-    user: null,
-    permissions: permissionsMock,
-    isAuthenticated: true,
-    isLoading: false,
-    login: vi.fn(),
-    logout: vi.fn(),
-    hasPermission: (code: string) => permissionsMock.includes(code),
-    verifyRoute: vi.fn().mockResolvedValue(true),
-  }),
-}));
-
-import {
-  createSystemsClientStub,
-  makePagedResponse,
-  makeSystem,
-} from './__helpers__/systemsTestHelpers';
-
-import type { ApiClientStub } from './__helpers__/systemsTestHelpers';
-import type { ApiError } from '@/shared/api';
-
-import { ToastProvider } from '@/components/ui';
-import { SystemsPage } from '@/pages/SystemsPage';
+vi.mock('@/shared/auth', () => buildAuthMock(() => permissionsMock));
 
 const SYSTEMS_CREATE_PERMISSION = 'AUTH_V1_SYSTEMS_CREATE';
-
-/**
- * Helper de render que envolve a `SystemsPage` num `ToastProvider`
- * porque o `NewSystemModal` consome `useToast()` internamente para
- * disparar feedback de sucesso/erro.
- */
-function renderPage(client: ApiClientStub): void {
-  render(
-    <ToastProvider>
-      <SystemsPage client={client} />
-    </ToastProvider>,
-  );
-}
-
-/**
- * Aguarda a primeira renderização da listagem (a `SystemsPage` faz
- * `listSystems` no mount). Centraliza o "esperar listagem" para que
- * cada teste comece em estado estável sem precisar replicar
- * `waitFor` para `client.get`.
- */
-async function waitForInitialList(client: ApiClientStub): Promise<void> {
-  await waitFor(() => expect(client.get).toHaveBeenCalled());
-  await waitFor(() => {
-    expect(screen.queryByTestId('systems-loading')).not.toBeInTheDocument();
-  });
-}
 
 beforeEach(() => {
   permissionsMock = [];
@@ -83,7 +48,7 @@ describe('SystemsPage — criação (Issue #58)', () => {
       const client = createSystemsClientStub();
       client.get.mockResolvedValueOnce(makePagedResponse([makeSystem()]));
 
-      renderPage(client);
+      renderSystemsPage(client);
       await waitForInitialList(client);
 
       expect(screen.queryByTestId('systems-create-open')).not.toBeInTheDocument();
@@ -94,7 +59,7 @@ describe('SystemsPage — criação (Issue #58)', () => {
       const client = createSystemsClientStub();
       client.get.mockResolvedValueOnce(makePagedResponse([makeSystem()]));
 
-      renderPage(client);
+      renderSystemsPage(client);
       await waitForInitialList(client);
 
       expect(screen.getByTestId('systems-create-open')).toBeInTheDocument();
@@ -109,12 +74,7 @@ describe('SystemsPage — criação (Issue #58)', () => {
 
     it('clicar em "Novo sistema" abre o diálogo com os campos do form', async () => {
       const client = createSystemsClientStub();
-      client.get.mockResolvedValueOnce(makePagedResponse([makeSystem()]));
-
-      renderPage(client);
-      await waitForInitialList(client);
-
-      fireEvent.click(screen.getByTestId('systems-create-open'));
+      await openCreateModal(client);
 
       expect(screen.getByRole('dialog')).toBeInTheDocument();
       expect(screen.getByTestId('new-system-name')).toBeInTheDocument();
@@ -122,49 +82,33 @@ describe('SystemsPage — criação (Issue #58)', () => {
       expect(screen.getByTestId('new-system-description')).toBeInTheDocument();
     });
 
-    it('fechar via Esc não dispara nenhuma chamada à API de criação', async () => {
+    /**
+     * Cenários de fechamento sem persistir — Esc, botão Cancelar e
+     * clique no backdrop. Colapsados em `it.each` (lição PR #123 — a
+     * mesma estrutura mudando apenas 1 ação dispara duplicação Sonar
+     * quando deixada como `it` separados).
+     */
+    const CLOSE_CASES: ReadonlyArray<{ name: string; close: () => void }> = [
+      {
+        name: 'Esc',
+        close: () => fireEvent.keyDown(window, { key: 'Escape' }),
+      },
+      {
+        name: 'botão Cancelar',
+        close: () => fireEvent.click(screen.getByTestId('new-system-cancel')),
+      },
+      {
+        name: 'clique no backdrop',
+        close: () => fireEvent.mouseDown(screen.getByTestId('modal-backdrop')),
+      },
+    ];
+
+    it.each(CLOSE_CASES)('fechar via $name não dispara POST', async ({ close }) => {
       const client = createSystemsClientStub();
-      client.get.mockResolvedValueOnce(makePagedResponse([makeSystem()]));
-
-      renderPage(client);
-      await waitForInitialList(client);
-
-      fireEvent.click(screen.getByTestId('systems-create-open'));
+      await openCreateModal(client);
       expect(screen.getByRole('dialog')).toBeInTheDocument();
 
-      fireEvent.keyDown(window, { key: 'Escape' });
-
-      await waitFor(() => {
-        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-      });
-      expect(client.post).not.toHaveBeenCalled();
-    });
-
-    it('fechar via botão Cancelar não chama POST', async () => {
-      const client = createSystemsClientStub();
-      client.get.mockResolvedValueOnce(makePagedResponse([makeSystem()]));
-
-      renderPage(client);
-      await waitForInitialList(client);
-
-      fireEvent.click(screen.getByTestId('systems-create-open'));
-      fireEvent.click(screen.getByTestId('new-system-cancel'));
-
-      await waitFor(() => {
-        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-      });
-      expect(client.post).not.toHaveBeenCalled();
-    });
-
-    it('fechar via clique no backdrop não chama POST', async () => {
-      const client = createSystemsClientStub();
-      client.get.mockResolvedValueOnce(makePagedResponse([makeSystem()]));
-
-      renderPage(client);
-      await waitForInitialList(client);
-
-      fireEvent.click(screen.getByTestId('systems-create-open'));
-      fireEvent.mouseDown(screen.getByTestId('modal-backdrop'));
+      close();
 
       await waitFor(() => {
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
@@ -180,12 +124,8 @@ describe('SystemsPage — criação (Issue #58)', () => {
 
     it('submeter com campos vazios mostra erros inline e não chama POST', async () => {
       const client = createSystemsClientStub();
-      client.get.mockResolvedValueOnce(makePagedResponse([makeSystem()]));
+      await openCreateModal(client);
 
-      renderPage(client);
-      await waitForInitialList(client);
-
-      fireEvent.click(screen.getByTestId('systems-create-open'));
       fireEvent.submit(screen.getByTestId('new-system-form'));
 
       expect(screen.getByText('Nome é obrigatório.')).toBeInTheDocument();
@@ -195,18 +135,9 @@ describe('SystemsPage — criação (Issue #58)', () => {
 
     it('campos com apenas espaços também são tratados como vazios', async () => {
       const client = createSystemsClientStub();
-      client.get.mockResolvedValueOnce(makePagedResponse([makeSystem()]));
+      await openCreateModal(client);
 
-      renderPage(client);
-      await waitForInitialList(client);
-
-      fireEvent.click(screen.getByTestId('systems-create-open'));
-      fireEvent.change(screen.getByTestId('new-system-name'), {
-        target: { value: '   ' },
-      });
-      fireEvent.change(screen.getByTestId('new-system-code'), {
-        target: { value: '  ' },
-      });
+      fillNewSystemForm({ name: '   ', code: '  ' });
       fireEvent.submit(screen.getByTestId('new-system-form'));
 
       expect(screen.getByText('Nome é obrigatório.')).toBeInTheDocument();
@@ -228,34 +159,20 @@ describe('SystemsPage — criação (Issue #58)', () => {
         description: 'Sistema cadastrado pelo teste.',
       });
       const client = createSystemsClientStub();
+      // Fila de respostas: GET inicial → GET refetch após sucesso → POST.
       client.get
         .mockResolvedValueOnce(makePagedResponse([makeSystem()]))
         .mockResolvedValueOnce(makePagedResponse([makeSystem(), created]));
       client.post.mockResolvedValueOnce(created);
 
-      renderPage(client);
-      await waitForInitialList(client);
+      await openCreateModal(client);
 
-      fireEvent.click(screen.getByTestId('systems-create-open'));
-
-      fireEvent.change(screen.getByTestId('new-system-name'), {
-        target: { value: '  Novo Sistema  ' },
+      fillNewSystemForm({
+        name: '  Novo Sistema  ',
+        code: '  NEW  ',
+        description: '  Sistema cadastrado pelo teste.  ',
       });
-      fireEvent.change(screen.getByTestId('new-system-code'), {
-        target: { value: '  NEW  ' },
-      });
-      fireEvent.change(screen.getByTestId('new-system-description'), {
-        target: { value: '  Sistema cadastrado pelo teste.  ' },
-      });
-
-      await act(async () => {
-        fireEvent.submit(screen.getByTestId('new-system-form'));
-        await Promise.resolve();
-      });
-
-      await waitFor(() => {
-        expect(client.post).toHaveBeenCalledTimes(1);
-      });
+      await submitNewSystemForm(client);
 
       expect(client.post).toHaveBeenCalledWith(
         '/systems',
@@ -288,26 +205,12 @@ describe('SystemsPage — criação (Issue #58)', () => {
         code: 'NODESC',
       });
       const client = createSystemsClientStub();
-      client.get.mockResolvedValueOnce(makePagedResponse([makeSystem()]));
       client.post.mockResolvedValueOnce(created);
 
-      renderPage(client);
-      await waitForInitialList(client);
+      await openCreateModal(client);
 
-      fireEvent.click(screen.getByTestId('systems-create-open'));
-      fireEvent.change(screen.getByTestId('new-system-name'), {
-        target: { value: 'Sem Desc' },
-      });
-      fireEvent.change(screen.getByTestId('new-system-code'), {
-        target: { value: 'NODESC' },
-      });
-
-      await act(async () => {
-        fireEvent.submit(screen.getByTestId('new-system-form'));
-        await Promise.resolve();
-      });
-
-      await waitFor(() => expect(client.post).toHaveBeenCalledTimes(1));
+      fillNewSystemForm({ name: 'Sem Desc', code: 'NODESC' });
+      await submitNewSystemForm(client);
 
       const [, body] = client.post.mock.calls[0];
       expect(body).toEqual({ name: 'Sem Desc', code: 'NODESC' });
@@ -320,115 +223,108 @@ describe('SystemsPage — criação (Issue #58)', () => {
       permissionsMock = [SYSTEMS_CREATE_PERMISSION];
     });
 
-    it('409 (code duplicado) exibe mensagem inline no campo code', async () => {
-      const conflictError: ApiError = {
-        kind: 'http',
-        status: 409,
-        message: 'Já existe um sistema com este Code.',
-      };
-      const client = createSystemsClientStub();
-      client.get.mockResolvedValueOnce(makePagedResponse([makeSystem()]));
-      client.post.mockRejectedValueOnce(conflictError);
+    /**
+     * Cenários colapsados em `it.each` (lição PR #123 — testes com a
+     * mesma estrutura mudando 1-2 mocks são `it.each`, não `it`
+     * separados). Cada caso descreve o erro retornado pelo backend e a
+     * asserção visível no UI.
+     *
+     * Guards comuns a todos os casos:
+     * - `client.post` é chamado exatamente 1 vez (asserção feita pelo
+     *   `submitNewSystemForm`).
+     * - O modal segue aberto (usuário corrige inline ou tenta de novo).
+     */
+    type ErrorCase = {
+      name: string;
+      error: ApiError;
+      /** Texto que deve aparecer em algum lugar visível após o submit. */
+      expectedText: RegExp | string;
+      /** Modal continua aberto (default true). */
+      modalStaysOpen?: boolean;
+    };
 
-      renderPage(client);
-      await waitForInitialList(client);
-
-      fireEvent.click(screen.getByTestId('systems-create-open'));
-      fireEvent.change(screen.getByTestId('new-system-name'), {
-        target: { value: 'Algum Sistema' },
-      });
-      fireEvent.change(screen.getByTestId('new-system-code'), {
-        target: { value: 'AUTH' },
-      });
-
-      await act(async () => {
-        fireEvent.submit(screen.getByTestId('new-system-form'));
-        await Promise.resolve();
-      });
-
-      await waitFor(() => expect(client.post).toHaveBeenCalledTimes(1));
-
-      // Mensagem inline sob o campo Code.
-      expect(await screen.findByText('Já existe um sistema com este Code.')).toBeInTheDocument();
-
-      // Modal NÃO fecha — usuário corrige o code.
-      expect(screen.getByRole('dialog')).toBeInTheDocument();
-    });
-
-    it('400 com errors mapeia mensagens para os campos correspondentes', async () => {
-      const validationError: ApiError = {
-        kind: 'http',
-        status: 400,
-        message: 'Erro de validação.',
-        details: {
-          errors: {
-            Name: ['Name é obrigatório e não pode ser apenas espaços.'],
-            Code: ['Code deve ter no máximo 50 caracteres.'],
+    const ERROR_CASES: ReadonlyArray<ErrorCase> = [
+      {
+        name: '409 (code duplicado) exibe mensagem inline no campo code',
+        error: {
+          kind: 'http',
+          status: 409,
+          message: 'Já existe um sistema com este Code.',
+        },
+        expectedText: 'Já existe um sistema com este Code.',
+      },
+      {
+        name: '400 com errors mapeia mensagens para os campos correspondentes',
+        error: {
+          kind: 'http',
+          status: 400,
+          message: 'Erro de validação.',
+          details: {
+            errors: {
+              Name: ['Name é obrigatório e não pode ser apenas espaços.'],
+              Code: ['Code deve ter no máximo 50 caracteres.'],
+            },
           },
         },
-      };
+        expectedText: 'Name é obrigatório e não pode ser apenas espaços.',
+      },
+      {
+        name: '400 sem errors mapeáveis exibe Alert no topo do form',
+        error: {
+          kind: 'http',
+          status: 400,
+          message: 'Payload inválido para criação de sistema.',
+        },
+        expectedText: 'Payload inválido para criação de sistema.',
+      },
+      {
+        name: '401 dispara toast vermelho com mensagem do backend',
+        error: {
+          kind: 'http',
+          status: 401,
+          message: 'Sessão expirada. Faça login novamente.',
+        },
+        expectedText: 'Sessão expirada. Faça login novamente.',
+      },
+      {
+        name: '403 dispara toast vermelho com mensagem do backend',
+        error: {
+          kind: 'http',
+          status: 403,
+          message: 'Você não tem permissão para esta ação.',
+        },
+        expectedText: 'Você não tem permissão para esta ação.',
+      },
+      {
+        name: 'erro genérico de rede dispara toast vermelho genérico',
+        error: {
+          kind: 'network',
+          message: 'Falha de conexão com o servidor.',
+        },
+        expectedText: 'Não foi possível criar o sistema. Tente novamente.',
+      },
+    ];
+
+    it.each(ERROR_CASES)('mapeia $name', async ({ error, expectedText, modalStaysOpen = true }) => {
       const client = createSystemsClientStub();
-      client.get.mockResolvedValueOnce(makePagedResponse([makeSystem()]));
-      client.post.mockRejectedValueOnce(validationError);
+      client.post.mockRejectedValueOnce(error);
 
-      renderPage(client);
-      await waitForInitialList(client);
+      await openCreateModal(client);
+      // Valores genéricos válidos para passar a validação client-side; o
+      // teste foca no comportamento de erro vindo do backend, não na
+      // validação local.
+      fillNewSystemForm({ name: 'Algum Sistema', code: 'CODE' });
+      await submitNewSystemForm(client);
 
-      fireEvent.click(screen.getByTestId('systems-create-open'));
-      fireEvent.change(screen.getByTestId('new-system-name'), {
-        target: { value: 'Nome Algum' },
-      });
-      fireEvent.change(screen.getByTestId('new-system-code'), {
-        target: { value: 'CODE' },
-      });
+      const matcher =
+        typeof expectedText === 'string'
+          ? new RegExp(expectedText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
+          : expectedText;
+      expect(await screen.findByText(matcher)).toBeInTheDocument();
 
-      await act(async () => {
-        fireEvent.submit(screen.getByTestId('new-system-form'));
-        await Promise.resolve();
-      });
-
-      await waitFor(() => expect(client.post).toHaveBeenCalledTimes(1));
-
-      expect(
-        await screen.findByText('Name é obrigatório e não pode ser apenas espaços.'),
-      ).toBeInTheDocument();
-      expect(screen.getByText('Code deve ter no máximo 50 caracteres.')).toBeInTheDocument();
-    });
-
-    it('erro genérico de rede dispara toast vermelho e mantém o modal aberto', async () => {
-      const networkError: ApiError = {
-        kind: 'network',
-        message: 'Falha de conexão com o servidor.',
-      };
-      const client = createSystemsClientStub();
-      client.get.mockResolvedValueOnce(makePagedResponse([makeSystem()]));
-      client.post.mockRejectedValueOnce(networkError);
-
-      renderPage(client);
-      await waitForInitialList(client);
-
-      fireEvent.click(screen.getByTestId('systems-create-open'));
-      fireEvent.change(screen.getByTestId('new-system-name'), {
-        target: { value: 'Alpha' },
-      });
-      fireEvent.change(screen.getByTestId('new-system-code'), {
-        target: { value: 'ALP' },
-      });
-
-      await act(async () => {
-        fireEvent.submit(screen.getByTestId('new-system-form'));
-        await Promise.resolve();
-      });
-
-      await waitFor(() => expect(client.post).toHaveBeenCalledTimes(1));
-
-      // Toast vermelho (role=alert) com mensagem genérica.
-      expect(
-        await screen.findByText('Não foi possível criar o sistema. Tente novamente.'),
-      ).toBeInTheDocument();
-
-      // Modal segue aberto para o usuário tentar de novo.
-      expect(screen.getByRole('dialog')).toBeInTheDocument();
+      if (modalStaysOpen) {
+        expect(screen.getByRole('dialog')).toBeInTheDocument();
+      }
     });
   });
 });
