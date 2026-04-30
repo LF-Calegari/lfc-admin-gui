@@ -1,3 +1,5 @@
+import { isApiError } from '../../shared/api';
+
 /**
  * Helpers compartilhados pelos formulários de criação e edição de sistemas.
  *
@@ -20,6 +22,11 @@
  * - `extractSystemValidationErrors` — mapeia `ValidationProblemDetails`
  *   do ASP.NET (`{ errors: { Name: ['msg'] } }`) para
  *   `SystemFieldErrors`.
+ * - `classifySubmitError` — converte um `unknown` lançado por
+ *   `createSystem`/`updateSystem` em uma `SubmitErrorAction` discriminada,
+ *   eliminando a cadeia de `if (apiError.status === ...)` duplicada entre
+ *   `NewSystemModal.handleSubmit` e `EditSystemModal.handleSubmit` (lição
+ *   PR #128 — 4ª recorrência de BLOCKER de duplicação Sonar).
  *
  * Mantemos a lógica em TS puro (sem React) para que os testes unitários
  * possam consumir diretamente sem precisar de provider/render.
@@ -167,4 +174,90 @@ export function decideBadRequestHandling(
     return { kind: 'field-errors', errors: validation };
   }
   return { kind: 'submit-error', message: fallbackMessage };
+}
+
+/**
+ * Copy textual usado por `classifySubmitError` para diferenciar create
+ * de edit sem duplicar a lógica de classificação. Cada modal injeta sua
+ * versão (`'um sistema'` vs `'outro sistema'`, `'criar'` vs `'atualizar'`).
+ */
+export interface SubmitErrorCopy {
+  /** Mensagem default em 409 quando o backend não envia uma. */
+  conflictDefault: string;
+  /** Título do toast em 401/403/erro genérico (`Falha ao criar sistema`/`Falha ao atualizar sistema`). */
+  forbiddenTitle: string;
+  /** Mensagem do toast quando o erro não é classificável (rede/parse/5xx). */
+  genericFallback: string;
+}
+
+/**
+ * Resultado da classificação de um erro lançado por `createSystem` ou
+ * `updateSystem`. O caller usa o `kind` num `switch` curto para chamar o
+ * side-effect correto (set field error, applyBadRequest, toast, etc.).
+ *
+ * Separar a **decisão** (puro) do **efeito** (com setState/show/etc.)
+ * elimina o bloco de ~25 linhas `if (apiError.status === 409) { ... } if (
+ *  ... === 400) { ... } if (... === 401 || ... === 403) { ... }` que ficou
+ * duplicado entre `NewSystemModal.handleSubmit` e
+ * `EditSystemModal.handleSubmit` (lição PR #128 — 4ª recorrência de
+ * BLOCKER de duplicação Sonar).
+ *
+ * Bonus: a redução da cascata `if`-aninhada em `EditSystemModal` cai a
+ * Cognitive Complexity de 17 para abaixo de 10 (BLOCKER do Sonar nessa
+ * mesma rodada de review).
+ */
+export type SubmitErrorAction =
+  | { kind: 'conflict'; field: keyof SystemFieldErrors; message: string }
+  | { kind: 'bad-request'; details: unknown; fallbackMessage: string }
+  | { kind: 'not-found' }
+  | { kind: 'toast'; message: string; title: string }
+  | { kind: 'unhandled'; title: string; fallback: string };
+
+/**
+ * Classifica um erro lançado por `createSystem`/`updateSystem` em uma
+ * `SubmitErrorAction` discriminada. Não toca em React state — é puro,
+ * fácil de testar isoladamente, e idêntico entre os dois modals.
+ *
+ * - `409` → `conflict` no campo `code` com mensagem do backend (ou copy
+ *   default). Caller exibe inline.
+ * - `400` → `bad-request` com `details` cru. Caller chama
+ *   `applyBadRequest` que decide entre erros por campo (mapeáveis de
+ *   `ValidationProblemDetails`) e `Alert` no topo.
+ * - `404` → `not-found`. Só relevante para o `EditSystemModal` (sistema
+ *   removido entre abertura e submit). Caller dispara refetch + close.
+ * - `401`/`403` → `toast` vermelho com mensagem do backend e título de
+ *   `forbidden` (caller continua aberto, deixa cliente HTTP cuidar do
+ *   redirect 401).
+ * - Qualquer outro `ApiError`/erro não-`ApiError` → `unhandled` com a
+ *   copy genérica de fallback. Caller só dispara o toast.
+ */
+export function classifySubmitError(
+  error: unknown,
+  copy: SubmitErrorCopy,
+): SubmitErrorAction {
+  if (!isApiError(error) || error.kind !== 'http') {
+    return { kind: 'unhandled', title: copy.forbiddenTitle, fallback: copy.genericFallback };
+  }
+  const status = error.status;
+  if (status === 409) {
+    return {
+      kind: 'conflict',
+      field: 'code',
+      message: error.message ?? copy.conflictDefault,
+    };
+  }
+  if (status === 400) {
+    return { kind: 'bad-request', details: error.details, fallbackMessage: error.message };
+  }
+  if (status === 404) {
+    return { kind: 'not-found' };
+  }
+  if (status === 401 || status === 403) {
+    return {
+      kind: 'toast',
+      message: error.message ?? 'Você não tem permissão para esta ação.',
+      title: copy.forbiddenTitle,
+    };
+  }
+  return { kind: 'unhandled', title: copy.forbiddenTitle, fallback: copy.genericFallback };
 }

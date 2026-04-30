@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildAuthMock } from './__helpers__/mockUseAuth';
 import {
   buildCloseCases,
+  buildSharedSubmitErrorCases,
   createSystemsClientStub,
   fillEditSystemForm,
   ID_SYS_AUTH,
@@ -285,6 +286,14 @@ describe('SystemsPage — edição (Issue #59)', () => {
      * O tipo `SystemsErrorCase` vem do helper compartilhado para evitar
      * duplicação com a suíte de criação (lição PR #127).
      */
+    /**
+     * Casos específicos do edit: 409 com mensagem `'Já existe outro
+     * sistema...'` e 404 (sistema removido entre abertura e submit).
+     * Os 5 cenários comuns (400 com/sem errors, 401, 403, network) vêm de
+     * `buildSharedSubmitErrorCases('atualizar')` — diferenciam apenas no
+     * verbo e ficavam duplicados literalmente entre create e edit
+     * (lição PR #128 sobre 4ª recorrência de duplicação Sonar).
+     */
     const ERROR_CASES: ReadonlyArray<SystemsErrorCase> = [
       {
         name: '409 (code duplicado) exibe mensagem inline no campo code',
@@ -295,30 +304,7 @@ describe('SystemsPage — edição (Issue #59)', () => {
         },
         expectedText: 'Já existe outro sistema com este Code.',
       },
-      {
-        name: '400 com errors mapeia mensagens para os campos correspondentes',
-        error: {
-          kind: 'http',
-          status: 400,
-          message: 'Erro de validação.',
-          details: {
-            errors: {
-              Name: ['Name é obrigatório e não pode ser apenas espaços.'],
-              Code: ['Code deve ter no máximo 50 caracteres.'],
-            },
-          },
-        },
-        expectedText: 'Name é obrigatório e não pode ser apenas espaços.',
-      },
-      {
-        name: '400 sem errors mapeáveis exibe Alert no topo do form',
-        error: {
-          kind: 'http',
-          status: 400,
-          message: 'Payload inválido para atualização de sistema.',
-        },
-        expectedText: 'Payload inválido para atualização de sistema.',
-      },
+      ...buildSharedSubmitErrorCases('atualizar'),
       {
         name: '404 (sistema removido) fecha modal, exibe toast e dispara refetch',
         error: {
@@ -328,32 +314,6 @@ describe('SystemsPage — edição (Issue #59)', () => {
         },
         expectedText: 'Sistema não encontrado ou foi removido. Atualize a lista.',
         modalStaysOpen: false,
-      },
-      {
-        name: '401 dispara toast vermelho com mensagem do backend',
-        error: {
-          kind: 'http',
-          status: 401,
-          message: 'Sessão expirada. Faça login novamente.',
-        },
-        expectedText: 'Sessão expirada. Faça login novamente.',
-      },
-      {
-        name: '403 dispara toast vermelho com mensagem do backend',
-        error: {
-          kind: 'http',
-          status: 403,
-          message: 'Você não tem permissão para esta ação.',
-        },
-        expectedText: 'Você não tem permissão para esta ação.',
-      },
-      {
-        name: 'erro genérico de rede dispara toast vermelho genérico',
-        error: {
-          kind: 'network',
-          message: 'Falha de conexão com o servidor.',
-        },
-        expectedText: 'Não foi possível atualizar o sistema. Tente novamente.',
       },
     ];
 

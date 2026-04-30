@@ -1,13 +1,32 @@
 import React, { useCallback, useEffect } from 'react';
 
 import { Modal, useToast } from '../../components/ui';
-import { isApiError, updateSystem } from '../../shared/api';
+import { updateSystem } from '../../shared/api';
 
 import { SystemFormBody } from './SystemFormFields';
-import { type SystemFormState } from './systemFormShared';
+import {
+  classifySubmitError,
+  type SubmitErrorCopy,
+  type SystemFormState,
+} from './systemFormShared';
 import { useSystemForm } from './useSystemForm';
 
-import type { ApiClient, ApiError, SystemDto } from '../../shared/api';
+import type { ApiClient, SystemDto } from '../../shared/api';
+
+/**
+ * Copy injetada em `classifySubmitError` para o caminho de edição. Os
+ * literais aqui são os únicos pontos onde "atualizar"/"outro sistema"
+ * diferem do "criar"/"um sistema" no `NewSystemModal` — o resto da
+ * lógica de classificação é compartilhado (lição PR #128).
+ */
+const SUBMIT_ERROR_COPY: SubmitErrorCopy = {
+  conflictDefault: 'Já existe outro sistema com este Code.',
+  forbiddenTitle: 'Falha ao atualizar sistema',
+  genericFallback: 'Não foi possível atualizar o sistema. Tente novamente.',
+};
+
+/** Texto exibido em toast quando o sistema some entre abertura e submit (404). */
+const NOT_FOUND_MESSAGE = 'Sistema não encontrado ou foi removido. Atualize a lista.';
 
 /**
  * Modal de edição de sistema (Issue #59).
@@ -152,52 +171,37 @@ export const EditSystemModal: React.FC<EditSystemModalProps> = ({
         onUpdated();
         onClose();
       } catch (error: unknown) {
-        if (isApiError(error)) {
-          const apiError = error as ApiError;
-          if (apiError.status === 409) {
-            // Conflito de Code único — outro sistema já usa este code.
-            // Backend devolve "Já existe outro sistema com este Code." —
-            // preservamos a mensagem dele em vez de repetir literal.
-            setFieldErrors({
-              code: apiError.message ?? 'Já existe outro sistema com este Code.',
-            });
+        // `classifySubmitError` colapsa a cascata `if (status === 409)
+        // { ... } if (... === 400) { ... } if (... === 404) { ... } if (
+        //  ... === 401 || ... === 403) { ... }` — Cognitive Complexity
+        // do handleSubmit cai de 17 (BLOCKER) para abaixo de 10. Mesma
+        // tabela do `NewSystemModal` (lição PR #128).
+        const action = classifySubmitError(error, SUBMIT_ERROR_COPY);
+        switch (action.kind) {
+          case 'conflict':
+            setFieldErrors({ [action.field]: action.message });
             setSubmitError(null);
-            return;
-          }
-          if (apiError.status === 400) {
-            // `applyBadRequest` (do `useSystemForm`) distribui entre
-            // erros por campo e Alert genérico no topo do form —
-            // implementação idêntica entre create e edit (lição PR #127).
-            applyBadRequest(apiError.details, apiError.message);
-            return;
-          }
-          if (apiError.status === 404) {
-            // Sistema removido (ou soft-deleted) entre abertura e submit.
-            // Fechamos modal + toast + refetch para sincronizar a tabela.
-            show('Sistema não encontrado ou foi removido. Atualize a lista.', {
+            break;
+          case 'bad-request':
+            applyBadRequest(action.details, action.fallbackMessage);
+            break;
+          case 'not-found':
+            // Sistema removido entre abertura e submit. Fecha modal +
+            // toast + refetch.
+            show(NOT_FOUND_MESSAGE, {
               variant: 'danger',
-              title: 'Falha ao atualizar sistema',
+              title: SUBMIT_ERROR_COPY.forbiddenTitle,
             });
             onUpdated();
             onClose();
-            return;
-          }
-          if (apiError.status === 401 || apiError.status === 403) {
-            // 401 já foi tratado pelo cliente HTTP; 403 = perda de
-            // permissão entre abertura e submit. Toast vermelho com a
-            // mensagem do backend.
-            show(apiError.message ?? 'Você não tem permissão para esta ação.', {
-              variant: 'danger',
-              title: 'Falha ao atualizar sistema',
-            });
-            return;
-          }
+            break;
+          case 'toast':
+            show(action.message, { variant: 'danger', title: action.title });
+            break;
+          case 'unhandled':
+            show(action.fallback, { variant: 'danger', title: action.title });
+            break;
         }
-        // Fallback genérico — rede/parse/5xx/erro arbitrário.
-        show('Não foi possível atualizar o sistema. Tente novamente.', {
-          variant: 'danger',
-          title: 'Falha ao atualizar sistema',
-        });
       } finally {
         setIsSubmitting(false);
       }

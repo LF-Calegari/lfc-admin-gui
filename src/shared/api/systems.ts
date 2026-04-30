@@ -1,6 +1,23 @@
 import { apiClient } from './index';
 
-import type { ApiClient, BodyRequestOptions, SafeRequestOptions } from './types';
+import type { ApiClient, ApiError, BodyRequestOptions, SafeRequestOptions } from './types';
+
+/**
+ * Cria um `ApiError(parse)` baseado em `Error` real (com stack/`name`)
+ * em vez de um literal `{ kind, message }`. Sonar marca `throw` de
+ * objeto não-Error como improvement (`Expected an error object to be
+ * thrown`); estendê-lo com `Object.assign` preserva a interface
+ * `ApiError` consumida por `isApiError` sem perder o stack trace.
+ *
+ * Centralizado para evitar repetir `Object.assign(new Error(...), { kind })`
+ * em três call sites (`listSystems`/`createSystem`/`updateSystem`) — o
+ * Sonar contaria a repetição como duplicação.
+ */
+function makeParseError(): ApiError {
+  return Object.assign(new Error('Resposta inválida do servidor.'), {
+    kind: 'parse' as const,
+  });
+}
 
 /**
  * Envelope genérico de resposta paginada do `lfc-authenticator`
@@ -180,10 +197,7 @@ export async function listSystems(
   const path = `/systems${buildQueryString(params)}`;
   const data = await client.get<unknown>(path, options);
   if (!isPagedSystemsResponse(data)) {
-    throw {
-      kind: 'parse',
-      message: 'Resposta inválida do servidor.',
-    };
+    throw makeParseError();
   }
   return data;
 }
@@ -238,10 +252,7 @@ export async function createSystem(
   const body = buildSystemMutationBody(payload);
   const data = await client.post<unknown>('/systems', body, options);
   if (!isSystemDto(data)) {
-    throw {
-      kind: 'parse',
-      message: 'Resposta inválida do servidor.',
-    };
+    throw makeParseError();
   }
   return data;
 }
@@ -290,10 +301,7 @@ export async function updateSystem(
   const body = buildSystemMutationBody(payload);
   const data = await client.put<unknown>(`/systems/${id}`, body, options);
   if (!isSystemDto(data)) {
-    throw {
-      kind: 'parse',
-      message: 'Resposta inválida do servidor.',
-    };
+    throw makeParseError();
   }
   return data;
 }

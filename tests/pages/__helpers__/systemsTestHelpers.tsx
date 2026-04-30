@@ -300,12 +300,15 @@ export interface SystemsErrorCase {
  * Aceita string ou regex e devolve sempre um `RegExp` insensível a
  * caixa, com escape de metacaracteres. Usado pelos cenários de erro
  * para localizar mensagens no UI sem depender do match exato literal.
+ *
+ * `String.raw` no replacement evita o duplo-escape de `'\\$&'` — Sonar
+ * marca o literal escapado como improvement (lição PR #128).
  */
 export function toCaseInsensitiveMatcher(text: RegExp | string): RegExp {
   if (typeof text !== 'string') {
     return text;
   }
-  return new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+  return new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`), 'i');
 }
 
 /**
@@ -337,6 +340,9 @@ export function buildCloseCases(cancelTestId: string): ReadonlyArray<SystemsModa
   return [
     {
       name: 'Esc',
+      // `fireEvent.keyDown` aceita `Window` na assinatura do RTL; usar
+      // `globalThis` aqui quebra o typecheck (não satisfaz `Window`).
+      // eslint-disable-next-line no-restricted-globals
       close: () => fireEvent.keyDown(window, { key: 'Escape' }),
     },
     {
@@ -346,6 +352,84 @@ export function buildCloseCases(cancelTestId: string): ReadonlyArray<SystemsModa
     {
       name: 'clique no backdrop',
       close: () => fireEvent.mouseDown(screen.getByTestId('modal-backdrop')),
+    },
+  ];
+}
+
+/**
+ * Constrói os 5 cenários de erro de submit que diferem **apenas** no
+ * verbo (`criar` vs `atualizar`) entre as suítes de criação e edição.
+ *
+ * Sem esse helper, ambas as suítes declaravam blocos de ~50 linhas
+ * (`400 com errors`, `400 sem errors`, `401`, `403`, `network`)
+ * literalmente idênticos exceto pela palavra do fallback genérico —
+ * cenário direto para `New Code Duplication` no Sonar (4ª recorrência
+ * em PR #128). Centralizar resolve **três** ganhos:
+ *
+ * 1. Sonar deixa de contar como duplicação (mesma lógica em 1 arquivo).
+ * 2. Adicionar futuros cenários (ex.: 5xx) é 1 linha em vez de 2 PRs
+ *    de testes que diferem só no verbo.
+ * 3. Garante simetria de cobertura entre as duas suítes — não é
+ *    possível esquecer de adicionar o caso 401 só no edit, por exemplo.
+ *
+ * Os casos específicos de cada modal (`409` com mensagem própria, e
+ * `404` exclusivo do edit) ficam inline em cada suíte porque divergem
+ * em estrutura, não só em copy.
+ */
+export function buildSharedSubmitErrorCases(
+  verb: 'criar' | 'atualizar',
+): ReadonlyArray<SystemsErrorCase> {
+  const verbAcao = verb === 'criar' ? 'criação' : 'atualização';
+  return [
+    {
+      name: '400 com errors mapeia mensagens para os campos correspondentes',
+      error: {
+        kind: 'http',
+        status: 400,
+        message: 'Erro de validação.',
+        details: {
+          errors: {
+            Name: ['Name é obrigatório e não pode ser apenas espaços.'],
+            Code: ['Code deve ter no máximo 50 caracteres.'],
+          },
+        },
+      },
+      expectedText: 'Name é obrigatório e não pode ser apenas espaços.',
+    },
+    {
+      name: '400 sem errors mapeáveis exibe Alert no topo do form',
+      error: {
+        kind: 'http',
+        status: 400,
+        message: `Payload inválido para ${verbAcao} de sistema.`,
+      },
+      expectedText: `Payload inválido para ${verbAcao} de sistema.`,
+    },
+    {
+      name: '401 dispara toast vermelho com mensagem do backend',
+      error: {
+        kind: 'http',
+        status: 401,
+        message: 'Sessão expirada. Faça login novamente.',
+      },
+      expectedText: 'Sessão expirada. Faça login novamente.',
+    },
+    {
+      name: '403 dispara toast vermelho com mensagem do backend',
+      error: {
+        kind: 'http',
+        status: 403,
+        message: 'Você não tem permissão para esta ação.',
+      },
+      expectedText: 'Você não tem permissão para esta ação.',
+    },
+    {
+      name: 'erro genérico de rede dispara toast vermelho genérico',
+      error: {
+        kind: 'network',
+        message: 'Falha de conexão com o servidor.',
+      },
+      expectedText: `Não foi possível ${verb} o sistema. Tente novamente.`,
     },
   ];
 }

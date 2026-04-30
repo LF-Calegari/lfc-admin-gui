@@ -1,13 +1,29 @@
 import React, { useCallback } from 'react';
 
 import { Modal, useToast } from '../../components/ui';
-import { createSystem, isApiError } from '../../shared/api';
+import { createSystem } from '../../shared/api';
 
 import { SystemFormBody } from './SystemFormFields';
-import { INITIAL_SYSTEM_FORM_STATE } from './systemFormShared';
+import {
+  INITIAL_SYSTEM_FORM_STATE,
+  classifySubmitError,
+  type SubmitErrorCopy,
+} from './systemFormShared';
 import { useSystemForm } from './useSystemForm';
 
-import type { ApiClient, ApiError } from '../../shared/api';
+import type { ApiClient } from '../../shared/api';
+
+/**
+ * Copy injetada em `classifySubmitError` para o caminho de criação. Os
+ * literais aqui são os únicos pontos onde "criar"/"um sistema" diferem
+ * do "atualizar"/"outro sistema" no `EditSystemModal` — o resto da
+ * lógica de classificação é compartilhado (lição PR #128).
+ */
+const SUBMIT_ERROR_COPY: SubmitErrorCopy = {
+  conflictDefault: 'Já existe um sistema com este Code.',
+  forbiddenTitle: 'Falha ao criar sistema',
+  genericFallback: 'Não foi possível criar o sistema. Tente novamente.',
+};
 
 /**
  * Modal de criação de sistema (Issue #58 — primeiro fluxo de mutação da
@@ -121,42 +137,33 @@ export const NewSystemModal: React.FC<NewSystemModalProps> = ({
         onCreated();
         onClose();
       } catch (error: unknown) {
-        if (isApiError(error)) {
-          const apiError = error as ApiError;
-          if (apiError.status === 409) {
-            // Conflito de Code único — feedback inline no campo.
-            setFieldErrors({
-              code: apiError.message ?? 'Já existe um sistema com este Code.',
-            });
+        // `classifySubmitError` separa a decisão (puro) do efeito (com
+        // setState/show). Tabela única + switch curto evitam a cascata
+        // `if (status === 409) { ... } if (... === 400) { ... }` que
+        // duplicava ~25 linhas com o `EditSystemModal` (lição PR #128).
+        const action = classifySubmitError(error, SUBMIT_ERROR_COPY);
+        switch (action.kind) {
+          case 'conflict':
+            setFieldErrors({ [action.field]: action.message });
             setSubmitError(null);
-            return;
-          }
-          if (apiError.status === 400) {
-            // `applyBadRequest` distribui entre erros por campo
-            // (mapeáveis de `ValidationProblemDetails`) e Alert genérico
-            // no topo do form — implementação idêntica entre create e
-            // edit (lição PR #127 sobre duplicação Sonar).
-            applyBadRequest(apiError.details, apiError.message);
-            return;
-          }
-          if (apiError.status === 401 || apiError.status === 403) {
-            // 401 já foi tratado pelo cliente HTTP (limpeza de sessão);
-            // 403 indica que o usuário perdeu permissão entre a abertura
-            // do modal e o submit (raro). Em ambos, fechamos via toast
-            // e deixamos o fluxo padrão da app cuidar do redirect.
-            show(apiError.message ?? 'Você não tem permissão para esta ação.', {
+            break;
+          case 'bad-request':
+            applyBadRequest(action.details, action.fallbackMessage);
+            break;
+          case 'toast':
+            show(action.message, { variant: 'danger', title: action.title });
+            break;
+          // `not-found` (404) não chega no fluxo de create — backend nunca
+          // devolve 404 nesse path. Tratamos como `unhandled` por
+          // segurança (mostra toast genérico).
+          case 'not-found':
+          case 'unhandled':
+            show(action.kind === 'unhandled' ? action.fallback : SUBMIT_ERROR_COPY.genericFallback, {
               variant: 'danger',
-              title: 'Falha ao criar sistema',
+              title: action.kind === 'unhandled' ? action.title : SUBMIT_ERROR_COPY.forbiddenTitle,
             });
-            return;
-          }
+            break;
         }
-        // Fallback genérico — rede/parse/5xx/erro arbitrário. Toast
-        // vermelho conforme issue.
-        show('Não foi possível criar o sistema. Tente novamente.', {
-          variant: 'danger',
-          title: 'Falha ao criar sistema',
-        });
       } finally {
         setIsSubmitting(false);
       }
