@@ -261,3 +261,110 @@ export function classifySubmitError(
   }
   return { kind: 'unhandled', title: copy.forbiddenTitle, fallback: copy.genericFallback };
 }
+
+/**
+ * Copy textual usado por `classifyMutationError` em modals de
+ * confirmação simples (sem campos de form) — `DeleteSystemConfirm` (#60)
+ * e o futuro `RestoreSystemConfirm` (#61).
+ *
+ * Diferente de `SubmitErrorCopy`, aqui não há `bad-request` com
+ * `field-errors` (delete/restore não têm corpo); o slot
+ * `conflictMessage` é opcional para já habilitar o `restore` (que
+ * recebe 409 quando o sistema já está ativo) sem reabrir o módulo
+ * compartilhado num PR futuro. O `delete` simplesmente não preenche
+ * `conflictMessage` — `classifyMutationError` cai no fallback `unhandled`
+ * para 409, que já é o comportamento correto para `delete` (backend
+ * nunca devolve 409 no soft-delete).
+ *
+ * Pré-projetar este slot agora antecipa #61 sem expandir escopo de #60:
+ * é exatamente a recomendação da lição PR #128 ("ao tocar 2+ arquivos
+ * similares, projetar o módulo `<recurso>FormShared.ts` desde o
+ * **primeiro PR do recurso**").
+ */
+export interface MutationErrorCopy {
+  /** Título do toast em 401/403/erro genérico (`Falha ao desativar sistema`). */
+  forbiddenTitle: string;
+  /** Mensagem do toast quando o erro não é classificável (rede/parse/5xx). */
+  genericFallback: string;
+  /**
+   * Mensagem fixa exibida quando o sistema não foi encontrado (404) —
+   * o caller fecha o modal + dispara refetch. Default coerente com o
+   * `EditSystemModal` ('Sistema não encontrado ou foi removido').
+   */
+  notFoundMessage: string;
+  /**
+   * Mensagem default do toast em 409 quando o backend não envia uma.
+   * Opcional porque o `delete` não recebe 409 (backend só devolve 409
+   * no `restore` quando o sistema já está ativo). Manter o slot
+   * tipado-mas-opcional permite que `classifyMutationError` retorne
+   * uma ação `conflict` para o `restore` reusando a mesma máquina de
+   * estados em vez de duplicar lógica num PR futuro.
+   */
+  conflictMessage?: string;
+}
+
+/**
+ * Resultado da classificação de um erro lançado por uma mutação simples
+ * sem corpo de form (`deleteSystem` / futuro `restoreSystem`). Espelha
+ * o desenho de `SubmitErrorAction` mas sem o caso `bad-request` —
+ * mutações sem corpo nunca recebem `ValidationProblemDetails` com
+ * `field-errors` para mapear.
+ *
+ * O caller usa o `kind` num `switch` curto para chamar o side-effect
+ * correto (toast + close + refetch).
+ */
+export type MutationErrorAction =
+  | { kind: 'not-found'; message: string; title: string }
+  | { kind: 'conflict'; message: string; title: string }
+  | { kind: 'toast'; message: string; title: string }
+  | { kind: 'unhandled'; title: string; fallback: string };
+
+/**
+ * Classifica um erro lançado por uma mutação simples sem corpo
+ * (`deleteSystem`, `restoreSystem`) em uma `MutationErrorAction`
+ * discriminada. Não toca em React state — é puro, fácil de testar
+ * isoladamente, e idêntico entre delete e restore.
+ *
+ * - `404` → `not-found` com `copy.notFoundMessage`. Caller fecha modal +
+ *   toast vermelho + dispara refetch (item já removido por outra sessão).
+ * - `409` → `conflict` com mensagem do backend (ou `copy.conflictMessage`).
+ *   Só usado pelo `restore` (que recebe 409 quando o sistema já está
+ *   ativo). O `delete` ignora — backend nunca devolve 409 nessa rota,
+ *   mas o switch trata como `unhandled` para ser defensivo.
+ * - `401`/`403` → `toast` vermelho com mensagem do backend.
+ * - Outros HTTP / network / parse → `unhandled` com a copy genérica.
+ *
+ * Pré-projetar este helper já com `conflict` ao invés de adicionar no
+ * PR de #61 evita 5ª recorrência de duplicação Sonar (lição PR #128).
+ */
+export function classifyMutationError(
+  error: unknown,
+  copy: MutationErrorCopy,
+): MutationErrorAction {
+  if (!isApiError(error) || error.kind !== 'http') {
+    return { kind: 'unhandled', title: copy.forbiddenTitle, fallback: copy.genericFallback };
+  }
+  const status = error.status;
+  if (status === 404) {
+    return {
+      kind: 'not-found',
+      message: copy.notFoundMessage,
+      title: copy.forbiddenTitle,
+    };
+  }
+  if (status === 409 && typeof copy.conflictMessage === 'string') {
+    return {
+      kind: 'conflict',
+      message: error.message ?? copy.conflictMessage,
+      title: copy.forbiddenTitle,
+    };
+  }
+  if (status === 401 || status === 403) {
+    return {
+      kind: 'toast',
+      message: error.message ?? 'Você não tem permissão para esta ação.',
+      title: copy.forbiddenTitle,
+    };
+  }
+  return { kind: 'unhandled', title: copy.forbiddenTitle, fallback: copy.genericFallback };
+}

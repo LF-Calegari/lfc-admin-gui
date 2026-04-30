@@ -3,19 +3,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { buildAuthMock } from './__helpers__/mockUseAuth';
 import {
+  assertRowActionAbsent,
+  assertRowActionPresent,
   buildCloseCases,
   buildSharedSubmitErrorCases,
   createSystemsClientStub,
   fillEditSystemForm,
   ID_SYS_AUTH,
-  ID_SYS_KURTTO,
   makePagedResponse,
   makeSystem,
   openEditModal,
-  renderSystemsPage,
   submitEditSystemForm,
   toCaseInsensitiveMatcher,
-  waitForInitialList,
 } from './__helpers__/systemsTestHelpers';
 
 import type { SystemsErrorCase } from './__helpers__/systemsTestHelpers';
@@ -46,38 +45,12 @@ describe('SystemsPage — edição (Issue #59)', () => {
   describe('gating do botão "Editar" por linha', () => {
     it('não exibe botões "Editar" quando o usuário não possui AUTH_V1_SYSTEMS_UPDATE', async () => {
       permissionsMock = [];
-      const client = createSystemsClientStub();
-      client.get.mockResolvedValueOnce(
-        makePagedResponse([makeSystem({ id: ID_SYS_AUTH })]),
-      );
-
-      renderSystemsPage(client);
-      await waitForInitialList(client);
-
-      expect(screen.queryByTestId(`systems-edit-${ID_SYS_AUTH}`)).not.toBeInTheDocument();
+      await assertRowActionAbsent(createSystemsClientStub(), 'edit');
     });
 
     it('exibe um botão "Editar" para cada linha quando o usuário possui AUTH_V1_SYSTEMS_UPDATE', async () => {
       permissionsMock = [SYSTEMS_UPDATE_PERMISSION];
-      const client = createSystemsClientStub();
-      client.get.mockResolvedValueOnce(
-        makePagedResponse([
-          makeSystem({ id: ID_SYS_AUTH, name: 'lfc-authenticator', code: 'AUTH' }),
-          makeSystem({ id: ID_SYS_KURTTO, name: 'lfc-kurtto', code: 'KURTTO' }),
-        ]),
-      );
-
-      renderSystemsPage(client);
-      await waitForInitialList(client);
-
-      const authBtn = screen.getByTestId(`systems-edit-${ID_SYS_AUTH}`);
-      const kurttoBtn = screen.getByTestId(`systems-edit-${ID_SYS_KURTTO}`);
-      expect(authBtn).toBeInTheDocument();
-      expect(kurttoBtn).toBeInTheDocument();
-      // aria-label inclui o nome do sistema para diferenciar quando há
-      // múltiplos botões "Editar" na mesma página.
-      expect(authBtn).toHaveAttribute('aria-label', 'Editar sistema lfc-authenticator');
-      expect(kurttoBtn).toHaveAttribute('aria-label', 'Editar sistema lfc-kurtto');
+      await assertRowActionPresent(createSystemsClientStub(), 'edit', 'Editar');
     });
   });
 

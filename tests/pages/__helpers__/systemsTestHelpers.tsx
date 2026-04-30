@@ -275,6 +275,48 @@ export async function submitEditSystemForm(
 }
 
 /**
+ * Mocka o GET inicial com uma página contendo o `system` informado (ou
+ * um sistema sintético padrão), renderiza a `SystemsPage`, espera a
+ * lista carregar e clica no botão "Desativar" da linha do sistema.
+ *
+ * Helper análogo a `openCreateModal`/`openEditModal` (Issue #60). Sem
+ * ele, cada teste da suíte de delete duplicaria ~5 linhas de "render +
+ * waitFor + click" — Sonar contaria como `New Code Duplication` (lição
+ * PR #127). Quem precisar de mocks diferentes pode chamar `client.get
+ * .mockXxx` antes para sobrescrever a fila (a detecção de mocks pré-
+ * existentes preserva o caso "fila customizada de respostas").
+ */
+export async function openDeleteConfirm(
+  client: ApiClientStub,
+  system: SystemDto = makeSystem(),
+): Promise<void> {
+  if (client.get.mock.calls.length === 0 && client.get.mock.results.length === 0) {
+    client.get.mockResolvedValueOnce(makePagedResponse([system]));
+  }
+  renderSystemsPage(client);
+  await waitForInitialList(client);
+  fireEvent.click(screen.getByTestId(`systems-delete-${system.id}`));
+}
+
+/**
+ * Confirma a desativação clicando em "Desativar" no `DeleteSystemConfirm`
+ * e aguarda o `client.delete` ser chamado pelo menos `expectedDeleteCalls`
+ * vezes (default `1`). Espelha `submitNewSystemForm`/`submitEditSystemForm`,
+ * com DELETE em vez de POST/PUT. Faz `act(async)` para flushar a
+ * microtask do click handler antes do `waitFor`.
+ */
+export async function confirmDelete(
+  client: ApiClientStub,
+  expectedDeleteCalls = 1,
+): Promise<void> {
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('delete-system-confirm'));
+    await Promise.resolve();
+  });
+  await waitFor(() => expect(client.delete).toHaveBeenCalledTimes(expectedDeleteCalls));
+}
+
+/**
  * Caso de teste declarativo para os cenários `it.each(ERROR_CASES)` das
  * suítes de criação (#58/#127) e edição (#59).
  *
@@ -405,6 +447,109 @@ export function buildSharedSubmitErrorCases(
       },
       expectedText: `Payload inválido para ${verbAcao} de sistema.`,
     },
+    {
+      name: '401 dispara toast vermelho com mensagem do backend',
+      error: {
+        kind: 'http',
+        status: 401,
+        message: 'Sessão expirada. Faça login novamente.',
+      },
+      expectedText: 'Sessão expirada. Faça login novamente.',
+    },
+    {
+      name: '403 dispara toast vermelho com mensagem do backend',
+      error: {
+        kind: 'http',
+        status: 403,
+        message: 'Você não tem permissão para esta ação.',
+      },
+      expectedText: 'Você não tem permissão para esta ação.',
+    },
+    {
+      name: 'erro genérico de rede dispara toast vermelho genérico',
+      error: {
+        kind: 'network',
+        message: 'Falha de conexão com o servidor.',
+      },
+      expectedText: `Não foi possível ${verb} o sistema. Tente novamente.`,
+    },
+  ];
+}
+
+/**
+ * Asserções compartilhadas de gating de botão de linha (Issue #59 e #60).
+ *
+ * O bloco "renderiza sistema → confere ausência/presença do botão por
+ * `data-testid` da linha" se repetia entre as suítes de edição (`edit-`)
+ * e desativação (`delete-`) com diferença só no testId — Sonar marca
+ * 11+ linhas duplicadas como `New Code Duplication` independente de
+ * intenção (lição PR #123/#127/#128). Centralizamos para evitar 5ª
+ * recorrência.
+ *
+ * `assertRowActionAbsent`/`assertRowActionPresent` recebem o stub do
+ * cliente já mockado pela suíte chamadora (que controla quais sistemas
+ * aparecem na lista). Asserts são independentes do verbo — espelham o
+ * padrão de teste "renderSystemsPage + waitForInitialList + assert".
+ */
+export async function assertRowActionAbsent(
+  client: ApiClientStub,
+  testIdPrefix: 'edit' | 'delete',
+  systemId: string = ID_SYS_AUTH,
+): Promise<void> {
+  if (client.get.mock.calls.length === 0 && client.get.mock.results.length === 0) {
+    client.get.mockResolvedValueOnce(makePagedResponse([makeSystem({ id: systemId })]));
+  }
+  renderSystemsPage(client);
+  await waitForInitialList(client);
+  expect(screen.queryByTestId(`systems-${testIdPrefix}-${systemId}`)).not.toBeInTheDocument();
+}
+
+export async function assertRowActionPresent(
+  client: ApiClientStub,
+  testIdPrefix: 'edit' | 'delete',
+  ariaVerb: 'Editar' | 'Desativar',
+): Promise<void> {
+  if (client.get.mock.calls.length === 0 && client.get.mock.results.length === 0) {
+    client.get.mockResolvedValueOnce(
+      makePagedResponse([
+        makeSystem({ id: ID_SYS_AUTH, name: 'lfc-authenticator', code: 'AUTH' }),
+        makeSystem({ id: ID_SYS_KURTTO, name: 'lfc-kurtto', code: 'KURTTO' }),
+      ]),
+    );
+  }
+  renderSystemsPage(client);
+  await waitForInitialList(client);
+
+  const authBtn = screen.getByTestId(`systems-${testIdPrefix}-${ID_SYS_AUTH}`);
+  const kurttoBtn = screen.getByTestId(`systems-${testIdPrefix}-${ID_SYS_KURTTO}`);
+  expect(authBtn).toBeInTheDocument();
+  expect(kurttoBtn).toBeInTheDocument();
+  expect(authBtn).toHaveAttribute('aria-label', `${ariaVerb} sistema lfc-authenticator`);
+  expect(kurttoBtn).toHaveAttribute('aria-label', `${ariaVerb} sistema lfc-kurtto`);
+}
+
+/**
+ * Constrói os 3 cenários de erro de mutação (sem corpo) que diferem
+ * **apenas** no verbo entre suítes de delete (#60) e o futuro restore
+ * (#61). Espelha `buildSharedSubmitErrorCases` mas para ações simples
+ * sem `bad-request` com `field-errors` (delete/restore não enviam body).
+ *
+ * Cenários comuns (401, 403, network) ficam centralizados aqui para
+ * preservar simetria de cobertura entre as duas suítes — sem o helper,
+ * o segundo PR duplicaria literalmente esses 3 blocos com troca só do
+ * verbo (lição PR #128, 4ª recorrência de Sonar duplication). Os casos
+ * específicos (404, 409 do restore) ficam inline em cada suíte porque
+ * divergem em estrutura/comportamento (modal fecha vs modal segue
+ * aberto), não só em copy.
+ *
+ * O `verb` aceita o gerúndio em pt-BR ('desativar'/'restaurar') porque
+ * a copy do toast genérico é "Não foi possível {verb} o sistema. Tente
+ * novamente." — espelha o padrão dos modals de form.
+ */
+export function buildSharedMutationErrorCases(
+  verb: 'desativar' | 'restaurar',
+): ReadonlyArray<SystemsErrorCase> {
+  return [
     {
       name: '401 dispara toast vermelho com mensagem do backend',
       error: {
