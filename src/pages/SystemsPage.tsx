@@ -6,6 +6,7 @@ import {
   RotateCcw,
   Search,
   Trash2,
+  Undo2,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import styled from 'styled-components';
@@ -25,6 +26,7 @@ import { useAuth } from '../shared/auth';
 import { DeleteSystemConfirm } from './systems/DeleteSystemConfirm';
 import { EditSystemModal } from './systems/EditSystemModal';
 import { NewSystemModal } from './systems/NewSystemModal';
+import { RestoreSystemConfirm } from './systems/RestoreSystemConfirm';
 
 import type { TableColumn } from '../components/ui';
 import type { ApiClient, PagedResponse, SystemDto } from '../shared/api';
@@ -67,6 +69,18 @@ const SYSTEMS_UPDATE_PERMISSION = 'AUTH_V1_SYSTEMS_UPDATE';
  * esconder ações que o usuário não pode executar.
  */
 const SYSTEMS_DELETE_PERMISSION = 'AUTH_V1_SYSTEMS_DELETE';
+
+/**
+ * Code de permissão exigido para o botão "Restaurar" por linha (Issue
+ * #61, última sub-issue da EPIC #45). Espelha o `AUTH_V1_SYSTEMS_RESTORE`
+ * no `lfc-authenticator` — o backend é a fonte autoritativa
+ * (`POST /systems/{id}/restore` exige `PermissionPolicies.SystemsRestore`).
+ * Gating client-side é UX: esconder ações que o usuário não pode
+ * executar; complementado por `row.deletedAt !== null` no botão (só
+ * faz sentido restaurar linhas soft-deletadas — espelha a lógica
+ * inversa do botão "Desativar").
+ */
+const SYSTEMS_RESTORE_PERMISSION = 'AUTH_V1_SYSTEMS_RESTORE';
 
 interface SystemsPageProps {
   /**
@@ -278,6 +292,7 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client }) => {
   const canCreateSystem = hasPermission(SYSTEMS_CREATE_PERMISSION);
   const canUpdateSystem = hasPermission(SYSTEMS_UPDATE_PERMISSION);
   const canDeleteSystem = hasPermission(SYSTEMS_DELETE_PERMISSION);
+  const canRestoreSystem = hasPermission(SYSTEMS_RESTORE_PERMISSION);
 
   // Termo digitado pelo usuário em tempo real (input controlado).
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -309,6 +324,13 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client }) => {
   // confirmação. `null` mantém o modal fechado.
   const [deletingSystem, setDeletingSystem] = useState<SystemDto | null>(null);
 
+  // Sistema selecionado para restauração (Issue #61, última sub-issue
+  // da EPIC #45). Mesma estratégia do `deletingSystem` — manter o
+  // objeto completo permite ao `RestoreSystemConfirm` exibir `name`/
+  // `code` na confirmação sem round-trip extra. `null` mantém o modal
+  // fechado.
+  const [restoringSystem, setRestoringSystem] = useState<SystemDto | null>(null);
+
   const handleOpenCreateModal = useCallback(() => {
     setIsCreateModalOpen(true);
   }, []);
@@ -331,6 +353,14 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client }) => {
 
   const handleCloseDeleteConfirm = useCallback(() => {
     setDeletingSystem(null);
+  }, []);
+
+  const handleOpenRestoreConfirm = useCallback((row: SystemDto) => {
+    setRestoringSystem(row);
+  }, []);
+
+  const handleCloseRestoreConfirm = useCallback(() => {
+    setRestoringSystem(null);
   }, []);
 
   // Controller da request mais recente — usado para cancelar a anterior
@@ -529,11 +559,11 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client }) => {
     ];
 
     // Coluna "Ações" só aparece quando o usuário tem **alguma** ação
-    // disponível (update ou delete). Esconder a coluna inteira para
-    // perfis read-only mantém a tabela compacta sem coluna vazia.
-    // Cada botão dentro tem seu próprio gating individual + (no caso
-    // do delete) check por linha (`row.deletedAt`).
-    if (canUpdateSystem || canDeleteSystem) {
+    // disponível (update, delete ou restore). Esconder a coluna inteira
+    // para perfis read-only mantém a tabela compacta sem coluna vazia.
+    // Cada botão dentro tem seu próprio gating individual + check por
+    // linha quando aplicável (`row.deletedAt`).
+    if (canUpdateSystem || canDeleteSystem || canRestoreSystem) {
       base.push({
         key: 'actions',
         label: 'Ações',
@@ -555,10 +585,9 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client }) => {
             {canDeleteSystem && row.deletedAt === null && (
               // Botão "Desativar" só aparece em linhas ativas — não faz
               // sentido oferecer "desativar" pra um sistema já soft-
-              // deletado (#61 vai adicionar "Restaurar" pra essas
-              // linhas). O backend devolve 404 nesse caso, mas
-              // esconder no UI é o caminho ergonômico (lê a coluna
-              // Status como referência).
+              // deletado (Issue #61 cobre "Restaurar" pra essas linhas).
+              // O backend devolve 404 nesse caso, mas esconder no UI é
+              // o caminho ergonômico (lê a coluna Status como referência).
               <Button
                 variant="ghost"
                 size="sm"
@@ -570,13 +599,39 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client }) => {
                 Desativar
               </Button>
             )}
+            {canRestoreSystem && row.deletedAt !== null && (
+              // Botão "Restaurar" é o inverso lógico do "Desativar":
+              // só aparece em linhas com `deletedAt != null`. O backend
+              // devolve 404 com mensagem específica se chamarem em
+              // sistema ativo ("Sistema não encontrado ou não está
+              // deletado."), mas escondemos no UI para reforçar a leitura
+              // visual: a coluna Status já mostra "Inativo" via Badge.
+              // Issue #61 — última sub-issue da EPIC #45.
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<Undo2 size={14} strokeWidth={1.5} />}
+                onClick={() => handleOpenRestoreConfirm(row)}
+                aria-label={`Restaurar sistema ${row.name}`}
+                data-testid={`systems-restore-${row.id}`}
+              >
+                Restaurar
+              </Button>
+            )}
           </RowActions>
         ),
       });
     }
 
     return base;
-  }, [canDeleteSystem, canUpdateSystem, handleOpenDeleteConfirm, handleOpenEditModal]);
+  }, [
+    canDeleteSystem,
+    canRestoreSystem,
+    canUpdateSystem,
+    handleOpenDeleteConfirm,
+    handleOpenEditModal,
+    handleOpenRestoreConfirm,
+  ]);
 
   const showOverlay = isFetching && !isInitialLoading;
 
@@ -763,6 +818,16 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client }) => {
           system={deletingSystem}
           onClose={handleCloseDeleteConfirm}
           onDeleted={handleRefetch}
+          client={client}
+        />
+      )}
+
+      {canRestoreSystem && (
+        <RestoreSystemConfirm
+          open={restoringSystem !== null}
+          system={restoringSystem}
+          onClose={handleCloseRestoreConfirm}
+          onRestored={handleRefetch}
           client={client}
         />
       )}

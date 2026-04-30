@@ -341,6 +341,52 @@ export async function deleteSystem(
 }
 
 /**
+ * Restaura (desfaz soft-delete) um sistema via `POST /systems/{id}/restore`
+ * (Issue #61, última sub-issue do CRUD da EPIC #45).
+ *
+ * O backend (`SystemsController.RestoreById`) limpa `DeletedAt` via
+ * `IgnoreQueryFilters()` e responde `200 OK` com `{ message: "Sistema
+ * restaurado com sucesso." }`. Diferente de `createSystem`/`updateSystem`,
+ * o corpo da resposta **não** é um `SystemDto` — é um envelope simples
+ * `{ message }` que descartamos. A UI faz refetch para sincronizar a
+ * lista (idêntico ao padrão do `deleteSystem`), então retornamos `void`.
+ *
+ * Lança `ApiError` em qualquer falha:
+ *
+ * - `kind: 'http'` com `status === 404` → sistema inexistente **ou** já
+ *   ativo (o backend devolve 404 com mensagem específica em ambos os
+ *   casos: filtro `DeletedAt != null` no `WHERE`). A UI fecha o modal,
+ *   dispara toast e força refetch — o registro foi mexido por outra
+ *   sessão entre a abertura do modal e o submit, ou nem existe.
+ * - `kind: 'http'` com `status === 401` → sessão expirada; cliente HTTP
+ *   já lidou com `onUnauthorized`. UI mantém-se silenciosa além do toast.
+ * - `kind: 'http'` com `status === 403` → falta permissão
+ *   `AUTH_V1_SYSTEMS_RESTORE`; toast vermelho com mensagem do backend.
+ * - `kind: 'network'`/outros → toast vermelho genérico.
+ *
+ * Não há type guard de resposta porque `{ message }` é descartado —
+ * `client.post<void>` resolve com o body como `unknown` e ignoramos.
+ * Caso o backend evolua para devolver `SystemResponse` no futuro, basta
+ * ajustar este wrapper para validar com `isSystemDto` e atualizar o
+ * tipo de retorno.
+ *
+ * Recebe `BodyRequestOptions` (com `signal`) por simetria com `createSystem`/
+ * `updateSystem` — `POST` é tratado como mutação com corpo no cliente
+ * HTTP, ainda que aqui não enviemos payload. Passamos `undefined` como
+ * body para que o backend receba uma requisição vazia.
+ *
+ * O parâmetro `client` é injetável para isolar testes (passa-se um stub
+ * tipado como `ApiClient`); em produção usa-se o singleton `apiClient`.
+ */
+export async function restoreSystem(
+  id: string,
+  options?: BodyRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<void> {
+  await client.post<void>(`/systems/${id}/restore`, undefined, options);
+}
+
+/**
  * Constrói o body para `POST /systems` e `PUT /systems/{id}` aplicando
  * trim defensivo nos campos. Description vazia depois de trim vira
  * `undefined` para que o serializador omita o campo (backend converte
