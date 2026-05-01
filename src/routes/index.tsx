@@ -103,6 +103,14 @@ export const AppRoutes: React.FC = () => (
         }
       />
       <Route
+        path="/systems/:systemId/roles"
+        element={
+          <RequirePermission code="AUTH_V1_ROLES_LIST">
+            <RolesPage />
+          </RequirePermission>
+        }
+      />
+      <Route
         path="/routes"
         element={
           <RequirePermission code="AUTH_V1_SYSTEMS_ROUTES_LIST">
@@ -118,7 +126,11 @@ export const AppRoutes: React.FC = () => (
         path="/roles"
         element={
           <RequirePermission code="AUTH_V1_ROLES_LIST">
-            <RolesPage />
+            <PlaceholderPage
+              eyebrow="03 Roles"
+              title="Gerenciamento de Roles"
+              desc="Roles agrupam permissões e podem ser atribuídas a usuários do sistema. Para listar as roles de um sistema específico, abra o sistema correspondente."
+            />
           </RequirePermission>
         }
       />

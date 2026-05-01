@@ -62,8 +62,18 @@ const ROUTE_CODES: ReadonlyArray<RouteCodeEntry> = [
   // intencional para preservar o invariante "um routeCode por linha"
   // exigido pelos testes de sanidade.
   { pattern: '/systems/:id/routes', routeCode: 'AUTH_V1_SYSTEMS_ROUTES_LIST' },
+  // Issue #66 (EPIC #47): listagem de roles escopada a um sistema.
+  // Mesma decisão da Issue #62 — `/systems/:id/roles` é o caminho
+  // canônico cadastrado pelo `AuthenticatorRoutesSeeder` para
+  // `AUTH_V1_ROLES_LIST`. A página global `/roles` é placeholder
+  // herdado da fundação (#43) e fica fora desta tabela enquanto
+  // existir, para preservar o invariante "um routeCode por linha"
+  // exigido pelos testes de sanidade — `resolveRouteCode('/roles')`
+  // devolve `null` e o `RequireAuth` pula o `verify-token`. O
+  // ordenamento garante que `/systems/:id/roles` vença `/systems`
+  // no `matchPath` (mesmo motivo da regra de routes).
+  { pattern: '/systems/:id/roles', routeCode: 'AUTH_V1_ROLES_LIST' },
   { pattern: '/systems', routeCode: 'AUTH_V1_SYSTEMS_LIST' },
-  { pattern: '/roles', routeCode: 'AUTH_V1_ROLES_LIST' },
   { pattern: '/permissions', routeCode: 'AUTH_V1_PERMISSIONS_LIST' },
   { pattern: '/users', routeCode: 'AUTH_V1_USERS_LIST' },
   { pattern: '/tokens', routeCode: 'AUTH_V1_TOKEN_TYPES_LIST' },

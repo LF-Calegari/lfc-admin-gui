@@ -1,165 +1,439 @@
-import { Plus, MoreHorizontal } from 'lucide-react';
-import React from 'react';
-import styled from 'styled-components';
+import { ArrowLeft } from "lucide-react";
+import React, { useCallback, useMemo, useState } from "react";
+import { useParams } from "react-router-dom";
 
-import { PageHeader } from '../components/layout/PageHeader';
-import { Button, Badge } from '../components/ui';
+import { PageHeader } from "../components/layout/PageHeader";
+import {
+  Alert,
+  Button,
+  Table,
+} from "../components/ui";
+import { useDebouncedValue } from "../hooks/useDebouncedValue";
+import { usePaginatedFetch } from "../hooks/usePaginatedFetch";
+import { usePaginationControls } from "../hooks/usePaginationControls";
+import {
+  DEFAULT_ROLES_INCLUDE_DELETED,
+  DEFAULT_ROLES_PAGE,
+  DEFAULT_ROLES_PAGE_SIZE,
+  listRoles,
+} from "../shared/api";
+import {
+  BackLink,
+  CardCode,
+  CardDescription,
+  CardHeader,
+  CardListForMobile,
+  CardMeta,
+  CardMetaTerm,
+  CardMetaValue,
+  CardName,
+  DescriptionCell,
+  EmptyHint,
+  EmptyMessage,
+  EmptyTitle,
+  EntityCard,
+  ErrorRetryBlock,
+  InitialLoadingSpinner,
+  InvalidIdNotice,
+  ListingToolbar,
+  LiveRegion,
+  Mono,
+  PaginationFooter,
+  Placeholder,
+  RefetchOverlay,
+  StatusBadge,
+  TableForDesktop,
+  TableShell,
+  useListingLiveMessage,
+} from "../shared/listing";
 
-interface RoleItem {
-  name: string;
-  users: number;
-  perms: number;
-  desc: string;
-  system: string;
-}
-
-const AUTHENTICATOR_SYSTEM = 'lfc-authenticator';
-
-const ROLES: RoleItem[] = [
-  { name: 'root',    users: 2,  perms: 12, desc: 'Acesso irrestrito a todos os sistemas',          system: '—' },
-  { name: 'admin',   users: 6,  perms: 8,  desc: 'Gerenciamento de usuários e permissões',         system: AUTHENTICATOR_SYSTEM },
-  { name: 'editor',  users: 14, perms: 5,  desc: 'Criar e editar recursos, sem deletar',           system: AUTHENTICATOR_SYSTEM },
-  { name: 'viewer',  users: 32, perms: 2,  desc: 'Leitura apenas',                                 system: AUTHENTICATOR_SYSTEM },
-  { name: 'default', users: 1,  perms: 3,  desc: 'Role de fallback para usuários legados',         system: '—' },
-];
+import type { TableColumn } from "../components/ui";
+import type { ApiClient, RoleDto, SafeRequestOptions } from "../shared/api";
 
 /**
- * Em mobile permitimos `overflow-x: auto` para que tabelas largas
- * mantenham todas as colunas sem espremer texto; o container restringe o
- * scroll ao card e impede que ele afete o layout principal.
+ * Atraso entre a última tecla e o disparo da request de busca. 300 ms é
+ * o ponto de equilíbrio observado em UIs administrativas: rápido o
+ * suficiente para parecer instantâneo, lento o suficiente para que uma
+ * digitação fluida não dispare 1 request por caractere. Espelha o valor
+ * usado pela `RoutesPage`/`SystemsPage`.
  */
-const TableWrap = styled.div`
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  background: var(--bg-surface);
-`;
+const SEARCH_DEBOUNCE_MS = 300;
 
-const Table = styled.table`
-  width: 100%;
-  min-width: 640px;
-  border-collapse: collapse;
-  font-size: 13.5px;
+interface RolesPageProps {
+  /**
+   * Cliente HTTP injetável para isolar testes. Em produção, omitido — a
+   * página usa o singleton `apiClient` por trás de `listRoles`. Em
+   * testes, o caller passa um stub tipado.
+   */
+  client?: ApiClient;
+}
 
-  @media (min-width: 48em) {
-    min-width: 0;
+/**
+ * Heurística leve para descartar `:systemId` claramente inválido antes
+ * de bater no backend — evita request desperdiçada e produz feedback
+ * imediato ("ID inválido"). Aceita qualquer string não-vazia com pelo
+ * menos um caractere não-whitespace, deixando a validação rigorosa
+ * (UUID v4) a cargo do backend. Espelha `RoutesPage` (lição PR #128 —
+ * shared helpers desde o primeiro PR do recurso).
+ */
+function isProbablyValidSystemId(value: string | undefined): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+/**
+ * Renderiza a célula de descrição truncando textos longos via
+ * `text-overflow: ellipsis`. **Hoje** o backend não devolve
+ * `description` em `RoleResponse` (TODO no model `AppRole` — ver
+ * `src/shared/api/roles.ts`), então a coluna tipicamente exibe "—".
+ * Quando o backend evoluir, a UI mostra automaticamente sem mudar
+ * código.
+ *
+ * Reusado tanto pela tabela desktop quanto pelos cards mobile —
+ * centralizar evita duplicação visual.
+ */
+function renderDescription(row: RoleDto): React.ReactNode {
+  if (
+    row.description === null ||
+    row.description === undefined ||
+    row.description.trim().length === 0
+  ) {
+    return <Placeholder>—</Placeholder>;
   }
+  return (
+    <DescriptionCell title={row.description}>{row.description}</DescriptionCell>
+  );
+}
 
-  thead {
-    background: var(--bg-elevated);
+/**
+ * Renderiza a contagem de permissões/usuários da role. **Hoje** o
+ * backend não devolve esses campos (TODO documentado no DTO); a UI
+ * exibe "—" enquanto o valor for `null`/`undefined`. Quando o
+ * backend ganhar `permissionsCount`/`usersCount`, a UI passa a
+ * exibir o número formatado sem mudar a página.
+ *
+ * Centralizado em função pura para reuso entre tabela desktop e
+ * cards mobile.
+ */
+function renderCount(value: number | null | undefined): React.ReactNode {
+  if (typeof value !== "number") {
+    return <Placeholder>—</Placeholder>;
   }
+  return <Mono>{value}</Mono>;
+}
 
-  th {
-    padding: 11px 18px;
-    text-align: left;
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    font-weight: var(--weight-semibold);
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--fg3);
-    border-bottom: 1px solid var(--border-subtle);
-  }
+export const RolesPage: React.FC<RolesPageProps> = ({ client }) => {
+  // `useParams` devolve `string | undefined` — nunca lançamos: rota
+  // sem `:systemId` pinta o `InvalidIdNotice` no lugar da listagem.
+  const { systemId } = useParams<{ systemId: string }>();
+  const hasValidSystemId = isProbablyValidSystemId(systemId);
 
-  tbody tr {
-    border-bottom: 1px solid var(--border-subtle);
-    transition: background 100ms;
+  // Termo digitado pelo usuário em tempo real (input controlado).
+  const [searchTerm, setSearchTerm] = useState<string>("");
+  const debouncedSearch = useDebouncedValue(searchTerm, SEARCH_DEBOUNCE_MS);
 
-    &:last-child {
-      border-bottom: none;
+  const [includeDeleted, setIncludeDeleted] = useState<boolean>(
+    DEFAULT_ROLES_INCLUDE_DELETED,
+  );
+  const [page, setPage] = useState<number>(DEFAULT_ROLES_PAGE);
+
+  /**
+   * Reseta a página para 1 sempre que muda um filtro/busca — evita o
+   * caso "estou na página 5 com 100 itens, busco 'auth' que filtra para
+   * 3 itens, mas continuo na página 5 vazia". Espelha `RoutesPage`.
+   */
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchTerm(value);
+    setPage(DEFAULT_ROLES_PAGE);
+  }, []);
+
+  const handleClearSearch = useCallback(() => {
+    setSearchTerm("");
+    setPage(DEFAULT_ROLES_PAGE);
+  }, []);
+
+  const handleIncludeDeletedChange = useCallback((value: boolean) => {
+    setIncludeDeleted(value);
+    setPage(DEFAULT_ROLES_PAGE);
+  }, []);
+
+  /**
+   * `fetcher` memoizado para o `usePaginatedFetch`: capture os params
+   * derivados e devolva uma função que aceita `signal` no `options`.
+   * Skipa montar params quando `:systemId` é inválido — o hook
+   * recebe `skip: true` e nem chama o `fetcher`.
+   */
+  const trimmedSearchInput = debouncedSearch.trim();
+  const fetcher = useCallback(
+    (options: SafeRequestOptions) =>
+      listRoles(
+        {
+          systemId: hasValidSystemId ? systemId : "",
+          q: trimmedSearchInput.length > 0 ? trimmedSearchInput : undefined,
+          page,
+          pageSize: DEFAULT_ROLES_PAGE_SIZE,
+          includeDeleted,
+        },
+        options,
+        client,
+      ),
+    [
+      client,
+      hasValidSystemId,
+      includeDeleted,
+      page,
+      systemId,
+      trimmedSearchInput,
+    ],
+  );
+
+  const {
+    rows,
+    pageSize: appliedPageSize,
+    total,
+    isInitialLoading,
+    isFetching,
+    errorMessage,
+    refetch: handleRefetch,
+  } = usePaginatedFetch<RoleDto>({
+    fetcher,
+    fallbackErrorMessage:
+      "Falha ao carregar a lista de roles. Tente novamente.",
+    skip: !hasValidSystemId,
+  });
+
+  const {
+    totalPages,
+    isFirstPage,
+    isLastPage,
+    handlePrevPage,
+    handleNextPage,
+  } = usePaginationControls({
+    total,
+    appliedPageSize,
+    defaultPageSize: DEFAULT_ROLES_PAGE_SIZE,
+    page,
+    setPage,
+  });
+
+  const trimmedSearch = debouncedSearch.trim();
+  const hasActiveSearch = trimmedSearch.length > 0;
+
+  /**
+   * Decide qual mensagem renderizar quando `rows` está vazio:
+   *
+   * - Vazio com busca ativa → cita o termo + sugere limpar.
+   * - Vazio sem busca → "nenhuma role cadastrada" + dica sobre o toggle
+   *   "Mostrar inativas" caso esteja desligado.
+   */
+  const emptyContent = useMemo<React.ReactNode>(() => {
+    if (hasActiveSearch) {
+      return (
+        <EmptyMessage>
+          <EmptyTitle>
+            Nenhuma role encontrada para <Mono>{trimmedSearch}</Mono>.
+          </EmptyTitle>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleClearSearch}
+            data-testid="roles-empty-clear"
+          >
+            Limpar busca
+          </Button>
+        </EmptyMessage>
+      );
     }
+    return (
+      <EmptyMessage>
+        <EmptyTitle>Nenhuma role cadastrada para este sistema.</EmptyTitle>
+        {!includeDeleted && (
+          <EmptyHint>
+            Roles removidas podem ser visualizadas ativando &quot;Mostrar
+            inativas&quot;.
+          </EmptyHint>
+        )}
+      </EmptyMessage>
+    );
+  }, [handleClearSearch, hasActiveSearch, includeDeleted, trimmedSearch]);
 
-    &:hover {
-      background: var(--bg-elevated);
-    }
+  const columns = useMemo<ReadonlyArray<TableColumn<RoleDto>>>(
+    () => [
+      {
+        key: "name",
+        label: "Nome",
+        render: (row) => row.name,
+      },
+      {
+        key: "description",
+        label: "Descrição",
+        render: renderDescription,
+      },
+      {
+        key: "permissionsCount",
+        label: "Permissões",
+        width: "140px",
+        render: (row) => renderCount(row.permissionsCount),
+      },
+      {
+        key: "usersCount",
+        label: "Usuários",
+        width: "120px",
+        render: (row) => renderCount(row.usersCount),
+      },
+      {
+        key: "status",
+        label: "Status",
+        width: "120px",
+        render: (row) => <StatusBadge deletedAt={row.deletedAt} />,
+      },
+    ],
+    [],
+  );
+
+  const showOverlay = isFetching && !isInitialLoading;
+
+  // ARIA-live: anuncia o estado da listagem quando muda. Em loading
+  // subsequente, anunciamos "Atualizando..."; em sucesso, anunciamos o
+  // total. Em erro, o `<Alert role="alert">` já cobre. O hook
+  // `useListingLiveMessage` centraliza a árvore de decisão (lição
+  // PR #134/#135 — bloco duplicado entre listagens reprovou Sonar).
+  const liveMessage = useListingLiveMessage({
+    isInitialLoading,
+    isFetching,
+    errorMessage,
+    total,
+    page,
+    totalPages,
+    hasActiveSearch,
+    trimmedSearch,
+    copy: {
+      singular: "role",
+      pluralCarregando: "roles",
+      vazioSemBusca: "Nenhuma role cadastrada para este sistema.",
+    },
+  });
+
+  if (!hasValidSystemId) {
+    return (
+      <>
+        <BackLink to="/systems" data-testid="roles-back">
+          <ArrowLeft size={12} strokeWidth={1.75} aria-hidden="true" />
+          Voltar para Sistemas
+        </BackLink>
+        <PageHeader
+          eyebrow="03 Roles"
+          title="Roles do sistema"
+          desc="Selecione um sistema para visualizar suas roles."
+        />
+        <InvalidIdNotice data-testid="roles-invalid-id">
+          <Alert variant="warning">
+            ID de sistema ausente ou inválido na URL. Volte para a listagem de
+            sistemas e selecione um sistema para visualizar suas roles.
+          </Alert>
+        </InvalidIdNotice>
+      </>
+    );
   }
 
-  td {
-    padding: 12px 18px;
-    color: var(--fg2);
-    vertical-align: middle;
+  return (
+    <>
+      <BackLink to="/systems" data-testid="roles-back">
+        <ArrowLeft size={12} strokeWidth={1.75} aria-hidden="true" />
+        Voltar para Sistemas
+      </BackLink>
+      <PageHeader
+        eyebrow="03 Roles"
+        title="Roles do sistema"
+        desc="Roles agrupam permissões e podem ser atribuídas a usuários do sistema selecionado. Cada role expõe nome, descrição e contagem de permissões/usuários."
+      />
 
-    &:first-child {
-      color: var(--fg1);
-      font-weight: var(--weight-medium);
-    }
-  }
-`;
+      <ListingToolbar
+        searchValue={searchTerm}
+        onSearchChange={handleSearchChange}
+        searchPlaceholder="Nome ou código da role"
+        searchAriaLabel="Buscar roles por nome ou código"
+        searchTestId="roles-search"
+        includeDeletedValue={includeDeleted}
+        onIncludeDeletedChange={handleIncludeDeletedChange}
+        includeDeletedHelperText="Inclui roles com remoção lógica."
+        includeDeletedTestId="roles-include-deleted"
+      />
 
-const MonoMuted = styled.span`
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--fg3);
-`;
+      <LiveRegion message={liveMessage} testId="roles-live" />
 
-const Mono = styled.span`
-  font-family: var(--font-mono);
-  font-size: 12px;
-`;
+      {isInitialLoading && (
+        <InitialLoadingSpinner testId="roles-loading" label="Carregando roles" />
+      )}
 
-const IconBtn = styled.button`
-  appearance: none;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  width: 28px;
-  height: 28px;
-  cursor: pointer;
-  color: var(--fg3);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+      {!isInitialLoading && errorMessage && (
+        <ErrorRetryBlock
+          message={errorMessage}
+          onRetry={handleRefetch}
+          retryTestId="roles-retry"
+        />
+      )}
 
-  &:hover {
-    background: var(--bg-elevated);
-    color: var(--fg1);
-    border-color: var(--border-subtle);
-  }
+      {!isInitialLoading && !errorMessage && (
+        <TableShell>
+          <TableForDesktop>
+            <Table<RoleDto>
+              caption="Lista de roles do sistema selecionado."
+              columns={columns}
+              data={rows}
+              getRowKey={(row) => row.id}
+              emptyState={emptyContent}
+            />
+          </TableForDesktop>
+          <CardListForMobile
+            role="list"
+            aria-label="Lista de roles do sistema selecionado"
+            data-testid="roles-card-list"
+          >
+            {rows.length === 0 && emptyContent}
+            {rows.map((row) => (
+              <EntityCard
+                key={row.id}
+                role="listitem"
+                tabIndex={0}
+                data-testid={`roles-card-${row.id}`}
+              >
+                <CardHeader>
+                  <CardCode>{row.code}</CardCode>
+                  <StatusBadge deletedAt={row.deletedAt} />
+                </CardHeader>
+                <CardName>{row.name}</CardName>
+                {row.description !== null &&
+                  row.description !== undefined &&
+                  row.description.trim().length > 0 && (
+                    <CardDescription>{row.description}</CardDescription>
+                  )}
+                <CardMeta>
+                  <CardMetaTerm>Permissões</CardMetaTerm>
+                  <CardMetaValue>{renderCount(row.permissionsCount)}</CardMetaValue>
+                  <CardMetaTerm>Usuários</CardMetaTerm>
+                  <CardMetaValue>{renderCount(row.usersCount)}</CardMetaValue>
+                </CardMeta>
+              </EntityCard>
+            ))}
+          </CardListForMobile>
+          {showOverlay && <RefetchOverlay testId="roles-overlay" />}
+        </TableShell>
+      )}
 
-  &:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-  }
-`;
-
-export const RolesPage: React.FC = () => (
-  <>
-    <PageHeader
-      eyebrow="03 Roles"
-      title="Gerenciamento de Roles"
-      desc="Roles agrupam permissões e podem ser atribuídas a usuários. Permissões diretas sobrescrevem as da role."
-      actions={<Button variant="primary" icon={<Plus size={14} strokeWidth={1.5} />}>Nova role</Button>}
-    />
-    <TableWrap>
-      <Table>
-        <thead>
-          <tr>
-            <th>Role</th>
-            <th>Sistema</th>
-            <th>Permissões</th>
-            <th>Usuários</th>
-            <th>Descrição</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {ROLES.map(r => (
-            <tr key={r.name}>
-              <td><Badge variant="neutral">{r.name}</Badge></td>
-              <td><MonoMuted>{r.system}</MonoMuted></td>
-              <td><Mono>{r.perms} permissões</Mono></td>
-              <td><Mono>{r.users}</Mono></td>
-              <td>{r.desc}</td>
-              <td>
-                <IconBtn aria-label="Mais opções">
-                  <MoreHorizontal size={14} strokeWidth={1.5} />
-                </IconBtn>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </Table>
-    </TableWrap>
-  </>
-);
+      {!isInitialLoading && !errorMessage && total > 0 && (
+        <PaginationFooter
+          page={page}
+          totalPages={totalPages}
+          total={total}
+          isFirstPage={isFirstPage}
+          isLastPage={isLastPage}
+          onPrev={handlePrevPage}
+          onNext={handleNextPage}
+          pageInfoTestId="roles-page-info"
+          prevTestId="roles-prev"
+          nextTestId="roles-next"
+        />
+      )}
+    </>
+  );
+};

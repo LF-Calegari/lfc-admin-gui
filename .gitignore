@@ -271,3 +271,7 @@ $RECYCLE.BIN/
 
 # CI artifacts
 audit-report.json
+
+# jscpd reports (gerados pelo gate pré-PR; nunca commitados)
+jscpd-report/
+jscpd-report-base/

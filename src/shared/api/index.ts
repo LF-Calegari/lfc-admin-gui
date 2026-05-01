@@ -106,6 +106,23 @@ export type {
   UpdateRoutePayload,
 } from './routes';
 export {
+  createRole,
+  DEFAULT_ROLES_INCLUDE_DELETED,
+  DEFAULT_ROLES_PAGE,
+  DEFAULT_ROLES_PAGE_SIZE,
+  deleteRole,
+  isPagedRolesResponse,
+  isRoleDto,
+  listRoles,
+  updateRole,
+} from './roles';
+export type {
+  CreateRolePayload,
+  ListRolesParams,
+  RoleDto,
+  UpdateRolePayload,
+} from './roles';
+export {
   isTokenTypeArray,
   isTokenTypeDto,
   listTokenTypes,
