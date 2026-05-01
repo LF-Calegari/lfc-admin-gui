@@ -1,25 +1,17 @@
 import {
   ArrowLeft,
-  ChevronLeft,
-  ChevronRight,
   Pencil,
   Plus,
-  RotateCcw,
-  Search,
   Trash2,
 } from "lucide-react";
 import React, { useCallback, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import styled from "styled-components";
+import { useParams } from "react-router-dom";
 
 import { PageHeader } from "../components/layout/PageHeader";
 import {
   Alert,
   Badge,
   Button,
-  Input,
-  Spinner,
-  Switch,
   Table,
 } from "../components/ui";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
@@ -32,6 +24,36 @@ import {
   listRoutes,
 } from "../shared/api";
 import { useAuth } from "../shared/auth";
+import {
+  BackLink,
+  CardCode,
+  CardDescription,
+  CardHeader,
+  CardListForMobile,
+  CardMeta,
+  CardMetaTerm,
+  CardMetaValue,
+  CardName,
+  DescriptionCell,
+  EmptyHint,
+  EmptyMessage,
+  EmptyTitle,
+  EntityCard,
+  ErrorRetryBlock,
+  InitialLoadingSpinner,
+  InvalidIdNotice,
+  ListingToolbar,
+  LiveRegion,
+  Mono,
+  PaginationFooter,
+  Placeholder,
+  RefetchOverlay,
+  RowActions,
+  StatusBadge,
+  TableForDesktop,
+  TableShell,
+  useListingLiveMessage,
+} from "../shared/listing";
 
 import { DeleteRouteConfirm } from "./routes/DeleteRouteConfirm";
 import { EditRouteModal } from "./routes/EditRouteModal";
@@ -103,293 +125,13 @@ interface RoutesPageProps {
 
 /* ─── Styled primitives ──────────────────────────────────── */
 
-const BackLink = styled(Link)`
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  margin-bottom: var(--space-3);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  text-decoration: none;
-  letter-spacing: var(--tracking-wider);
-  text-transform: uppercase;
-  border-radius: var(--radius-sm);
-  padding: 2px 4px;
-  margin-left: -4px;
-
-  &:hover {
-    color: var(--fg2);
-  }
-
-  &:focus-visible {
-    outline: var(--border-thick) solid var(--accent);
-    outline-offset: 2px;
-  }
-`;
-
-const Toolbar = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  margin-bottom: var(--space-5);
-
-  @media (min-width: 48em) {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-6);
-  }
-`;
-
-const SearchSlot = styled.div`
-  width: 100%;
-
-  @media (min-width: 48em) {
-    max-width: 360px;
-    flex: 1;
-  }
-`;
-
-const ToolbarActions = styled.div`
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: var(--space-3);
-
-  @media (min-width: 48em) {
-    flex-direction: row;
-    align-items: center;
-    gap: var(--space-4);
-  }
-`;
-
-const TableShell = styled.div`
-  position: relative;
-`;
-
-/**
- * Visibilidade da `Table` (desktop) e do bloco de cards (mobile). A
- * `Table` do design system é HTML semântico — em mobile fica oculta para
- * favorecer a leitura em coluna única via cards (critério da issue
- * "quebra responsiva mostra cards"). O switch acontece em
- * `--bp-md` (48em ≈ 768px), espelhando o breakpoint usado no resto do
- * shell.
- */
-const TableForDesktop = styled.div`
-  display: none;
-
-  @media (min-width: 48em) {
-    display: block;
-  }
-`;
-
-const CardListForMobile = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-
-  @media (min-width: 48em) {
-    display: none;
-  }
-`;
-
-/**
- * Card individual da listagem mobile. Mantém os mesmos campos da tabela
- * (código, descrição, política JWT alvo, status) com hierarquia tipográfica
- * dedicada — o monoespaçado destaca o `code`, a descrição segue em
- * parágrafo legível e o token type aparece como Badge pequeno.
- */
-const RouteCard = styled.article`
-  border: var(--border-thin) solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  background: var(--bg-surface);
-  padding: var(--space-4);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  transition: background var(--duration-fast) var(--ease-default);
-
-  &:hover {
-    background: var(--bg-ghost-hover);
-  }
-
-  &:focus-visible {
-    outline: var(--border-thick) solid var(--accent);
-    outline-offset: 2px;
-  }
-`;
-
-const CardHeader = styled.header`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-`;
-
-const CardCode = styled.span`
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  color: var(--fg1);
-  font-weight: var(--weight-medium);
-  word-break: break-word;
-`;
-
-const CardName = styled.h3`
-  font-size: var(--text-md);
-  font-weight: var(--weight-semibold);
-  color: var(--fg1);
-  margin: 0;
-  letter-spacing: -0.01em;
-`;
-
-const CardDescription = styled.p`
-  margin: 0;
-  font-size: var(--text-sm);
-  color: var(--fg2);
-  line-height: var(--leading-base);
-`;
-
-const CardMeta = styled.dl`
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: var(--space-1) var(--space-3);
-  margin: 0;
-  font-size: var(--text-xs);
-`;
-
-const CardMetaTerm = styled.dt`
-  font-family: var(--font-mono);
-  color: var(--text-muted);
-  letter-spacing: var(--tracking-wider);
-  text-transform: uppercase;
-`;
-
-const CardMetaValue = styled.dd`
-  margin: 0;
-  font-family: var(--font-mono);
-  color: var(--fg2);
-  word-break: break-word;
-`;
-
-/**
- * Overlay leve aplicado em cima da listagem durante refetches subsequentes
- * (busca/paginação/toggle). Mantém os dados anteriores visíveis para
- * evitar flicker enquanto sinaliza atividade — o spinner ancorado ao
- * topo deixa claro que algo está em curso sem mover a tabela. Espelha o
- * padrão da `SystemsPage`.
- */
-const Overlay = styled.div`
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: var(--space-6);
-  background: color-mix(in srgb, var(--bg-base) 55%, transparent);
-  border-radius: var(--radius-lg);
-  pointer-events: none;
-  z-index: 1;
-`;
-
-const InitialLoading = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-12) 0;
-`;
-
-const ErrorBlock = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  align-items: flex-start;
-`;
-
-const FootBar = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  align-items: stretch;
-  margin-top: var(--space-5);
-
-  @media (min-width: 48em) {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-  }
-`;
-
-const PageInfo = styled.span`
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  letter-spacing: var(--tracking-wider);
-`;
-
-const PageNav = styled.div`
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-`;
-
-const EmptyMessage = styled.div`
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-3) 0;
-`;
-
-const EmptyTitle = styled.span`
-  font-size: var(--text-sm);
-  color: var(--fg2);
-`;
-
-const EmptyHint = styled.span`
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-`;
-
-const Mono = styled.span`
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--fg2);
-`;
-
-const DescriptionCell = styled.span`
-  display: inline-block;
-  max-width: 36ch;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--fg2);
-`;
-
-const Placeholder = styled.span`
-  color: var(--text-muted);
-  font-style: italic;
-`;
-
-/**
- * Wrapper das ações por linha (botão "Editar" — Issue #64; futuras
- * "Desativar"/"Restaurar" #65). Mantém os botões alinhados à direita e
- * permite múltiplas ações sem remontar o layout. Espelha
- * `RowActions` em `SystemsPage.tsx` — mesma semântica e tokens.
- */
-const RowActions = styled.div`
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  justify-content: flex-end;
-`;
-
-const InvalidIdNotice = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  align-items: flex-start;
-`;
+// Primitives genéricos (`BackLink`, `Toolbar`, `SearchSlot`,
+// `TableShell`, `Overlay`, `EntityCard`, etc.) vivem em
+// `src/shared/listing` desde a Issue #66 — Sonar tokeniza CSS-in-JS
+// como blocos de texto e marca duplicação quando os mesmos templates
+// literais aparecem em arquivos diferentes (lição PR #134/#135).
+// Aqui ficam apenas os styled específicos do domínio "Routes". Hoje
+// não há nenhum — o ex-`RouteCard` é o `EntityCard` compartilhado.
 
 /* ─── Helpers ─────────────────────────────────────────────── */
 
@@ -671,16 +413,7 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
         key: "status",
         label: "Status",
         width: "120px",
-        render: (row) =>
-          row.deletedAt ? (
-            <Badge variant="danger" dot>
-              Inativa
-            </Badge>
-          ) : (
-            <Badge variant="success" dot>
-              Ativa
-            </Badge>
-          ),
+        render: (row) => <StatusBadge deletedAt={row.deletedAt} />,
       },
     ];
 
@@ -749,27 +482,24 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
 
   // ARIA-live: anuncia o estado da listagem quando muda. Em loading
   // subsequente, anunciamos "Atualizando..."; em sucesso, anunciamos o
-  // total. Em erro, o `<Alert role="alert">` já cobre.
-  const liveMessage = useMemo<string>(() => {
-    if (isInitialLoading) return "Carregando lista de rotas.";
-    if (isFetching) return "Atualizando lista de rotas.";
-    if (errorMessage) return "";
-    if (total === 0) {
-      return hasActiveSearch
-        ? `Nenhuma rota encontrada para ${trimmedSearch}.`
-        : "Nenhuma rota cadastrada para este sistema.";
-    }
-    return `${total} rota(s) encontrada(s). Página ${page} de ${totalPages}.`;
-  }, [
-    total,
-    errorMessage,
-    hasActiveSearch,
-    isFetching,
+  // total. Em erro, o `<Alert role="alert">` já cobre. O hook
+  // `useListingLiveMessage` centraliza a árvore de decisão (lição
+  // PR #134/#135 — bloco duplicado entre listagens reprovou Sonar).
+  const liveMessage = useListingLiveMessage({
     isInitialLoading,
+    isFetching,
+    errorMessage,
+    total,
     page,
     totalPages,
+    hasActiveSearch,
     trimmedSearch,
-  ]);
+    copy: {
+      singular: "rota",
+      pluralCarregando: "rotas",
+      vazioSemBusca: "Nenhuma rota cadastrada para este sistema.",
+    },
+  });
 
   if (!hasValidSystemId) {
     return (
@@ -805,28 +535,18 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
         desc="Endpoints registrados pelo sistema selecionado. Cada rota possui código, descrição e política JWT alvo."
       />
 
-      <Toolbar>
-        <SearchSlot>
-          <Input
-            label="Buscar"
-            type="search"
-            placeholder="Código da rota"
-            icon={<Search size={14} strokeWidth={1.5} />}
-            value={searchTerm}
-            onChange={handleSearchChange}
-            aria-label="Buscar rotas por código"
-            data-testid="routes-search"
-          />
-        </SearchSlot>
-        <ToolbarActions>
-          <Switch
-            label="Mostrar inativas"
-            helperText="Inclui rotas com remoção lógica."
-            checked={includeDeleted}
-            onChange={handleIncludeDeletedChange}
-            data-testid="routes-include-deleted"
-          />
-          {canCreateRoute && (
+      <ListingToolbar
+        searchValue={searchTerm}
+        onSearchChange={handleSearchChange}
+        searchPlaceholder="Código da rota"
+        searchAriaLabel="Buscar rotas por código"
+        searchTestId="routes-search"
+        includeDeletedValue={includeDeleted}
+        onIncludeDeletedChange={handleIncludeDeletedChange}
+        includeDeletedHelperText="Inclui rotas com remoção lógica."
+        includeDeletedTestId="routes-include-deleted"
+        actions={
+          canCreateRoute && (
             <Button
               variant="primary"
               size="md"
@@ -836,48 +556,22 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
             >
               Nova rota
             </Button>
-          )}
-        </ToolbarActions>
-      </Toolbar>
+          )
+        }
+      />
 
-      <span
-        aria-live="polite"
-        aria-atomic="true"
-        style={{
-          position: "absolute",
-          width: 1,
-          height: 1,
-          padding: 0,
-          margin: -1,
-          overflow: "hidden",
-          clip: "rect(0, 0, 0, 0)",
-          whiteSpace: "nowrap",
-          border: 0,
-        }}
-        data-testid="routes-live"
-      >
-        {liveMessage}
-      </span>
+      <LiveRegion message={liveMessage} testId="routes-live" />
 
       {isInitialLoading && (
-        <InitialLoading data-testid="routes-loading">
-          <Spinner size="lg" label="Carregando rotas" />
-        </InitialLoading>
+        <InitialLoadingSpinner testId="routes-loading" label="Carregando rotas" />
       )}
 
       {!isInitialLoading && errorMessage && (
-        <ErrorBlock>
-          <Alert variant="danger">{errorMessage}</Alert>
-          <Button
-            variant="secondary"
-            size="sm"
-            icon={<RotateCcw size={14} strokeWidth={1.5} />}
-            onClick={handleRefetch}
-            data-testid="routes-retry"
-          >
-            Tentar novamente
-          </Button>
-        </ErrorBlock>
+        <ErrorRetryBlock
+          message={errorMessage}
+          onRetry={handleRefetch}
+          retryTestId="routes-retry"
+        />
       )}
 
       {!isInitialLoading && !errorMessage && (
@@ -898,7 +592,7 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
           >
             {rows.length === 0 && emptyContent}
             {rows.map((row) => (
-              <RouteCard
+              <EntityCard
                 key={row.id}
                 role="listitem"
                 tabIndex={0}
@@ -906,15 +600,7 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
               >
                 <CardHeader>
                   <CardCode>{row.code}</CardCode>
-                  {row.deletedAt ? (
-                    <Badge variant="danger" dot>
-                      Inativa
-                    </Badge>
-                  ) : (
-                    <Badge variant="success" dot>
-                      Ativa
-                    </Badge>
-                  )}
+                  <StatusBadge deletedAt={row.deletedAt} />
                 </CardHeader>
                 <CardName>{row.name}</CardName>
                 {row.description !== null &&
@@ -957,47 +643,26 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
                       )}
                     </RowActions>
                   )}
-              </RouteCard>
+              </EntityCard>
             ))}
           </CardListForMobile>
-          {showOverlay && (
-            <Overlay aria-hidden="true" data-testid="routes-overlay">
-              <Spinner size="md" label="Atualizando" />
-            </Overlay>
-          )}
+          {showOverlay && <RefetchOverlay testId="routes-overlay" />}
         </TableShell>
       )}
 
       {!isInitialLoading && !errorMessage && total > 0 && (
-        <FootBar>
-          <PageInfo data-testid="routes-page-info">
-            Página {page} de {totalPages} · {total} resultado(s)
-          </PageInfo>
-          <PageNav>
-            <Button
-              variant="secondary"
-              size="sm"
-              icon={<ChevronLeft size={14} strokeWidth={1.5} />}
-              disabled={isFirstPage}
-              onClick={handlePrevPage}
-              aria-label="Ir para a página anterior"
-              data-testid="routes-prev"
-            >
-              Anterior
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              icon={<ChevronRight size={14} strokeWidth={1.5} />}
-              disabled={isLastPage}
-              onClick={handleNextPage}
-              aria-label="Ir para a próxima página"
-              data-testid="routes-next"
-            >
-              Próxima
-            </Button>
-          </PageNav>
-        </FootBar>
+        <PaginationFooter
+          page={page}
+          totalPages={totalPages}
+          total={total}
+          isFirstPage={isFirstPage}
+          isLastPage={isLastPage}
+          onPrev={handlePrevPage}
+          onNext={handleNextPage}
+          pageInfoTestId="routes-page-info"
+          prevTestId="routes-prev"
+          nextTestId="routes-next"
+        />
       )}
 
       {canCreateRoute && hasValidSystemId && (

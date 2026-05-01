@@ -1,10 +1,6 @@
 import {
-  ChevronLeft,
-  ChevronRight,
   Pencil,
   Plus,
-  RotateCcw,
-  Search,
   Trash2,
   Undo2,
 } from 'lucide-react';
@@ -12,7 +8,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import styled from 'styled-components';
 
 import { PageHeader } from '../components/layout/PageHeader';
-import { Alert, Badge, Button, Input, Spinner, Switch, Table } from '../components/ui';
+import { Button, Table } from '../components/ui';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { usePaginatedFetch } from '../hooks/usePaginatedFetch';
 import { usePaginationControls } from '../hooks/usePaginationControls';
@@ -23,6 +19,16 @@ import {
   listSystems,
 } from '../shared/api';
 import { useAuth } from '../shared/auth';
+import {
+  ErrorRetryBlock,
+  InitialLoadingSpinner,
+  ListingToolbar,
+  LiveRegion,
+  PaginationFooter,
+  RefetchOverlay,
+  StatusBadge,
+  useListingLiveMessage,
+} from '../shared/listing';
 
 import { DeleteSystemConfirm } from './systems/DeleteSystemConfirm';
 import { EditSystemModal } from './systems/EditSystemModal';
@@ -105,52 +111,10 @@ interface SystemsPageProps {
 
 /* ─── Styled primitives ──────────────────────────────────── */
 
-const Toolbar = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  margin-bottom: var(--space-5);
-
-  @media (min-width: 48em) {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-6);
-  }
-`;
-
-const SearchSlot = styled.div`
-  width: 100%;
-
-  @media (min-width: 48em) {
-    max-width: 360px;
-    flex: 1;
-  }
-`;
-
-const ToggleSlot = styled.div`
-  display: flex;
-  align-items: center;
-`;
-
-/**
- * Container à direita da Toolbar agrupando o toggle "Mostrar inativos"
- * e o botão "Novo sistema" (gated por permissão). Em viewports estreitos
- * empilha vertical; a partir de 48em alinha em linha mantendo o toggle
- * antes da CTA — leitura natural "filtro → ação".
- */
-const ToolbarActions = styled.div`
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: var(--space-3);
-
-  @media (min-width: 48em) {
-    flex-direction: row;
-    align-items: center;
-    gap: var(--space-4);
-  }
-`;
+// `Toolbar`/`SearchSlot`/`ToolbarActions`/`ToggleSlot` foram movidos
+// para `src/shared/listing/` (Issue #66) — o JSX da página agora
+// consome `<ListingToolbar>` do mesmo módulo, eliminando duplicação
+// Sonar/jscpd entre listagens (lição PR #134/#135).
 
 const TableShell = styled.div`
   position: relative;
@@ -162,59 +126,13 @@ const TableShell = styled.div`
  * evitar flicker enquanto sinaliza atividade — o spinner ancorado ao
  * topo deixa claro que algo está em curso sem mover a tabela.
  */
-const TableOverlay = styled.div`
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: var(--space-6);
-  background: color-mix(in srgb, var(--bg-base) 55%, transparent);
-  border-radius: var(--radius-lg);
-  pointer-events: none;
-  z-index: 1;
-`;
-
-const InitialLoading = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-12) 0;
-`;
-
-const ErrorBlock = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  align-items: flex-start;
-`;
-
-const FootBar = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  align-items: stretch;
-  margin-top: var(--space-5);
-
-  @media (min-width: 48em) {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-  }
-`;
-
-const PageInfo = styled.span`
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  letter-spacing: var(--tracking-wider);
-`;
-
-const PageNav = styled.div`
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-`;
+// `TableOverlay`, `InitialLoading`, `ErrorBlock`, `FootBar`,
+// `PageInfo`, `PageNav` foram movidos para `src/shared/listing/`
+// (Issue #66) — o JSX da página agora consome `<RefetchOverlay>`,
+// `<InitialLoadingSpinner>`, `<ErrorRetryBlock>` e
+// `<PaginationFooter>` do mesmo módulo
+// para eliminar duplicação Sonar/jscpd entre SystemsPage/RoutesPage/
+// RolesPage (lição PR #134/#135).
 
 const EmptyMessage = styled.div`
   display: flex;
@@ -480,16 +398,7 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client, hideStats = fa
         key: 'status',
         label: 'Status',
         width: '140px',
-        render: (row) =>
-          row.deletedAt ? (
-            <Badge variant="danger" dot>
-              Inativo
-            </Badge>
-          ) : (
-            <Badge variant="success" dot>
-              Ativo
-            </Badge>
-          ),
+        render: (row) => <StatusBadge deletedAt={row.deletedAt} gender="m" />,
       },
     ];
 
@@ -572,27 +481,25 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client, hideStats = fa
 
   // ARIA-live: anuncia o estado da tabela quando muda. Em loading
   // subsequente, anunciamos "Atualizando..."; em sucesso, anunciamos
-  // o total. Em erro, o `<Alert role="alert">` já cobre.
-  const liveMessage = useMemo<string>(() => {
-    if (isInitialLoading) return 'Carregando lista de sistemas.';
-    if (isFetching) return 'Atualizando lista de sistemas.';
-    if (errorMessage) return '';
-    if (total === 0) {
-      return hasActiveSearch
-        ? `Nenhum sistema encontrado para ${trimmedSearch}.`
-        : 'Nenhum sistema cadastrado.';
-    }
-    return `${total} sistema(s) encontrado(s). Página ${page} de ${totalPages}.`;
-  }, [
-    total,
-    errorMessage,
-    hasActiveSearch,
-    isFetching,
+  // o total. Em erro, o `<Alert role="alert">` já cobre. O hook
+  // `useListingLiveMessage` centraliza a árvore de decisão (lição
+  // PR #134/#135 — bloco duplicado entre listagens reprovou Sonar).
+  const liveMessage = useListingLiveMessage({
     isInitialLoading,
+    isFetching,
+    errorMessage,
+    total,
     page,
     totalPages,
+    hasActiveSearch,
     trimmedSearch,
-  ]);
+    copy: {
+      singular: 'sistema',
+      pluralCarregando: 'sistemas',
+      vazioSemBusca: 'Nenhum sistema cadastrado.',
+      gender: 'm',
+    },
+  });
 
   return (
     <>
@@ -604,30 +511,18 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client, hideStats = fa
 
       {!hideStats && <SystemsStatsRow refreshKey={statsRefreshKey} client={client} />}
 
-      <Toolbar>
-        <SearchSlot>
-          <Input
-            label="Buscar"
-            type="search"
-            placeholder="Nome ou código do sistema"
-            icon={<Search size={14} strokeWidth={1.5} />}
-            value={searchTerm}
-            onChange={handleSearchChange}
-            aria-label="Buscar sistemas por nome ou código"
-            data-testid="systems-search"
-          />
-        </SearchSlot>
-        <ToolbarActions>
-          <ToggleSlot>
-            <Switch
-              label="Mostrar inativos"
-              helperText="Inclui sistemas com remoção lógica."
-              checked={includeDeleted}
-              onChange={handleIncludeDeletedChange}
-              data-testid="systems-include-deleted"
-            />
-          </ToggleSlot>
-          {canCreateSystem && (
+      <ListingToolbar
+        searchValue={searchTerm}
+        onSearchChange={handleSearchChange}
+        searchPlaceholder="Nome ou código do sistema"
+        searchAriaLabel="Buscar sistemas por nome ou código"
+        searchTestId="systems-search"
+        includeDeletedValue={includeDeleted}
+        onIncludeDeletedChange={handleIncludeDeletedChange}
+        includeDeletedHelperText="Inclui sistemas com remoção lógica."
+        includeDeletedTestId="systems-include-deleted"
+        actions={
+          canCreateSystem && (
             <Button
               variant="primary"
               size="md"
@@ -637,48 +532,22 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client, hideStats = fa
             >
               Novo sistema
             </Button>
-          )}
-        </ToolbarActions>
-      </Toolbar>
+          )
+        }
+      />
 
-      <span
-        aria-live="polite"
-        aria-atomic="true"
-        style={{
-          position: 'absolute',
-          width: 1,
-          height: 1,
-          padding: 0,
-          margin: -1,
-          overflow: 'hidden',
-          clip: 'rect(0, 0, 0, 0)',
-          whiteSpace: 'nowrap',
-          border: 0,
-        }}
-        data-testid="systems-live"
-      >
-        {liveMessage}
-      </span>
+      <LiveRegion message={liveMessage} testId="systems-live" />
 
       {isInitialLoading && (
-        <InitialLoading data-testid="systems-loading">
-          <Spinner size="lg" label="Carregando sistemas" />
-        </InitialLoading>
+        <InitialLoadingSpinner testId="systems-loading" label="Carregando sistemas" />
       )}
 
       {!isInitialLoading && errorMessage && (
-        <ErrorBlock>
-          <Alert variant="danger">{errorMessage}</Alert>
-          <Button
-            variant="secondary"
-            size="sm"
-            icon={<RotateCcw size={14} strokeWidth={1.5} />}
-            onClick={handleRefetch}
-            data-testid="systems-retry"
-          >
-            Tentar novamente
-          </Button>
-        </ErrorBlock>
+        <ErrorRetryBlock
+          message={errorMessage}
+          onRetry={handleRefetch}
+          retryTestId="systems-retry"
+        />
       )}
 
       {!isInitialLoading && !errorMessage && (
@@ -690,44 +559,23 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client, hideStats = fa
             getRowKey={(row) => row.id}
             emptyState={emptyContent}
           />
-          {showOverlay && (
-            <TableOverlay aria-hidden="true" data-testid="systems-overlay">
-              <Spinner size="md" label="Atualizando" />
-            </TableOverlay>
-          )}
+          {showOverlay && <RefetchOverlay testId="systems-overlay" />}
         </TableShell>
       )}
 
       {!isInitialLoading && !errorMessage && total > 0 && (
-        <FootBar>
-          <PageInfo data-testid="systems-page-info">
-            Página {page} de {totalPages} · {total} resultado(s)
-          </PageInfo>
-          <PageNav>
-            <Button
-              variant="secondary"
-              size="sm"
-              icon={<ChevronLeft size={14} strokeWidth={1.5} />}
-              disabled={isFirstPage}
-              onClick={handlePrevPage}
-              aria-label="Ir para a página anterior"
-              data-testid="systems-prev"
-            >
-              Anterior
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              icon={<ChevronRight size={14} strokeWidth={1.5} />}
-              disabled={isLastPage}
-              onClick={handleNextPage}
-              aria-label="Ir para a próxima página"
-              data-testid="systems-next"
-            >
-              Próxima
-            </Button>
-          </PageNav>
-        </FootBar>
+        <PaginationFooter
+          page={page}
+          totalPages={totalPages}
+          total={total}
+          isFirstPage={isFirstPage}
+          isLastPage={isLastPage}
+          onPrev={handlePrevPage}
+          onNext={handleNextPage}
+          pageInfoTestId="systems-page-info"
+          prevTestId="systems-prev"
+          nextTestId="systems-next"
+        />
       )}
 
       {canCreateSystem && (

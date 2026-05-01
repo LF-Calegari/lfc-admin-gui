@@ -24,7 +24,13 @@ const POSITIVE_CASES: ReadonlyArray<ResolveCase> = [
     pathname: '/systems/11111111-1111-1111-1111-111111111111/routes',
     expected: 'AUTH_V1_SYSTEMS_ROUTES_LIST',
   },
-  { pathname: '/roles', expected: 'AUTH_V1_ROLES_LIST' },
+  // Issue #66: a listagem real de roles vive em `/systems/:id/roles` e
+  // resolve para `AUTH_V1_ROLES_LIST`. Mesma ordem importa — pattern
+  // mais específico vence `/systems` no `matchPath`.
+  {
+    pathname: '/systems/11111111-1111-1111-1111-111111111111/roles',
+    expected: 'AUTH_V1_ROLES_LIST',
+  },
   { pathname: '/permissions', expected: 'AUTH_V1_PERMISSIONS_LIST' },
   { pathname: '/users', expected: 'AUTH_V1_USERS_LIST' },
   { pathname: '/tokens', expected: 'AUTH_V1_TOKEN_TYPES_LIST' },
@@ -34,9 +40,10 @@ const POSITIVE_CASES: ReadonlyArray<ResolveCase> = [
  * `/settings` e `/showcase` não têm rota equivalente cadastrada no
  * `AuthenticatorRoutesSeeder` — `resolveRouteCode` devolve `null` e o
  * `RequireAuth` pula a chamada de `verify-token`. Incluímos também
- * `/routes` (Issue #62): a página global continua no `AppRoutes` como
- * placeholder gated apenas client-side, sem entrada própria nesta
- * tabela — a listagem real de rotas vive em `/systems/:id/routes`.
+ * `/routes` (Issue #62) e `/roles` (Issue #66): as páginas globais
+ * continuam no `AppRoutes` como placeholders gated apenas client-side,
+ * sem entrada própria nesta tabela — as listagens reais vivem em
+ * `/systems/:id/routes` e `/systems/:id/roles`.
  */
 const NEGATIVE_CASES: ReadonlyArray<string> = [
   '/',
@@ -47,6 +54,7 @@ const NEGATIVE_CASES: ReadonlyArray<string> = [
   '/settings',
   '/showcase',
   '/routes',
+  '/roles',
   '',
 ];
 

@@ -28,6 +28,9 @@ const ROUTE_TITLES: RouteTitleEntry[] = [
   // primeiro padrão que casar ganha. Sem essa ordem, a Topbar exibiria
   // "Sistemas" na página de listagem de rotas escopada a um sistema.
   { pattern: '/systems/:systemId/routes', title: 'Rotas' },
+  // Issue #66: mesma regra — `/systems/:systemId/roles` precisa vir
+  // ANTES de `/systems`, pelo mesmo motivo do `matchPath` prefix-match.
+  { pattern: '/systems/:systemId/roles', title: 'Roles' },
   { pattern: '/systems', title: 'Sistemas' },
   { pattern: '/routes', title: 'Rotas' },
   { pattern: '/roles', title: 'Roles' },
