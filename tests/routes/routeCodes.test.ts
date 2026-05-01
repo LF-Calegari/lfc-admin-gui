@@ -16,7 +16,14 @@ interface ResolveCase {
 
 const POSITIVE_CASES: ReadonlyArray<ResolveCase> = [
   { pathname: '/systems', expected: 'AUTH_V1_SYSTEMS_LIST' },
-  { pathname: '/routes', expected: 'AUTH_V1_SYSTEMS_ROUTES_LIST' },
+  // Issue #62: a listagem real de rotas vive em `/systems/:id/routes` e
+  // resolve para `AUTH_V1_SYSTEMS_ROUTES_LIST`. A ordem da tabela em
+  // `routeCodes.ts` garante que esse pattern, mais específico, tenha
+  // prioridade sobre `/systems` no `matchPath`.
+  {
+    pathname: '/systems/11111111-1111-1111-1111-111111111111/routes',
+    expected: 'AUTH_V1_SYSTEMS_ROUTES_LIST',
+  },
   { pathname: '/roles', expected: 'AUTH_V1_ROLES_LIST' },
   { pathname: '/permissions', expected: 'AUTH_V1_PERMISSIONS_LIST' },
   { pathname: '/users', expected: 'AUTH_V1_USERS_LIST' },
@@ -26,7 +33,10 @@ const POSITIVE_CASES: ReadonlyArray<ResolveCase> = [
 /**
  * `/settings` e `/showcase` não têm rota equivalente cadastrada no
  * `AuthenticatorRoutesSeeder` — `resolveRouteCode` devolve `null` e o
- * `RequireAuth` pula a chamada de `verify-token`.
+ * `RequireAuth` pula a chamada de `verify-token`. Incluímos também
+ * `/routes` (Issue #62): a página global continua no `AppRoutes` como
+ * placeholder gated apenas client-side, sem entrada própria nesta
+ * tabela — a listagem real de rotas vive em `/systems/:id/routes`.
  */
 const NEGATIVE_CASES: ReadonlyArray<string> = [
   '/',
@@ -36,6 +46,7 @@ const NEGATIVE_CASES: ReadonlyArray<string> = [
   '/rota-inexistente',
   '/settings',
   '/showcase',
+  '/routes',
   '',
 ];
 
