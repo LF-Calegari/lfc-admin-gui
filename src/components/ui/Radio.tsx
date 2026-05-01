@@ -1,6 +1,8 @@
 import React, { useId } from 'react';
 import styled, { css } from 'styled-components';
 
+const DANGER_COLOR = 'var(--danger)';
+
 export type RadioSize = 'sm' | 'md' | 'lg';
 
 interface RadioProps
@@ -63,7 +65,7 @@ const Circle = styled.span<{ $hasError?: boolean }>`
   height: var(--radio-size);
   flex-shrink: 0;
   border: var(--border-medium) solid
-    ${({ $hasError }) => ($hasError ? 'var(--danger)' : 'var(--border-base)')};
+    ${({ $hasError }) => ($hasError ? DANGER_COLOR : 'var(--border-base)')};
   border-radius: var(--radius-full);
   background: var(--bg-elevated);
   display: inline-flex;
@@ -98,12 +100,12 @@ const Circle = styled.span<{ $hasError?: boolean }>`
   ${HiddenInput}:focus-visible + & {
     box-shadow: ${({ $hasError }) =>
       $hasError ? 'var(--focus-ring-danger-soft)' : 'var(--focus-ring-accent)'};
-    border-color: ${({ $hasError }) => ($hasError ? 'var(--danger)' : 'var(--accent)')};
+    border-color: ${({ $hasError }) => ($hasError ? DANGER_COLOR : 'var(--accent)')};
   }
 
   ${Wrapper}:hover ${HiddenInput}:not(:disabled) + & {
     border-color: ${({ $hasError }) =>
-      $hasError ? 'var(--danger)' : 'var(--border-soft-forest)'};
+      $hasError ? DANGER_COLOR : 'var(--border-soft-forest)'};
   }
 `;
 
@@ -123,7 +125,7 @@ const LabelText = styled.span`
 
 const HelperMsg = styled.span<{ $error?: boolean }>`
   font-size: var(--text-xs);
-  color: ${({ $error }) => ($error ? 'var(--danger)' : 'var(--text-muted)')};
+  color: ${({ $error }) => ($error ? DANGER_COLOR : 'var(--text-muted)')};
 `;
 
 export const Radio: React.FC<RadioProps> = ({
@@ -229,7 +231,7 @@ const Options = styled.div<{ $direction: 'vertical' | 'horizontal' }>`
 
 const GroupHelper = styled.span<{ $error?: boolean }>`
   font-size: var(--text-xs);
-  color: ${({ $error }) => ($error ? 'var(--danger)' : 'var(--text-muted)')};
+  color: ${({ $error }) => ($error ? DANGER_COLOR : 'var(--text-muted)')};
 `;
 
 export const RadioGroup: React.FC<RadioGroupProps> = ({

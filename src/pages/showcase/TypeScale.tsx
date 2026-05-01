@@ -181,6 +181,12 @@ interface ScaleStep {
   trackingValue?: string;
 }
 
+const LEADING_TIGHT_TOKEN = '--leading-tight';
+const LEADING_SNUG_TOKEN = '--leading-snug';
+const TRACKING_TIGHT_TOKEN = '--tracking-tight';
+const TRACKING_NORMAL_TOKEN = '--tracking-normal';
+const WEIGHT_SEMIBOLD_TOKEN = '--weight-semibold';
+
 const SCALE_STEPS: ReadonlyArray<ScaleStep> = [
   {
     sizeToken: '--text-3xl',
@@ -191,9 +197,9 @@ const SCALE_STEPS: ReadonlyArray<ScaleStep> = [
     Component: SampleH1,
     weightToken: '--weight-bold',
     weightValue: '700',
-    leadingToken: '--leading-tight',
+    leadingToken: LEADING_TIGHT_TOKEN,
     leadingValue: '1.2',
-    trackingToken: '--tracking-tight',
+    trackingToken: TRACKING_TIGHT_TOKEN,
     trackingValue: '-0.03em',
   },
   {
@@ -203,11 +209,11 @@ const SCALE_STEPS: ReadonlyArray<ScaleStep> = [
     hint: 'Heading nível 2',
     sample: 'Sistemas cadastrados',
     Component: SampleH2,
-    weightToken: '--weight-semibold',
+    weightToken: WEIGHT_SEMIBOLD_TOKEN,
     weightValue: '600',
-    leadingToken: '--leading-tight',
+    leadingToken: LEADING_TIGHT_TOKEN,
     leadingValue: '1.2',
-    trackingToken: '--tracking-tight',
+    trackingToken: TRACKING_TIGHT_TOKEN,
     trackingValue: '-0.03em',
   },
   {
@@ -217,11 +223,11 @@ const SCALE_STEPS: ReadonlyArray<ScaleStep> = [
     hint: 'Heading nível 3',
     sample: 'Rotas por sistema',
     Component: SampleH3,
-    weightToken: '--weight-semibold',
+    weightToken: WEIGHT_SEMIBOLD_TOKEN,
     weightValue: '600',
-    leadingToken: '--leading-tight',
+    leadingToken: LEADING_TIGHT_TOKEN,
     leadingValue: '1.2',
-    trackingToken: '--tracking-tight',
+    trackingToken: TRACKING_TIGHT_TOKEN,
     trackingValue: '-0.03em',
   },
   {
@@ -231,11 +237,11 @@ const SCALE_STEPS: ReadonlyArray<ScaleStep> = [
     hint: 'Heading nível 4',
     sample: 'Permissões efetivas',
     Component: SampleH4,
-    weightToken: '--weight-semibold',
+    weightToken: WEIGHT_SEMIBOLD_TOKEN,
     weightValue: '600',
-    leadingToken: '--leading-snug',
+    leadingToken: LEADING_SNUG_TOKEN,
     leadingValue: '1.4',
-    trackingToken: '--tracking-normal',
+    trackingToken: TRACKING_NORMAL_TOKEN,
     trackingValue: '0em',
   },
   {
@@ -247,9 +253,9 @@ const SCALE_STEPS: ReadonlyArray<ScaleStep> = [
     Component: SampleLg,
     weightToken: '--weight-medium',
     weightValue: '500',
-    leadingToken: '--leading-snug',
+    leadingToken: LEADING_SNUG_TOKEN,
     leadingValue: '1.4',
-    trackingToken: '--tracking-normal',
+    trackingToken: TRACKING_NORMAL_TOKEN,
     trackingValue: '0em',
   },
   {
@@ -263,7 +269,7 @@ const SCALE_STEPS: ReadonlyArray<ScaleStep> = [
     weightValue: '400',
     leadingToken: '--leading-base',
     leadingValue: '1.6',
-    trackingToken: '--tracking-normal',
+    trackingToken: TRACKING_NORMAL_TOKEN,
     trackingValue: '0em',
   },
   {
@@ -275,9 +281,9 @@ const SCALE_STEPS: ReadonlyArray<ScaleStep> = [
     Component: SampleSm,
     weightToken: '--weight-regular',
     weightValue: '400',
-    leadingToken: '--leading-snug',
+    leadingToken: LEADING_SNUG_TOKEN,
     leadingValue: '1.4',
-    trackingToken: '--tracking-normal',
+    trackingToken: TRACKING_NORMAL_TOKEN,
     trackingValue: '0em',
   },
   {
@@ -289,7 +295,7 @@ const SCALE_STEPS: ReadonlyArray<ScaleStep> = [
     Component: SampleXs,
     weightToken: '--weight-medium',
     weightValue: '500',
-    leadingToken: '--leading-snug',
+    leadingToken: LEADING_SNUG_TOKEN,
     leadingValue: '1.4',
     trackingToken: '--tracking-wide',
     trackingValue: '0.06em',

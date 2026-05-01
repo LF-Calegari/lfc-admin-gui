@@ -112,13 +112,11 @@ describe('usePaginatedFetch — refetch e cancelamento', () => {
   it('cancela o fetch anterior quando o fetcher muda de identidade', async () => {
     const signals: AbortSignal[] = [];
     let fetcherKey = 'a';
-    const makeFetcher = (key: string) => () => {
-      const fn = vi.fn(async (options: SafeRequestOptions) => {
+    const makeFetcher = (key: string) => () =>
+      vi.fn(async (options: SafeRequestOptions) => {
         if (options.signal) signals.push(options.signal);
         return makePaged([{ id: key }]);
       });
-      return fn;
-    };
 
     const { result, rerender } = renderHook(
       ({ fetcher }: { fetcher: (options: SafeRequestOptions) => Promise<PagedResponse<ListItem>> }) =>

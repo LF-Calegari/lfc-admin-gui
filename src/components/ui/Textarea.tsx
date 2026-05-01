@@ -1,6 +1,8 @@
 import React, { useId } from 'react';
 import styled, { css } from 'styled-components';
 
+const DANGER_COLOR = 'var(--danger)';
+
 export type TextareaSize = 'sm' | 'md' | 'lg';
 
 interface TextareaProps
@@ -27,7 +29,7 @@ const TextareaGroup = styled.div`
 const TextareaLabel = styled.label<{ $hasError?: boolean }>`
   font-size: var(--text-xs);
   font-weight: var(--weight-medium);
-  color: ${({ $hasError }) => ($hasError ? 'var(--danger)' : 'var(--fg2)')};
+  color: ${({ $hasError }) => ($hasError ? DANGER_COLOR : 'var(--fg2)')};
   letter-spacing: var(--tracking-tight);
 `;
 
@@ -57,7 +59,7 @@ const StyledTextarea = styled.textarea<{
   min-height: calc(var(--space-12) * 2);
   background: var(--bg-elevated);
   border: var(--border-thin) solid
-    ${({ $hasError }) => ($hasError ? 'var(--danger)' : 'var(--border-base)')};
+    ${({ $hasError }) => ($hasError ? DANGER_COLOR : 'var(--border-base)')};
   font-family: var(--font-sans);
   color: var(--fg1);
   outline: none;
@@ -74,11 +76,11 @@ const StyledTextarea = styled.textarea<{
 
   &:hover:not(:disabled) {
     border-color: ${({ $hasError }) =>
-      $hasError ? 'var(--danger)' : 'var(--border-soft-forest)'};
+      $hasError ? DANGER_COLOR : 'var(--border-soft-forest)'};
   }
 
   &:focus-visible {
-    border-color: ${({ $hasError }) => ($hasError ? 'var(--danger)' : 'var(--accent)')};
+    border-color: ${({ $hasError }) => ($hasError ? DANGER_COLOR : 'var(--accent)')};
     box-shadow: ${({ $hasError }) =>
       $hasError ? 'var(--focus-ring-danger-soft)' : 'var(--focus-ring-accent)'};
   }
@@ -92,7 +94,7 @@ const StyledTextarea = styled.textarea<{
 
 const HelperMsg = styled.span<{ $error?: boolean }>`
   font-size: var(--text-xs);
-  color: ${({ $error }) => ($error ? 'var(--danger)' : 'var(--text-muted)')};
+  color: ${({ $error }) => ($error ? DANGER_COLOR : 'var(--text-muted)')};
 `;
 
 export const Textarea: React.FC<TextareaProps> = ({

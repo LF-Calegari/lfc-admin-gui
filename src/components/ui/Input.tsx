@@ -1,6 +1,8 @@
 import React, { useId } from 'react';
 import styled from 'styled-components';
 
+const DANGER_COLOR = 'var(--danger)';
+
 interface InputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onChange'> {
   label?: string;
   error?: string;
@@ -18,7 +20,7 @@ const InputGroup = styled.div`
 const InputLabel = styled.label<{ $hasError?: boolean }>`
   font-size: 12px;
   font-weight: var(--weight-medium);
-  color: ${({ $hasError }) => ($hasError ? 'var(--danger)' : 'var(--fg2)')};
+  color: ${({ $hasError }) => ($hasError ? DANGER_COLOR : 'var(--fg2)')};
   letter-spacing: -0.01em;
 `;
 
@@ -42,7 +44,7 @@ const StyledInput = styled.input<{ $hasError?: boolean; $hasIcon?: boolean }>`
   flex: 1;
   min-width: 0;
   background: var(--bg-elevated);
-  border: 1px solid ${({ $hasError }) => ($hasError ? 'var(--danger)' : 'var(--border-base)')};
+  border: 1px solid ${({ $hasError }) => ($hasError ? DANGER_COLOR : 'var(--border-base)')};
   border-radius: var(--radius-md);
   padding: 9px 12px;
   padding-left: ${({ $hasIcon }) => ($hasIcon ? '34px' : '12px')};
@@ -57,11 +59,11 @@ const StyledInput = styled.input<{ $hasError?: boolean; $hasIcon?: boolean }>`
   }
 
   &:hover:not(:disabled) {
-    border-color: ${({ $hasError }) => ($hasError ? 'var(--danger)' : 'var(--border-soft-forest)')};
+    border-color: ${({ $hasError }) => ($hasError ? DANGER_COLOR : 'var(--border-soft-forest)')};
   }
 
   &:focus-visible {
-    border-color: ${({ $hasError }) => ($hasError ? 'var(--danger)' : 'var(--accent)')};
+    border-color: ${({ $hasError }) => ($hasError ? DANGER_COLOR : 'var(--accent)')};
     box-shadow: ${({ $hasError }) =>
       $hasError
         ? 'var(--focus-ring-danger-soft)'
