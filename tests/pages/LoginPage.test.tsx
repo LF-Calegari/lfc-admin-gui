@@ -112,8 +112,8 @@ function renderLogin(options: RenderOptions = {}): { client: ClientStub } {
 
 beforeEach(() => {
   installFakeIndexedDB();
-  window.localStorage.clear();
-  document.documentElement.removeAttribute('data-theme');
+  globalThis.localStorage.clear();
+  delete document.documentElement.dataset.theme;
 });
 
 afterEach(() => {

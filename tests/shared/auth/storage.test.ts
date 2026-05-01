@@ -15,7 +15,7 @@ const SAMPLE_TOKEN = 'jwt-abc-123';
  * possa configurar pré-condições sem assumir ordem de execução.
  */
 beforeEach(() => {
-  window.localStorage.clear();
+  globalThis.localStorage.clear();
 });
 
 afterEach(() => {
@@ -34,19 +34,19 @@ describe('tokenStorage.load', () => {
   });
 
   test('retorna null quando o valor é vazio (defensivo)', () => {
-    window.localStorage.setItem(STORAGE_KEYS.token, '');
+    globalThis.localStorage.setItem(STORAGE_KEYS.token, '');
 
     expect(tokenStorage.load()).toBeNull();
   });
 
   test('retorna null quando o valor é apenas whitespace', () => {
-    window.localStorage.setItem(STORAGE_KEYS.token, '   ');
+    globalThis.localStorage.setItem(STORAGE_KEYS.token, '   ');
 
     expect(tokenStorage.load()).toBeNull();
   });
 
   test('retorna null quando localStorage.getItem lança', () => {
-    vi.spyOn(window.localStorage.__proto__, 'getItem').mockImplementation(() => {
+    vi.spyOn(Object.getPrototypeOf(globalThis.localStorage), 'getItem').mockImplementation(() => {
       throw new Error('storage indisponível');
     });
 
@@ -58,7 +58,7 @@ describe('tokenStorage.save', () => {
   test('persiste token na chave namespaced', () => {
     tokenStorage.save(SAMPLE_TOKEN);
 
-    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBe(SAMPLE_TOKEN);
+    expect(globalThis.localStorage.getItem(STORAGE_KEYS.token)).toBe(SAMPLE_TOKEN);
   });
 
   test('sobrescreve token existente', () => {
@@ -66,12 +66,12 @@ describe('tokenStorage.save', () => {
     const novoToken = 'jwt-rotacionado';
     tokenStorage.save(novoToken);
 
-    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBe(novoToken);
+    expect(globalThis.localStorage.getItem(STORAGE_KEYS.token)).toBe(novoToken);
     expect(tokenStorage.load()).toBe(novoToken);
   });
 
   test('não propaga exceção quando setItem lança (quota / private mode)', () => {
-    vi.spyOn(window.localStorage.__proto__, 'setItem').mockImplementation(() => {
+    vi.spyOn(Object.getPrototypeOf(globalThis.localStorage), 'setItem').mockImplementation(() => {
       throw new Error('quota exceeded');
     });
 
@@ -85,16 +85,16 @@ describe('tokenStorage.clear', () => {
 
     tokenStorage.clear();
 
-    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
+    expect(globalThis.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
   });
 
   test('é idempotente quando não há token persistido', () => {
     expect(() => tokenStorage.clear()).not.toThrow();
-    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
+    expect(globalThis.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
   });
 
   test('não propaga exceção quando removeItem lança', () => {
-    vi.spyOn(window.localStorage.__proto__, 'removeItem').mockImplementation(() => {
+    vi.spyOn(Object.getPrototypeOf(globalThis.localStorage), 'removeItem').mockImplementation(() => {
       throw new Error('storage indisponível');
     });
 
@@ -111,34 +111,34 @@ describe('tokenStorage.clear', () => {
 
 describe('tokenStorage.clearLegacyKeys (Issue #122 — migração)', () => {
   test('remove a chave legada lfc-admin-auth-user quando presente', () => {
-    window.localStorage.setItem(
+    globalThis.localStorage.setItem(
       STORAGE_KEYS.legacyUser,
       JSON.stringify({ user: { id: 'u-1' }, permissions: [] }),
     );
 
     tokenStorage.clearLegacyKeys();
 
-    expect(window.localStorage.getItem(STORAGE_KEYS.legacyUser)).toBeNull();
+    expect(globalThis.localStorage.getItem(STORAGE_KEYS.legacyUser)).toBeNull();
   });
 
   test('é idempotente quando a chave legada não existe', () => {
     expect(() => tokenStorage.clearLegacyKeys()).not.toThrow();
-    expect(window.localStorage.getItem(STORAGE_KEYS.legacyUser)).toBeNull();
+    expect(globalThis.localStorage.getItem(STORAGE_KEYS.legacyUser)).toBeNull();
   });
 
   test('não toca na chave do token (token sobrevive à migração)', () => {
     tokenStorage.save(SAMPLE_TOKEN);
-    window.localStorage.setItem(STORAGE_KEYS.legacyUser, '{}');
+    globalThis.localStorage.setItem(STORAGE_KEYS.legacyUser, '{}');
 
     tokenStorage.clearLegacyKeys();
 
-    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBe(SAMPLE_TOKEN);
-    expect(window.localStorage.getItem(STORAGE_KEYS.legacyUser)).toBeNull();
+    expect(globalThis.localStorage.getItem(STORAGE_KEYS.token)).toBe(SAMPLE_TOKEN);
+    expect(globalThis.localStorage.getItem(STORAGE_KEYS.legacyUser)).toBeNull();
   });
 
   test('não propaga exceção quando removeItem lança', () => {
-    window.localStorage.setItem(STORAGE_KEYS.legacyUser, '{}');
-    vi.spyOn(window.localStorage.__proto__, 'removeItem').mockImplementation(() => {
+    globalThis.localStorage.setItem(STORAGE_KEYS.legacyUser, '{}');
+    vi.spyOn(Object.getPrototypeOf(globalThis.localStorage), 'removeItem').mockImplementation(() => {
       throw new Error('storage indisponível');
     });
 
