@@ -762,3 +762,114 @@ describe('AuthProvider — verifyRoute (Issue #122 / adendo)', () => {
     expect(client.get).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * Cobertura do `performPeriodicVerify` (Issue #142 — refactor cleanup
+ * Sonar). Os helpers `callPeriodicVerify` e `handlePeriodicVerifyError`
+ * extraídos do `useEffect` de hidratação só ficavam exercitados via tick
+ * do `setInterval`; sem teste do tick, o New Code coverage do Sonar caía
+ * abaixo de 80%. Cada cenário aqui rodaria só uma vez por tick — usamos
+ * `setTimeout` curto + `seedPersistedSession` para forçar o intervalo a
+ * disparar dentro do `waitFor`.
+ *
+ * O pathname global (`globalThis.location.pathname`) é alterado via
+ * `history.pushState` para que `resolveRouteCode` devolva um code válido
+ * (`/systems` → `AUTH_V1_SYSTEMS_LIST`). Após cada teste, restauramos
+ * `/` para não vazar estado para a suite seguinte.
+ */
+describe('AuthProvider — verify-token periódico', () => {
+  let originalPathname: string;
+
+  beforeEach(() => {
+    originalPathname = globalThis.location.pathname;
+    globalThis.history.pushState({}, '', '/systems');
+  });
+
+  afterEach(() => {
+    globalThis.history.pushState({}, '', originalPathname);
+  });
+
+  test('caminho feliz: tick chama /auth/verify-token com X-Route-Code da rota corrente', async () => {
+    await seedPersistedSession();
+    const client = createAuthClientStub();
+    // Hidratação inicial via /auth/permissions (cache vazio em alguns
+    // ambientes de teste) e depois o tick periódico via /auth/verify-token.
+    client.get
+      .mockResolvedValueOnce(SAMPLE_PERMISSIONS) // hidratação eventual
+      .mockResolvedValue(VERIFY_OK); // todos os ticks subsequentes
+
+    await renderAuthHook(client, { verifyIntervalMs: 30 });
+
+    await waitFor(() => {
+      expect(client.get).toHaveBeenCalledWith(
+        '/auth/verify-token',
+        expect.objectContaining({
+          headers: { 'X-Route-Code': 'AUTH_V1_SYSTEMS_LIST' },
+        }),
+      );
+    });
+  });
+
+  test('tick em rota sem mapeamento (resolveRouteCode === null) pula a chamada', async () => {
+    // Move para rota não mapeada antes do mount.
+    globalThis.history.pushState({}, '', '/login');
+    await seedPersistedSession();
+    const client = createAuthClientStub();
+    client.get.mockResolvedValue(SAMPLE_PERMISSIONS);
+
+    await renderAuthHook(client, { verifyIntervalMs: 30 });
+
+    // Deixa alguns ticks rodarem.
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // Nunca deve ter chamado /auth/verify-token (apenas /auth/permissions
+    // na hidratação inicial).
+    const verifyTokenCalls = client.get.mock.calls.filter(
+      ([path]) => path === '/auth/verify-token',
+    );
+    expect(verifyTokenCalls).toHaveLength(0);
+  });
+
+  test('tick com erro de rede mantém sessão e loga warning silencioso', async () => {
+    await seedPersistedSession();
+    const client = createAuthClientStub();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    client.get
+      .mockResolvedValueOnce(SAMPLE_PERMISSIONS)
+      .mockRejectedValue(NETWORK_ERROR);
+
+    const { result } = await renderAuthHook(client, { verifyIntervalMs: 30 });
+
+    await waitFor(() => {
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('verify-token periódico falhou'),
+      );
+    });
+
+    // Sessão local segue ativa — falha de rede não derruba.
+    expect(result.current.isAuthenticated).toBe(true);
+    warnSpy.mockRestore();
+  });
+
+  test('tick com 401 não loga warning (cliente HTTP já tratou)', async () => {
+    await seedPersistedSession();
+    const client = createAuthClientStub();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    client.get
+      .mockResolvedValueOnce(SAMPLE_PERMISSIONS)
+      .mockRejectedValue(UNAUTHORIZED_ERROR);
+
+    await renderAuthHook(client, { verifyIntervalMs: 30 });
+
+    // Espera o tick rodar pelo menos uma vez.
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // 401 NÃO deve disparar warning de "verify-token periódico falhou"
+    // (handlePeriodicVerifyError retorna `true` antes do `console.warn`).
+    const periodicWarnings = warnSpy.mock.calls.filter(([msg]) =>
+      typeof msg === 'string' && msg.includes('verify-token periódico falhou'),
+    );
+    expect(periodicWarnings).toHaveLength(0);
+    warnSpy.mockRestore();
+  });
+});

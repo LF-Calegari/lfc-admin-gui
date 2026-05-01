@@ -80,10 +80,10 @@ function isValidCachedPermissions(value: unknown): value is CachedPermissions {
  */
 function getIndexedDB(): IDBFactory | null {
   try {
-    if (typeof window === 'undefined') {
+    if (typeof globalThis === 'undefined') {
       return null;
     }
-    return window.indexedDB ?? null;
+    return globalThis.indexedDB ?? null;
   } catch {
     return null;
   }

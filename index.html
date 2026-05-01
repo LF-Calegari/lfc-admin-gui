@@ -15,15 +15,25 @@
       // - Falha silenciosamente em modo privado / SSR / cota zerada.
       (function () {
         try {
-          var stored = window.localStorage.getItem('lfc-admin-theme');
+          var stored = globalThis.localStorage.getItem('lfc-admin-theme');
           var explicit = stored === 'light' || stored === 'dark';
           var prefersDark =
-            typeof window.matchMedia === 'function' &&
-            window.matchMedia('(prefers-color-scheme: dark)').matches;
-          var theme = explicit ? stored : prefersDark ? 'dark' : 'light';
-          document.documentElement.setAttribute('data-theme', theme);
+            typeof globalThis.matchMedia === 'function' &&
+            globalThis.matchMedia('(prefers-color-scheme: dark)').matches;
+          var theme;
+          if (explicit) {
+            theme = stored;
+          } else if (prefersDark) {
+            theme = 'dark';
+          } else {
+            theme = 'light';
+          }
+          document.documentElement.dataset.theme = theme;
         } catch (_err) {
-          document.documentElement.setAttribute('data-theme', 'light');
+          // Anti-FOUC best-effort: em modo privado/SSR/cota zerada caímos
+          // em `light` para garantir uma paleta consistente desde o
+          // primeiro frame; o React reaplica o tema correto após hidratar.
+          document.documentElement.dataset.theme = 'light';
         }
       })();
     </script>
