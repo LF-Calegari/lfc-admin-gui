@@ -1,4 +1,12 @@
-import { ArrowLeft, ChevronLeft, ChevronRight, Plus, RotateCcw, Search } from 'lucide-react';
+import {
+  ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
+  Pencil,
+  Plus,
+  RotateCcw,
+  Search,
+} from 'lucide-react';
 import React, { useCallback, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import styled from 'styled-components';
@@ -16,6 +24,7 @@ import {
 } from '../shared/api';
 import { useAuth } from '../shared/auth';
 
+import { EditRouteModal } from './routes/EditRouteModal';
 import { NewRouteModal } from './routes/NewRouteModal';
 
 import type { TableColumn } from '../components/ui';
@@ -43,6 +52,18 @@ const SEARCH_DEBOUNCE_MS = 300;
  * pode executar.
  */
 const ROUTES_CREATE_PERMISSION = 'AUTH_V1_SYSTEMS_ROUTES_CREATE';
+
+/**
+ * Code de permissão exigido para o botão "Editar" por linha (Issue #64).
+ *
+ * Espelha o `AUTH_V1_SYSTEMS_ROUTES_UPDATE` cadastrado pelo
+ * `AuthenticatorRoutesSeeder` no `lfc-authenticator`. O backend é a
+ * fonte autoritativa (`PUT /systems/routes/{id}` valida via
+ * `[Authorize(Policy = PermissionPolicies.SystemsRoutesUpdate)]`); o
+ * gating client-side é apenas UX — esconder ações que o usuário não
+ * pode executar.
+ */
+const ROUTES_UPDATE_PERMISSION = 'AUTH_V1_SYSTEMS_ROUTES_UPDATE';
 
 interface RoutesPageProps {
   /**
@@ -323,6 +344,19 @@ const Placeholder = styled.span`
   font-style: italic;
 `;
 
+/**
+ * Wrapper das ações por linha (botão "Editar" — Issue #64; futuras
+ * "Desativar"/"Restaurar" #65). Mantém os botões alinhados à direita e
+ * permite múltiplas ações sem remontar o layout. Espelha
+ * `RowActions` em `SystemsPage.tsx` — mesma semântica e tokens.
+ */
+const RowActions = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  justify-content: flex-end;
+`;
+
 const InvalidIdNotice = styled.div`
   display: flex;
   flex-direction: column;
@@ -401,6 +435,7 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
 
   const { hasPermission } = useAuth();
   const canCreateRoute = hasPermission(ROUTES_CREATE_PERMISSION);
+  const canUpdateRoute = hasPermission(ROUTES_UPDATE_PERMISSION);
 
   // Termo digitado pelo usuário em tempo real (input controlado).
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -416,12 +451,29 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
   // botão por permissão sem perder o ciclo de vida do form.
   const [isCreateModalOpen, setIsCreateModalOpen] = useState<boolean>(false);
 
+  // Rota selecionada para edição (Issue #64). Quando definida, abre o
+  // `EditRouteModal` pré-populado com seus dados; `null` mantém o modal
+  // fechado. Manter a rota completa (em vez de só o id) evita
+  // round-trip extra para refazer fetch no modal — a tabela já tem o
+  // payload pronto e ainda usamos `route.systemTokenTypeId`/
+  // `systemTokenTypeName` para detectar token type inativo
+  // referenciado.
+  const [editingRoute, setEditingRoute] = useState<RouteDto | null>(null);
+
   const handleOpenCreateModal = useCallback(() => {
     setIsCreateModalOpen(true);
   }, []);
 
   const handleCloseCreateModal = useCallback(() => {
     setIsCreateModalOpen(false);
+  }, []);
+
+  const handleOpenEditModal = useCallback((row: RouteDto) => {
+    setEditingRoute(row);
+  }, []);
+
+  const handleCloseEditModal = useCallback(() => {
+    setEditingRoute(null);
   }, []);
 
   /**
@@ -538,8 +590,8 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
     );
   }, [handleClearSearch, hasActiveSearch, includeDeleted, trimmedSearch]);
 
-  const columns = useMemo<ReadonlyArray<TableColumn<RouteDto>>>(
-    () => [
+  const columns = useMemo<ReadonlyArray<TableColumn<RouteDto>>>(() => {
+    const base: Array<TableColumn<RouteDto>> = [
       {
         key: 'code',
         label: 'Código',
@@ -571,9 +623,43 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
             </Badge>
           ),
       },
-    ],
-    [],
-  );
+    ];
+
+    // Coluna "Ações" só aparece quando o usuário tem alguma ação
+    // disponível. Hoje só "Editar" (Issue #64); a #65 vai adicionar
+    // "Desativar"/"Restaurar". Cada botão tem seu próprio gating
+    // individual + check por linha quando aplicável (`row.deletedAt`).
+    if (canUpdateRoute) {
+      base.push({
+        key: 'actions',
+        label: 'Ações',
+        isActions: true,
+        render: (row) => (
+          <RowActions>
+            {canUpdateRoute && row.deletedAt === null && (
+              // "Editar" só faz sentido em rotas ativas. O backend
+              // devolve 404 ao tentar PUT em rota soft-deletada, mas
+              // esconder no UI é o caminho ergonômico (lê a coluna
+              // Status como referência). Espelha a estratégia do
+              // `SystemsPage`.
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<Pencil size={14} strokeWidth={1.5} />}
+                onClick={() => handleOpenEditModal(row)}
+                aria-label={`Editar rota ${row.name}`}
+                data-testid={`routes-edit-${row.id}`}
+              >
+                Editar
+              </Button>
+            )}
+          </RowActions>
+        ),
+      });
+    }
+
+    return base;
+  }, [canUpdateRoute, handleOpenEditModal]);
 
   const showOverlay = isFetching && !isInitialLoading;
 
@@ -754,6 +840,23 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
                   <CardMetaTerm>JWT</CardMetaTerm>
                   <CardMetaValue>{renderTokenPolicy(row)}</CardMetaValue>
                 </CardMeta>
+                {canUpdateRoute && row.deletedAt === null && (
+                  // Ações na versão mobile espelham a coluna "Ações" do
+                  // desktop. Só aparecem quando o usuário tem permissão
+                  // e a linha é ativa — coerente com o gating da tabela.
+                  <RowActions>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      icon={<Pencil size={14} strokeWidth={1.5} />}
+                      onClick={() => handleOpenEditModal(row)}
+                      aria-label={`Editar rota ${row.name}`}
+                      data-testid={`routes-card-edit-${row.id}`}
+                    >
+                      Editar
+                    </Button>
+                  </RowActions>
+                )}
               </RouteCard>
             ))}
           </CardListForMobile>
@@ -803,6 +906,16 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
           systemId={systemId}
           onClose={handleCloseCreateModal}
           onCreated={handleRefetch}
+          client={client}
+        />
+      )}
+
+      {canUpdateRoute && (
+        <EditRouteModal
+          open={editingRoute !== null}
+          route={editingRoute}
+          onClose={handleCloseEditModal}
+          onUpdated={handleRefetch}
           client={client}
         />
       )}

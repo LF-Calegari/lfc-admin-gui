@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback } from 'react';
 
 import { Modal, useToast } from '../../components/ui';
-import { createRoute, isApiError, listTokenTypes } from '../../shared/api';
+import { createRoute } from '../../shared/api';
 
 import { RouteFormBody } from './RouteFormFields';
 import {
@@ -10,8 +10,9 @@ import {
   type RouteSubmitErrorCopy,
 } from './routeFormShared';
 import { useRouteForm } from './useRouteForm';
+import { useRouteTokenTypes } from './useRouteTokenTypes';
 
-import type { ApiClient, TokenTypeDto } from '../../shared/api';
+import type { ApiClient } from '../../shared/api';
 
 /**
  * Copy injetada em `classifyRouteSubmitError` para o caminho de
@@ -27,21 +28,6 @@ const SUBMIT_ERROR_COPY: RouteSubmitErrorCopy = {
 
 /** Texto exibido inline no campo `code` quando o backend devolve 409. */
 const CONFLICT_INLINE_MESSAGE = 'Já existe uma rota com este código neste sistema.';
-
-/** Texto exibido como `helperText` do `<Select>` enquanto carrega os token types. */
-const TOKEN_TYPES_LOADING_HELPER = 'Carregando políticas JWT…';
-
-/** Texto exibido em `Alert` no topo do form quando a lista de token types falha. */
-const TOKEN_TYPES_FAILED_MESSAGE =
-  'Não foi possível carregar a lista de políticas JWT. Feche o modal e tente novamente.';
-
-/**
- * Texto exibido em `Alert` no topo do form quando a lista veio vazia
- * (backend sem token types ativos). Casos extremos do ambiente — mas o
- * usuário precisa de feedback claro de que não dá pra criar rota agora.
- */
-const TOKEN_TYPES_EMPTY_MESSAGE =
-  'Nenhuma política JWT ativa disponível. Cadastre um token type antes de criar rotas.';
 
 /**
  * Modal de criação de rota (Issue #63 — primeira mutação no recurso
@@ -71,19 +57,12 @@ const TOKEN_TYPES_EMPTY_MESSAGE =
  *
  * **Token types** (política JWT alvo):
  *
- * O backend expõe `GET /tokens/types` (autorizado por
- * `AUTH_V1_TOKEN_TYPES_LIST`). Carregamos a lista no efeito de
- * abertura do modal, filtramos `deletedAt === null` (UX — soft-
- * deletados não fazem sentido como alvo de uma rota nova) e populamos
- * o `<Select>`. Falha de carregamento desabilita o submit e exibe
- * Alert com instruções; lista vazia (caso extremo) idem.
- *
- * Não cacheamos a lista entre aberturas: a janela de uso é curta
- * (admin abre o modal, escolhe, submete) e o payload é pequeno
- * (≤ 50 linhas tipicamente). Cache prematuro adicionaria invalidação a
- * perseguir sem ganho mensurável; quando a #64 (editar) chegar, ambos
- * os modals podem evoluir para um cache compartilhado se a
- * latência se tornar problema.
+ * O ciclo de carregamento da lista vive em `useRouteTokenTypes`
+ * (compartilhado com o `EditRouteModal` da #64). Esse hook lida com
+ * `AbortController`, filtragem de soft-deletados e derivação de
+ * `submitDisabled`/`tokenTypesHelperText` — extraído desde a #64 para
+ * evitar a 6ª recorrência de duplicação Sonar (lição PR #134 — bloco
+ * idêntico entre modals paralelos é gatilho garantido).
  */
 
 interface NewRouteModalProps {
@@ -129,68 +108,12 @@ export const NewRouteModal: React.FC<NewRouteModalProps> = ({
     applyBadRequest,
   } = useRouteForm(INITIAL_ROUTE_FORM_STATE);
 
-  // Estado da request de token types. Mantemos `tokenTypes` como
-  // array (default vazio) e `loadingTokenTypes` como flag — quando o
-  // modal abre, disparamos `listTokenTypes`; o `<Select>` fica
-  // desabilitado até a request retornar.
-  const [tokenTypes, setTokenTypes] = useState<ReadonlyArray<TokenTypeDto>>([]);
-  const [loadingTokenTypes, setLoadingTokenTypes] = useState<boolean>(false);
-  const [tokenTypesError, setTokenTypesError] = useState<string | null>(null);
-
-  /**
-   * Carrega os token types ativos sempre que o modal abre. Cancela a
-   * request anterior se o usuário fechar+reabrir rapidamente — evita
-   * race em `setState` no estilo da `RoutesPage`/`SystemsPage`.
-   *
-   * Filtramos `deletedAt === null` aqui (não no wrapper
-   * `listTokenTypes`) para preservar a generalidade do helper — uma
-   * futura tela "Gerenciar token types" precisa dos soft-deletados
-   * visíveis para restaurar.
-   */
-  useEffect(() => {
-    if (!open) {
-      // Reset hard ao fechar — limpa estado de erro/lista para que a
-      // próxima abertura não mostre dados velhos.
-      setTokenTypes([]);
-      setLoadingTokenTypes(false);
-      setTokenTypesError(null);
-      return;
-    }
-
-    const controller = new AbortController();
-    setLoadingTokenTypes(true);
-    setTokenTypesError(null);
-
-    listTokenTypes({ signal: controller.signal }, client)
-      .then((list) => {
-        if (controller.signal.aborted) return;
-        setTokenTypes(list.filter((tt) => tt.deletedAt === null));
-      })
-      .catch((error: unknown) => {
-        if (controller.signal.aborted) return;
-        // Cancelamento explícito não vira erro de UI — espelha
-        // tratamento de `usePaginatedFetch`.
-        if (error instanceof DOMException && error.name === 'AbortError') {
-          return;
-        }
-        if (
-          isApiError(error) &&
-          error.kind === 'network' &&
-          error.message === 'Requisição cancelada.'
-        ) {
-          return;
-        }
-        setTokenTypesError(TOKEN_TYPES_FAILED_MESSAGE);
-      })
-      .finally(() => {
-        if (controller.signal.aborted) return;
-        setLoadingTokenTypes(false);
-      });
-
-    return () => {
-      controller.abort();
-    };
-  }, [client, open]);
+  const {
+    tokenTypes,
+    tokenTypesHelperText,
+    submitDisabled,
+    resolveEffectiveSubmitError,
+  } = useRouteTokenTypes(open, client);
 
   /**
    * Reseta tudo ao fechar — handler único para Esc, backdrop, X e
@@ -287,26 +210,6 @@ export const NewRouteModal: React.FC<NewRouteModalProps> = ({
     ],
   );
 
-  // O Alert de erro do form vem priorizado pelo `submitError` do
-  // backend (400 sem `errors` mapeáveis). Quando o submit ainda não
-  // foi disparado e a lista de token types falhou ou veio vazia,
-  // exibimos a mensagem específica para sinalizar o impedimento.
-  const effectiveSubmitError =
-    submitError ??
-    tokenTypesError ??
-    (!loadingTokenTypes && tokenTypes.length === 0 ? TOKEN_TYPES_EMPTY_MESSAGE : null);
-
-  // Submit fica desabilitado enquanto a lista de token types está
-  // carregando ou indisponível — sem opção válida pra escolher, o form
-  // não é submissível mesmo com validação client-side OK.
-  const submitDisabled =
-    loadingTokenTypes || tokenTypesError !== null || tokenTypes.length === 0;
-
-  // Helper text do `<Select>` reflete o estado de carregamento sem
-  // poluir o caso normal — quando carregado, volta para o texto
-  // explicativo padrão definido no `RouteFormFields`.
-  const tokenTypesHelperText = loadingTokenTypes ? TOKEN_TYPES_LOADING_HELPER : undefined;
-
   return (
     <Modal
       open={open}
@@ -318,7 +221,7 @@ export const NewRouteModal: React.FC<NewRouteModalProps> = ({
     >
       <RouteFormBody
         idPrefix="new-route"
-        submitError={effectiveSubmitError}
+        submitError={resolveEffectiveSubmitError(submitError)}
         values={formState}
         errors={fieldErrors}
         tokenTypes={tokenTypes}

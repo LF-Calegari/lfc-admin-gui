@@ -420,6 +420,123 @@ export function buildSharedRouteSubmitErrorCases(
   ];
 }
 
+/* ─── Helpers para suíte de edição (Issue #64) ──────────────── */
+
+/**
+ * Empilha respostas no stub do cliente para simular a sequência típica
+ * da `RoutesPage` ao abrir o modal de edição:
+ *
+ *  1. `GET /systems/routes?systemId=...` (listagem inicial da página).
+ *  2. `GET /tokens/types` (carregamento da lista do `<Select>` ao
+ *     abrir o modal).
+ *  3. (opcional) `GET /systems/routes?...` (refetch após atualização).
+ *
+ * Centraliza para que cada teste da suíte de edição não duplique as 3
+ * linhas de `client.get.mockResolvedValueOnce` (lição PR #127 —
+ * trechos de 5+ linhas em 2+ testes são `New Code Duplication`).
+ */
+export function mockOpenEditModalResponses(
+  client: ApiClientStub,
+  options: {
+    /** Linha devolvida pelo GET inicial. Default: 1 rota fake. */
+    route?: RouteDto;
+    /** Token types devolvidos pelo `GET /tokens/types`. Default: `[default]`. */
+    tokenTypes?: ReadonlyArray<TokenTypeDto>;
+  } = {},
+): void {
+  const route = options.route ?? makeRoute();
+  const tokenTypes = options.tokenTypes ?? [makeTokenType()];
+  client.get
+    .mockResolvedValueOnce(makePagedRoutes([route]))
+    .mockResolvedValueOnce(tokenTypes);
+}
+
+/**
+ * Mocka as respostas iniciais (listagem + token types), renderiza a
+ * `RoutesPage`, espera a lista carregar e clica no botão "Editar" da
+ * linha da rota informada. Aguarda o `<Select>` da política JWT sair
+ * do estado disabled (request de token types resolvida).
+ *
+ * Espelha `openCreateRouteModal` mas com clique em
+ * `routes-edit-${id}` e fila de respostas via
+ * `mockOpenEditModalResponses` — pré-fabricado para evitar duplicação
+ * com `openEditModal` da suíte de sistemas (lição PR #128).
+ */
+export async function openEditRouteModal(
+  client: ApiClientStub,
+  options: {
+    route?: RouteDto;
+    tokenTypes?: ReadonlyArray<TokenTypeDto>;
+  } = {},
+): Promise<void> {
+  const route = options.route ?? makeRoute();
+  if (client.get.mock.calls.length === 0 && client.get.mock.results.length === 0) {
+    mockOpenEditModalResponses(client, { route, tokenTypes: options.tokenTypes });
+  }
+  renderRoutesPage(client);
+  await waitForInitialList(client);
+  fireEvent.click(screen.getByTestId(`routes-edit-${route.id}`));
+  // Aguarda o segundo GET (token types).
+  await waitFor(() => {
+    expect(client.get).toHaveBeenCalledTimes(2);
+  });
+  // Garante que o efeito do modal terminou — checamos a presença do
+  // form para indicar que o `<Select>` saiu de "Carregando…".
+  await waitFor(() => {
+    expect(screen.getByTestId('edit-route-form')).toBeInTheDocument();
+  });
+}
+
+/**
+ * Preenche os campos do form do `EditRouteModal`. Cada chave é
+ * opcional — testes que validam só `name` e `code` deixam os demais
+ * ausentes. Espelha `fillNewRouteForm` mas com testIds
+ * `edit-route-*`.
+ */
+export function fillEditRouteForm(values: {
+  name?: string;
+  code?: string;
+  description?: string;
+  systemTokenTypeId?: string;
+}): void {
+  if (values.name !== undefined) {
+    fireEvent.change(screen.getByTestId('edit-route-name'), {
+      target: { value: values.name },
+    });
+  }
+  if (values.code !== undefined) {
+    fireEvent.change(screen.getByTestId('edit-route-code'), {
+      target: { value: values.code },
+    });
+  }
+  if (values.description !== undefined) {
+    fireEvent.change(screen.getByTestId('edit-route-description'), {
+      target: { value: values.description },
+    });
+  }
+  if (values.systemTokenTypeId !== undefined) {
+    fireEvent.change(screen.getByTestId('edit-route-system-token-type-id'), {
+      target: { value: values.systemTokenTypeId },
+    });
+  }
+}
+
+/**
+ * Submete o form do `EditRouteModal` e aguarda o `client.put` ser
+ * chamado pelo menos `expectedPutCalls` vezes (default `1`). Espelha
+ * `submitNewRouteForm` mas com PUT em vez de POST.
+ */
+export async function submitEditRouteForm(
+  client: ApiClientStub,
+  expectedPutCalls = 1,
+): Promise<void> {
+  await act(async () => {
+    fireEvent.submit(screen.getByTestId('edit-route-form'));
+    await Promise.resolve();
+  });
+  await waitFor(() => expect(client.put).toHaveBeenCalledTimes(expectedPutCalls));
+}
+
 /**
  * Constrói os 3 cenários de fechamento sem persistência (Esc,
  * Cancelar, backdrop) usando o `cancelTestId` da suíte chamadora.
