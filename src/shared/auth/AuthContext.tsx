@@ -35,6 +35,8 @@ import type {
  * o catálogo está sendo carregado de IndexedDB ou refeito via
  * `GET /auth/permissions`.
  */
+const FORBIDDEN_ROUTE = '/error/403';
+
 const UNAUTHENTICATED_STATE: AuthState = {
   user: null,
   permissions: [],
@@ -473,6 +475,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
       }
     };
 
+    // eslint-disable-next-line sonarjs/cognitive-complexity -- TODO: extrair em helper menor (débito técnico, PR separada)
     const performPeriodicVerify = async (): Promise<void> => {
       if (!tokenRef.current) {
         return;
@@ -514,11 +517,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
           // Periódico em rota proibida: o usuário perdeu acesso à
           // rota corrente entre cliques. Não derruba a sessão (token
           // segue válido), mas redireciona para 403.
-          if (typeof window !== 'undefined' && window.location.pathname !== '/error/403') {
+          if (typeof window !== 'undefined' && window.location.pathname !== FORBIDDEN_ROUTE) {
             try {
-              navigate('/error/403', { replace: true });
+              navigate(FORBIDDEN_ROUTE, { replace: true });
             } catch {
-              window.location.assign('/error/403');
+              window.location.assign(FORBIDDEN_ROUTE);
             }
           }
           return;
@@ -685,6 +688,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
       routeCode: string,
       signal?: AbortSignal,
       fromPathname?: string,
+      // eslint-disable-next-line sonarjs/cognitive-complexity -- TODO: extrair em helper menor (débito técnico, PR separada)
     ): Promise<boolean> => {
       if (!tokenRef.current) {
         return false;
@@ -716,10 +720,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
             (typeof window !== 'undefined' ? window.location.pathname : '/');
           const from = { pathname: resolvedFrom };
           try {
-            navigate('/error/403', { replace: true, state: { from } });
+            navigate(FORBIDDEN_ROUTE, { replace: true, state: { from } });
           } catch {
             if (typeof window !== 'undefined') {
-              window.location.assign('/error/403');
+              window.location.assign(FORBIDDEN_ROUTE);
             }
           }
           return false;

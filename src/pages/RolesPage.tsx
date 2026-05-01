@@ -13,11 +13,13 @@ interface RoleItem {
   system: string;
 }
 
+const AUTHENTICATOR_SYSTEM = 'lfc-authenticator';
+
 const ROLES: RoleItem[] = [
   { name: 'root',    users: 2,  perms: 12, desc: 'Acesso irrestrito a todos os sistemas',          system: '—' },
-  { name: 'admin',   users: 6,  perms: 8,  desc: 'Gerenciamento de usuários e permissões',         system: 'lfc-authenticator' },
-  { name: 'editor',  users: 14, perms: 5,  desc: 'Criar e editar recursos, sem deletar',           system: 'lfc-authenticator' },
-  { name: 'viewer',  users: 32, perms: 2,  desc: 'Leitura apenas',                                 system: 'lfc-authenticator' },
+  { name: 'admin',   users: 6,  perms: 8,  desc: 'Gerenciamento de usuários e permissões',         system: AUTHENTICATOR_SYSTEM },
+  { name: 'editor',  users: 14, perms: 5,  desc: 'Criar e editar recursos, sem deletar',           system: AUTHENTICATOR_SYSTEM },
+  { name: 'viewer',  users: 32, perms: 2,  desc: 'Leitura apenas',                                 system: AUTHENTICATOR_SYSTEM },
   { name: 'default', users: 1,  perms: 3,  desc: 'Role de fallback para usuários legados',         system: '—' },
 ];
 

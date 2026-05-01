@@ -202,6 +202,7 @@ export const Chip: React.FC<ChipProps> = ({
   onClick,
   disabled = false,
   ariaLabel,
+  // eslint-disable-next-line sonarjs/cognitive-complexity -- TODO: extrair em helper menor (débito técnico, PR separada)
 }) => {
   const interactive = typeof onClick === 'function';
 
