@@ -1,0 +1,52 @@
+# Snyk (https://snyk.io) policy file
+# Documenta exceções intencionais detectadas pelo Snyk Code (SAST).
+# Cada entrada exige justificativa, criação e expiração — exceções
+# expiradas voltam automaticamente para o painel e precisam de revisão.
+
+version: v1.0.0
+
+ignore:
+  # FP: TOKEN_KEY é o NOME da chave em localStorage onde o JWT vivo é
+  # persistido em runtime, não um segredo embutido. O JWT real vem do
+  # lfc-authenticator via /auth/login. Documentado em src/shared/auth/storage.ts.
+  'javascript/HardcodedNonCryptoSecret':
+    - 'src/shared/auth/storage.ts':
+        reason: >-
+          Constant TOKEN_KEY is the localStorage key name, not a secret value.
+          The actual token is a runtime JWT received from lfc-authenticator.
+        expires: '2027-05-01T00:00:00.000Z'
+        created: '2026-05-01T00:00:00.000Z'
+
+  # FP: senhas em arquivos de teste são fixtures usadas em mocks de
+  # cliente HTTP — nenhuma credencial real. Aplicado a todo o diretório
+  # tests/ via glob.
+  'javascript/NoHardcodedPasswords/test':
+    - 'tests/**/*.test.tsx':
+        reason: >-
+          Test fixture passwords used as mocked input to HTTP client stubs.
+          No real credentials. Snyk's own rule suffix '/test' acknowledges
+          this is test code.
+        expires: '2027-05-01T00:00:00.000Z'
+        created: '2026-05-01T00:00:00.000Z'
+    - 'tests/**/*.test.ts':
+        reason: >-
+          Test fixture passwords used as mocked input to HTTP client stubs.
+          No real credentials.
+        expires: '2027-05-01T00:00:00.000Z'
+        created: '2026-05-01T00:00:00.000Z'
+
+  # Mitigado: scripts/audit-guard.cjs valida o caminho via
+  # resolveInsideRepo() antes de fs.readFileSync, recusando paths fora
+  # de process.cwd(). Snyk Code taint analyzer não reconhece o
+  # sanitizer customizado, por isso a anotação é necessária.
+  'javascript/PT':
+    - 'scripts/audit-guard.cjs':
+        reason: >-
+          Path validated by resolveInsideRepo() (path.resolve + cwd prefix
+          check) before reaching fs.readFileSync. Custom sanitizer not
+          recognized by Snyk Code taint analyzer. Script runs only in CI
+          with hardcoded paths from .github/workflows/ci.yml.
+        expires: '2027-05-01T00:00:00.000Z'
+        created: '2026-05-01T00:00:00.000Z'
+
+patch: {}
