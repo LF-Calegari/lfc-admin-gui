@@ -1,13 +1,13 @@
-import React from 'react';
+import React from "react";
 
-import { deleteSystem } from '../../shared/api';
+import { deleteSystem } from "../../shared/api";
 
 import {
   MutationConfirmModal,
   type MutationConfirmCopy,
-} from './MutationConfirmModal';
+} from "./MutationConfirmModal";
 
-import type { ApiClient, SystemDto } from '../../shared/api';
+import type { ApiClient, SystemDto } from "../../shared/api";
 
 /**
  * Copy do diálogo de confirmação para soft-delete (Issue #60). O slot
@@ -19,16 +19,17 @@ import type { ApiClient, SystemDto } from '../../shared/api';
  * PR #128).
  */
 const DELETE_COPY: MutationConfirmCopy = {
-  title: 'Desativar sistema?',
-  descriptionPrefix: 'O sistema ',
+  title: "Desativar sistema?",
+  descriptionPrefix: "O sistema ",
   descriptionSuffix:
     ' será desativado e sumirá da listagem padrão. Você poderá restaurá-lo depois ativando "Mostrar inativos".',
-  confirmLabel: 'Desativar',
-  successMessage: 'Sistema desativado.',
+  confirmLabel: "Desativar",
+  successMessage: "Sistema desativado.",
   errorCopy: {
-    forbiddenTitle: 'Falha ao desativar sistema',
-    genericFallback: 'Não foi possível desativar o sistema. Tente novamente.',
-    notFoundMessage: 'Sistema não encontrado ou foi removido. Atualize a lista.',
+    forbiddenTitle: "Falha ao desativar sistema",
+    genericFallback: "Não foi possível desativar o sistema. Tente novamente.",
+    notFoundMessage:
+      "Sistema não encontrado ou foi removido. Atualize a lista.",
   },
 };
 
@@ -109,9 +110,9 @@ export const DeleteSystemConfirm: React.FC<DeleteSystemConfirmProps> = ({
   onDeleted,
   client,
 }) => (
-  <MutationConfirmModal
+  <MutationConfirmModal<SystemDto>
     open={open}
-    system={system}
+    target={system}
     onClose={onClose}
     onSuccess={onDeleted}
     client={client}

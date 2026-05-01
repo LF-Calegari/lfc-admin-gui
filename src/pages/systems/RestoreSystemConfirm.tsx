@@ -1,13 +1,13 @@
-import React from 'react';
+import React from "react";
 
-import { restoreSystem } from '../../shared/api';
+import { restoreSystem } from "../../shared/api";
 
 import {
   MutationConfirmModal,
   type MutationConfirmCopy,
-} from './MutationConfirmModal';
+} from "./MutationConfirmModal";
 
-import type { ApiClient, SystemDto } from '../../shared/api';
+import type { ApiClient, SystemDto } from "../../shared/api";
 
 /**
  * Copy do diálogo de confirmação para restauração (Issue #61, última
@@ -22,16 +22,16 @@ import type { ApiClient, SystemDto } from '../../shared/api';
  * compartilhado é mais barato do que abrir um PR adicional.
  */
 const RESTORE_COPY: MutationConfirmCopy = {
-  title: 'Restaurar sistema?',
-  descriptionPrefix: 'O sistema ',
-  descriptionSuffix: ' voltará a aparecer na listagem padrão.',
-  confirmLabel: 'Restaurar',
-  successMessage: 'Sistema restaurado.',
+  title: "Restaurar sistema?",
+  descriptionPrefix: "O sistema ",
+  descriptionSuffix: " voltará a aparecer na listagem padrão.",
+  confirmLabel: "Restaurar",
+  successMessage: "Sistema restaurado.",
   errorCopy: {
-    forbiddenTitle: 'Falha ao restaurar sistema',
-    genericFallback: 'Não foi possível restaurar o sistema. Tente novamente.',
-    notFoundMessage: 'Sistema não encontrado ou já está ativo.',
-    conflictMessage: 'O sistema já está ativo.',
+    forbiddenTitle: "Falha ao restaurar sistema",
+    genericFallback: "Não foi possível restaurar o sistema. Tente novamente.",
+    notFoundMessage: "Sistema não encontrado ou já está ativo.",
+    conflictMessage: "O sistema já está ativo.",
   },
 };
 
@@ -118,9 +118,9 @@ export const RestoreSystemConfirm: React.FC<RestoreSystemConfirmProps> = ({
   onRestored,
   client,
 }) => (
-  <MutationConfirmModal
+  <MutationConfirmModal<SystemDto>
     open={open}
-    system={system}
+    target={system}
     onClose={onClose}
     onSuccess={onRestored}
     client={client}

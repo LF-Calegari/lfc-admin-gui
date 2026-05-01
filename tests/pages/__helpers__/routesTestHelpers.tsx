@@ -1,12 +1,24 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import React from 'react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { expect, vi } from 'vitest';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import React from "react";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { expect, vi } from "vitest";
 
-import type { ApiClient, ApiError, PagedResponse, RouteDto, TokenTypeDto } from '@/shared/api';
+import type {
+  ApiClient,
+  ApiError,
+  PagedResponse,
+  RouteDto,
+  TokenTypeDto,
+} from "@/shared/api";
 
-import { ToastProvider } from '@/components/ui';
-import { RoutesPage } from '@/pages/RoutesPage';
+import { ToastProvider } from "@/components/ui";
+import { RoutesPage } from "@/pages/RoutesPage";
 
 /**
  * Helpers de teste compartilhados pela suíte da `RoutesPage` (Issue
@@ -29,11 +41,11 @@ import { RoutesPage } from '@/pages/RoutesPage';
  */
 
 /** UUIDs fixos usados pelas suítes — asserts comparam strings estáveis. */
-export const ID_SYS_AUTH = '11111111-1111-1111-1111-111111111111';
-export const ID_ROUTE_LIST = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
-export const ID_ROUTE_CREATE = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
-export const ID_ROUTE_LEGACY = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
-export const ID_TOKEN_TYPE_DEFAULT = '99999999-9999-9999-9999-999999999999';
+export const ID_SYS_AUTH = "11111111-1111-1111-1111-111111111111";
+export const ID_ROUTE_LIST = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+export const ID_ROUTE_CREATE = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+export const ID_ROUTE_LEGACY = "cccccccc-cccc-cccc-cccc-cccccccccccc";
+export const ID_TOKEN_TYPE_DEFAULT = "99999999-9999-9999-9999-999999999999";
 
 /**
  * Stub de `ApiClient` injetado em `<RoutesPage client={stub} />` —
@@ -63,7 +75,7 @@ export function createRoutesClientStub(): ApiClientStub {
     patch: vi.fn(),
     delete: vi.fn(),
     setAuth: vi.fn(),
-    getSystemId: vi.fn(() => 'system-test-uuid'),
+    getSystemId: vi.fn(() => "system-test-uuid"),
   } as unknown as ApiClientStub;
 }
 
@@ -75,14 +87,14 @@ export function makeRoute(overrides: Partial<RouteDto> = {}): RouteDto {
   return {
     id: ID_ROUTE_LIST,
     systemId: ID_SYS_AUTH,
-    name: 'Listar sistemas',
-    code: 'AUTH_V1_SYSTEMS_LIST',
-    description: 'GET /api/v1/systems',
+    name: "Listar sistemas",
+    code: "AUTH_V1_SYSTEMS_LIST",
+    description: "GET /api/v1/systems",
     systemTokenTypeId: ID_TOKEN_TYPE_DEFAULT,
-    systemTokenTypeCode: 'default',
-    systemTokenTypeName: 'Acesso padrão',
-    createdAt: '2026-01-10T12:00:00Z',
-    updatedAt: '2026-01-10T12:00:00Z',
+    systemTokenTypeCode: "default",
+    systemTokenTypeName: "Acesso padrão",
+    createdAt: "2026-01-10T12:00:00Z",
+    updatedAt: "2026-01-10T12:00:00Z",
     deletedAt: null,
     ...overrides,
   };
@@ -129,7 +141,10 @@ export function renderRoutesPage(
     <ToastProvider>
       <MemoryRouter initialEntries={[`/systems/${systemId}/routes`]}>
         <Routes>
-          <Route path="/systems/:systemId/routes" element={<RoutesPage client={client} />} />
+          <Route
+            path="/systems/:systemId/routes"
+            element={<RoutesPage client={client} />}
+          />
         </Routes>
       </MemoryRouter>
     </ToastProvider>,
@@ -145,7 +160,7 @@ export function renderRoutesPage(
 export async function waitForInitialList(client: ApiClientStub): Promise<void> {
   await waitFor(() => expect(client.get).toHaveBeenCalled());
   await waitFor(() => {
-    expect(screen.queryByTestId('routes-loading')).not.toBeInTheDocument();
+    expect(screen.queryByTestId("routes-loading")).not.toBeInTheDocument();
   });
 }
 
@@ -158,9 +173,9 @@ export async function waitForInitialList(client: ApiClientStub): Promise<void> {
  */
 export function lastGetPath(client: ApiClientStub): string {
   const calls = client.get.mock.calls;
-  if (calls.length === 0) return '';
+  if (calls.length === 0) return "";
   const path = calls[calls.length - 1][0];
-  return typeof path === 'string' ? path : '';
+  return typeof path === "string" ? path : "";
 }
 
 /* ─── Helpers para suítes de mutação (Issue #63 — criar) ───── */
@@ -175,21 +190,23 @@ export function lastGetPath(client: ApiClientStub): string {
  * também precisa fabricar dummies — Sonar marca a duplicação dessa
  * factory de ~10 linhas se aparecer nos dois lugares (lição PR #128).
  */
-export function makeTokenType(overrides: Partial<TokenTypeDto> = {}): TokenTypeDto {
+export function makeTokenType(
+  overrides: Partial<TokenTypeDto> = {},
+): TokenTypeDto {
   return {
     id: ID_TOKEN_TYPE_DEFAULT,
-    name: 'Acesso padrão',
-    code: 'default',
+    name: "Acesso padrão",
+    code: "default",
     description: null,
-    createdAt: '2026-01-10T12:00:00Z',
-    updatedAt: '2026-01-10T12:00:00Z',
+    createdAt: "2026-01-10T12:00:00Z",
+    updatedAt: "2026-01-10T12:00:00Z",
     deletedAt: null,
     ...overrides,
   };
 }
 
 /** UUID adicional usado nos testes da suíte de criação para um token type alternativo. */
-export const ID_TOKEN_TYPE_ADMIN = '88888888-8888-8888-8888-888888888888';
+export const ID_TOKEN_TYPE_ADMIN = "88888888-8888-8888-8888-888888888888";
 
 /**
  * Empilha respostas no stub do cliente para simular a sequência típica
@@ -244,12 +261,15 @@ export async function openCreateRouteModal(
     tokenTypes?: ReadonlyArray<TokenTypeDto>;
   } = {},
 ): Promise<void> {
-  if (client.get.mock.calls.length === 0 && client.get.mock.results.length === 0) {
+  if (
+    client.get.mock.calls.length === 0 &&
+    client.get.mock.results.length === 0
+  ) {
     mockOpenCreateModalResponses(client, options);
   }
   renderRoutesPage(client);
   await waitForInitialList(client);
-  fireEvent.click(screen.getByTestId('routes-create-open'));
+  fireEvent.click(screen.getByTestId("routes-create-open"));
   // Aguarda o segundo GET (token types) — sem isso, o `<Select>`
   // continua disabled e os testes de `fillNewRouteForm` não conseguem
   // setar o valor.
@@ -261,7 +281,7 @@ export async function openCreateRouteModal(
   // "Selecione uma política JWT" quando a lista carregou). Asserir o
   // testid específico do form é suficiente.
   await waitFor(() => {
-    expect(screen.getByTestId('new-route-form')).toBeInTheDocument();
+    expect(screen.getByTestId("new-route-form")).toBeInTheDocument();
   });
 }
 
@@ -282,22 +302,22 @@ export function fillNewRouteForm(values: {
   systemTokenTypeId?: string;
 }): void {
   if (values.name !== undefined) {
-    fireEvent.change(screen.getByTestId('new-route-name'), {
+    fireEvent.change(screen.getByTestId("new-route-name"), {
       target: { value: values.name },
     });
   }
   if (values.code !== undefined) {
-    fireEvent.change(screen.getByTestId('new-route-code'), {
+    fireEvent.change(screen.getByTestId("new-route-code"), {
       target: { value: values.code },
     });
   }
   if (values.description !== undefined) {
-    fireEvent.change(screen.getByTestId('new-route-description'), {
+    fireEvent.change(screen.getByTestId("new-route-description"), {
       target: { value: values.description },
     });
   }
   if (values.systemTokenTypeId !== undefined) {
-    fireEvent.change(screen.getByTestId('new-route-system-token-type-id'), {
+    fireEvent.change(screen.getByTestId("new-route-system-token-type-id"), {
       target: { value: values.systemTokenTypeId },
     });
   }
@@ -315,10 +335,12 @@ export async function submitNewRouteForm(
   expectedPostCalls = 1,
 ): Promise<void> {
   await act(async () => {
-    fireEvent.submit(screen.getByTestId('new-route-form'));
+    fireEvent.submit(screen.getByTestId("new-route-form"));
     await Promise.resolve();
   });
-  await waitFor(() => expect(client.post).toHaveBeenCalledTimes(expectedPostCalls));
+  await waitFor(() =>
+    expect(client.post).toHaveBeenCalledTimes(expectedPostCalls),
+  );
 }
 
 /**
@@ -347,10 +369,10 @@ export interface RoutesErrorCase {
  * `toCaseInsensitiveMatcher` em `systemsTestHelpers.tsx`.
  */
 export function toCaseInsensitiveMatcher(text: RegExp | string): RegExp {
-  if (typeof text !== 'string') {
+  if (typeof text !== "string") {
     return text;
   }
-  return new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`), 'i');
+  return new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`), "i");
 }
 
 /**
@@ -363,57 +385,57 @@ export function toCaseInsensitiveMatcher(text: RegExp | string): RegExp {
  * (lição PR #128 — projetar shared helpers desde o primeiro PR).
  */
 export function buildSharedRouteSubmitErrorCases(
-  verb: 'criar' | 'atualizar',
+  verb: "criar" | "atualizar",
 ): ReadonlyArray<RoutesErrorCase> {
-  const verbAcao = verb === 'criar' ? 'criação' : 'atualização';
+  const verbAcao = verb === "criar" ? "criação" : "atualização";
   return [
     {
-      name: '400 com errors mapeia mensagens para os campos correspondentes',
+      name: "400 com errors mapeia mensagens para os campos correspondentes",
       error: {
-        kind: 'http',
+        kind: "http",
         status: 400,
-        message: 'Erro de validação.',
+        message: "Erro de validação.",
         details: {
           errors: {
-            Name: ['Name é obrigatório e não pode ser apenas espaços.'],
-            Code: ['Code deve ter no máximo 50 caracteres.'],
+            Name: ["Name é obrigatório e não pode ser apenas espaços."],
+            Code: ["Code deve ter no máximo 50 caracteres."],
           },
         },
       },
-      expectedText: 'Name é obrigatório e não pode ser apenas espaços.',
+      expectedText: "Name é obrigatório e não pode ser apenas espaços.",
     },
     {
-      name: '400 sem errors mapeáveis exibe Alert no topo do form',
+      name: "400 sem errors mapeáveis exibe Alert no topo do form",
       error: {
-        kind: 'http',
+        kind: "http",
         status: 400,
         message: `Payload inválido para ${verbAcao} de rota.`,
       },
       expectedText: `Payload inválido para ${verbAcao} de rota.`,
     },
     {
-      name: '401 dispara toast vermelho com mensagem do backend',
+      name: "401 dispara toast vermelho com mensagem do backend",
       error: {
-        kind: 'http',
+        kind: "http",
         status: 401,
-        message: 'Sessão expirada. Faça login novamente.',
+        message: "Sessão expirada. Faça login novamente.",
       },
-      expectedText: 'Sessão expirada. Faça login novamente.',
+      expectedText: "Sessão expirada. Faça login novamente.",
     },
     {
-      name: '403 dispara toast vermelho com mensagem do backend',
+      name: "403 dispara toast vermelho com mensagem do backend",
       error: {
-        kind: 'http',
+        kind: "http",
         status: 403,
-        message: 'Você não tem permissão para esta ação.',
+        message: "Você não tem permissão para esta ação.",
       },
-      expectedText: 'Você não tem permissão para esta ação.',
+      expectedText: "Você não tem permissão para esta ação.",
     },
     {
-      name: 'erro genérico de rede dispara toast vermelho genérico',
+      name: "erro genérico de rede dispara toast vermelho genérico",
       error: {
-        kind: 'network',
-        message: 'Falha de conexão com o servidor.',
+        kind: "network",
+        message: "Falha de conexão com o servidor.",
       },
       expectedText: `Não foi possível ${verb} a rota. Tente novamente.`,
     },
@@ -470,8 +492,14 @@ export async function openEditRouteModal(
   } = {},
 ): Promise<void> {
   const route = options.route ?? makeRoute();
-  if (client.get.mock.calls.length === 0 && client.get.mock.results.length === 0) {
-    mockOpenEditModalResponses(client, { route, tokenTypes: options.tokenTypes });
+  if (
+    client.get.mock.calls.length === 0 &&
+    client.get.mock.results.length === 0
+  ) {
+    mockOpenEditModalResponses(client, {
+      route,
+      tokenTypes: options.tokenTypes,
+    });
   }
   renderRoutesPage(client);
   await waitForInitialList(client);
@@ -483,7 +511,7 @@ export async function openEditRouteModal(
   // Garante que o efeito do modal terminou — checamos a presença do
   // form para indicar que o `<Select>` saiu de "Carregando…".
   await waitFor(() => {
-    expect(screen.getByTestId('edit-route-form')).toBeInTheDocument();
+    expect(screen.getByTestId("edit-route-form")).toBeInTheDocument();
   });
 }
 
@@ -500,22 +528,22 @@ export function fillEditRouteForm(values: {
   systemTokenTypeId?: string;
 }): void {
   if (values.name !== undefined) {
-    fireEvent.change(screen.getByTestId('edit-route-name'), {
+    fireEvent.change(screen.getByTestId("edit-route-name"), {
       target: { value: values.name },
     });
   }
   if (values.code !== undefined) {
-    fireEvent.change(screen.getByTestId('edit-route-code'), {
+    fireEvent.change(screen.getByTestId("edit-route-code"), {
       target: { value: values.code },
     });
   }
   if (values.description !== undefined) {
-    fireEvent.change(screen.getByTestId('edit-route-description'), {
+    fireEvent.change(screen.getByTestId("edit-route-description"), {
       target: { value: values.description },
     });
   }
   if (values.systemTokenTypeId !== undefined) {
-    fireEvent.change(screen.getByTestId('edit-route-system-token-type-id'), {
+    fireEvent.change(screen.getByTestId("edit-route-system-token-type-id"), {
       target: { value: values.systemTokenTypeId },
     });
   }
@@ -531,10 +559,12 @@ export async function submitEditRouteForm(
   expectedPutCalls = 1,
 ): Promise<void> {
   await act(async () => {
-    fireEvent.submit(screen.getByTestId('edit-route-form'));
+    fireEvent.submit(screen.getByTestId("edit-route-form"));
     await Promise.resolve();
   });
-  await waitFor(() => expect(client.put).toHaveBeenCalledTimes(expectedPutCalls));
+  await waitFor(() =>
+    expect(client.put).toHaveBeenCalledTimes(expectedPutCalls),
+  );
 }
 
 /**
@@ -549,20 +579,120 @@ export interface RoutesModalCloseCase {
   close: () => void;
 }
 
-export function buildRoutesCloseCases(cancelTestId: string): ReadonlyArray<RoutesModalCloseCase> {
+export function buildRoutesCloseCases(
+  cancelTestId: string,
+): ReadonlyArray<RoutesModalCloseCase> {
   return [
     {
-      name: 'Esc',
+      name: "Esc",
       // eslint-disable-next-line no-restricted-globals
-      close: () => fireEvent.keyDown(window, { key: 'Escape' }),
+      close: () => fireEvent.keyDown(window, { key: "Escape" }),
     },
     {
-      name: 'botão Cancelar',
+      name: "botão Cancelar",
       close: () => fireEvent.click(screen.getByTestId(cancelTestId)),
     },
     {
-      name: 'clique no backdrop',
-      close: () => fireEvent.mouseDown(screen.getByTestId('modal-backdrop')),
+      name: "clique no backdrop",
+      close: () => fireEvent.mouseDown(screen.getByTestId("modal-backdrop")),
+    },
+  ];
+}
+
+/* ─── Helpers para suíte de exclusão (Issue #65) ──────────────── */
+
+/**
+ * Mocka o GET inicial com uma página contendo a `route` informada (ou
+ * uma rota sintética padrão), renderiza a `RoutesPage`, espera a lista
+ * carregar e clica no botão "Desativar" da linha da rota (Issue #65).
+ *
+ * Helper análogo a `openCreateRouteModal`/`openEditRouteModal`. Sem ele,
+ * cada teste da suíte de exclusão duplicaria ~5 linhas de "render +
+ * waitFor + click" — Sonar contaria como `New Code Duplication` (lição
+ * PR #127). Espelha `openDeleteConfirm` em `systemsTestHelpers.tsx`.
+ *
+ * Quem precisar de mocks diferentes pode chamar `client.get.mockXxx`
+ * antes para sobrescrever a fila — a detecção de mocks pré-existentes
+ * preserva o caso "fila customizada de respostas" (ex.: cenários de
+ * erro 404/409 com refetch).
+ */
+export async function openDeleteRouteConfirm(
+  client: ApiClientStub,
+  route: RouteDto = makeRoute(),
+): Promise<void> {
+  if (
+    client.get.mock.calls.length === 0 &&
+    client.get.mock.results.length === 0
+  ) {
+    client.get.mockResolvedValueOnce(makePagedRoutes([route]));
+  }
+  renderRoutesPage(client);
+  await waitForInitialList(client);
+  fireEvent.click(screen.getByTestId(`routes-delete-${route.id}`));
+}
+
+/**
+ * Confirma a desativação clicando em "Desativar" no `DeleteRouteConfirm`
+ * e aguarda o `client.delete` ser chamado pelo menos `expectedDeleteCalls`
+ * vezes (default `1`). Espelha `confirmDelete` em `systemsTestHelpers.tsx`,
+ * com `delete-route-*` em vez de `delete-system-*`. Faz `act(async)`
+ * para flushar a microtask do click handler antes do `waitFor`.
+ */
+export async function confirmDeleteRoute(
+  client: ApiClientStub,
+  expectedDeleteCalls = 1,
+): Promise<void> {
+  await act(async () => {
+    fireEvent.click(screen.getByTestId("delete-route-confirm"));
+    await Promise.resolve();
+  });
+  await waitFor(() =>
+    expect(client.delete).toHaveBeenCalledTimes(expectedDeleteCalls),
+  );
+}
+
+/**
+ * Constrói os 3 cenários de erro de mutação simples que diferem
+ * **apenas** no verbo entre as suítes de exclusão de rota (#65) e
+ * eventuais futuras (restore de rota). Cenários comuns (401, 403,
+ * network) ficam centralizados para preservar simetria de cobertura —
+ * sem o helper, o teste duplicaria literalmente os 3 blocos.
+ *
+ * Espelha `buildSharedMutationErrorCases` em `systemsTestHelpers.tsx`,
+ * mas com o sufixo "a rota" em vez de "o sistema" no toast genérico.
+ * Centralizar aqui evita que o `RoutesPage.delete.test.tsx` declare
+ * 26 linhas de array literal idênticas às do `SystemsPage.delete.test.tsx`
+ * (lição PR #128 — Sonar marca como duplicação).
+ */
+export function buildSharedRouteMutationErrorCases(
+  verb: "desativar",
+): ReadonlyArray<RoutesErrorCase> {
+  return [
+    {
+      name: "401 dispara toast vermelho com mensagem do backend",
+      error: {
+        kind: "http",
+        status: 401,
+        message: "Sessão expirada. Faça login novamente.",
+      },
+      expectedText: "Sessão expirada. Faça login novamente.",
+    },
+    {
+      name: "403 dispara toast vermelho com mensagem do backend",
+      error: {
+        kind: "http",
+        status: 403,
+        message: "Você não tem permissão para esta ação.",
+      },
+      expectedText: "Você não tem permissão para esta ação.",
+    },
+    {
+      name: "erro genérico de rede dispara toast vermelho genérico",
+      error: {
+        kind: "network",
+        message: "Falha de conexão com o servidor.",
+      },
+      expectedText: `Não foi possível ${verb} a rota. Tente novamente.`,
     },
   ];
 }
