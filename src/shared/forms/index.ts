@@ -26,3 +26,10 @@ export {
   type EditSubmitActionCopy,
   type EditSubmitActionDispatchers,
 } from './applyEditSubmitAction';
+export {
+  useEditEntitySubmit,
+  type EditEntitySubmitCallbacks,
+  type EditEntitySubmitCopy,
+  type EditEntitySubmitDispatchers,
+  type UseEditEntitySubmitArgs,
+} from './useEditEntitySubmit';

@@ -3,11 +3,14 @@ import styled from 'styled-components';
 
 import { Alert, Modal, useToast } from '../../components/ui';
 import { updateRoute } from '../../shared/api';
-import { applyEditSubmitAction, type EditSubmitActionCopy } from '../../shared/forms';
+import {
+  useEditEntitySubmit,
+  type EditEntitySubmitCopy,
+  type EditSubmitActionCopy,
+} from '../../shared/forms';
 
 import { RouteFormBody } from './RouteFormFields';
 import {
-  classifyRouteSubmitError,
   type RouteFieldErrors,
   type RouteFormState,
   type RouteSubmitErrorCopy,
@@ -280,69 +283,73 @@ export const EditRouteModal: React.FC<EditRouteModalProps> = ({
     onClose();
   }, [isSubmitting, onClose, setFieldErrors, setSubmitError]);
 
-  const handleSubmit = useCallback(
-    async (event: React.FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      if (isSubmitting || !route) return;
+  /**
+   * Wrapper de `prepareSubmit` que injeta o `route.systemId` (vem da
+   * URL) e reprova quando o gate de `isSubmitting`/`!route` falhar —
+   * preserva o dedupe original ao mover a lógica para dentro de
+   * `useEditEntitySubmit` (lição PR #135, 6ª recorrência de Sonar).
+   */
+  const prepareSubmitSafe = useCallback((): unknown | null => {
+    if (isSubmitting || !route) return null;
+    return prepareSubmit(route.systemId);
+  }, [isSubmitting, prepareSubmit, route]);
 
-      // `prepareSubmit` valida + zera erros + marca submitting +
-      // devolve payload trimado, ou `null` quando há erros client-
-      // side. Mesma rotina usada pelo `NewRouteModal` — extrair
-      // eliminou ~16 linhas de boilerplate (lição PR #128).
-      const payload = prepareSubmit(route.systemId);
-      if (!payload) return;
-
-      try {
-        await updateRoute(route.id, payload, undefined, client);
-        // Mensagem de sucesso fixa (não citamos o nome porque o
-        // usuário acabou de editá-lo — a lista será atualizada).
-        show('Rota atualizada.', { variant: 'success' });
-        // Ordem importa: refetch antes de fechar para o pai não ter
-        // que coordenar dois ticks separados.
-        setFieldErrors({});
-        setSubmitError(null);
-        onUpdated();
-        onClose();
-      } catch (error: unknown) {
-        // `classifyRouteSubmitError` decide o `kind` do erro;
-        // `applyEditSubmitAction` despacha os efeitos colaterais
-        // (setState/toast/onClose). Helper compartilhado com o
-        // `EditSystemModal` — eliminou ~33 linhas de switch duplicado
-        // que o Sonar tokenizou como New Code Duplication na 1ª
-        // tentativa de PR (lição PR #134, 6ª recorrência evitada).
-        const action = classifyRouteSubmitError(error, SUBMIT_ERROR_COPY);
-        applyEditSubmitAction<keyof RouteFieldErrors>(
-          action,
-          {
-            setFieldErrors,
-            setSubmitError,
-            applyBadRequest,
-            showToast: show,
-            onAfterNotFound: () => {
-              onUpdated();
-              onClose();
-            },
-          },
-          EDIT_SUBMIT_ACTION_COPY,
-        );
-      } finally {
-        setIsSubmitting(false);
+  /**
+   * Closure sobre `route.id` + `client`. Quando `route` é `null` o
+   * `prepareSubmitSafe` já reprova antes do `mutationFn` rodar — a
+   * checagem inline aqui é defensiva (preserva o tipo sem `!`).
+   */
+  const mutationFn = useCallback(
+    (payload: unknown): Promise<unknown> => {
+      if (!route) {
+        return Promise.reject(new Error('Route unavailable.'));
       }
+      return updateRoute(
+        route.id,
+        payload as Parameters<typeof updateRoute>[1],
+        undefined,
+        client,
+      );
     },
-    [
-      applyBadRequest,
-      client,
-      isSubmitting,
-      onClose,
-      onUpdated,
-      prepareSubmit,
-      route,
-      setFieldErrors,
-      setIsSubmitting,
-      setSubmitError,
-      show,
-    ],
+    [client, route],
   );
+
+  /**
+   * Copy estável (não muda entre renders) — memoizada pra fechar a
+   * deps array do hook sem recriar referência a cada tick.
+   */
+  const submitCopy = useMemo<EditEntitySubmitCopy>(
+    () => ({
+      successMessage: 'Rota atualizada.',
+      submitErrorCopy: SUBMIT_ERROR_COPY,
+      editSubmitActionCopy: EDIT_SUBMIT_ACTION_COPY,
+    }),
+    [],
+  );
+
+  /**
+   * `handleSubmit` orquestrado pelo hook compartilhado — encapsula o
+   * `try/catch/finally` + `classifyApiSubmitError` +
+   * `applyEditSubmitAction` que vivia inline. O bloco extraído tinha
+   * ~33 linhas idênticas com o `EditSystemModal` (lição PR #134/#135).
+   */
+  const handleSubmit = useEditEntitySubmit<keyof RouteFieldErrors>({
+    dispatchers: {
+      setFieldErrors,
+      setSubmitError,
+      setIsSubmitting,
+      applyBadRequest,
+      showToast: show,
+    },
+    copy: submitCopy,
+    callbacks: {
+      prepareSubmit: prepareSubmitSafe,
+      mutationFn,
+      onUpdated,
+      onClose,
+    },
+    conflictField: 'code',
+  });
 
   // Não renderiza nada quando não houver `route` selecionada — o pai
   // controla `open` em conjunto com a `route`, mas cobrimos o caso
