@@ -6,29 +6,39 @@ import {
   Plus,
   RotateCcw,
   Search,
-} from 'lucide-react';
-import React, { useCallback, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import styled from 'styled-components';
+  Trash2,
+} from "lucide-react";
+import React, { useCallback, useMemo, useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import styled from "styled-components";
 
-import { PageHeader } from '../components/layout/PageHeader';
-import { Alert, Badge, Button, Input, Spinner, Switch, Table } from '../components/ui';
-import { useDebouncedValue } from '../hooks/useDebouncedValue';
-import { usePaginatedFetch } from '../hooks/usePaginatedFetch';
-import { usePaginationControls } from '../hooks/usePaginationControls';
+import { PageHeader } from "../components/layout/PageHeader";
+import {
+  Alert,
+  Badge,
+  Button,
+  Input,
+  Spinner,
+  Switch,
+  Table,
+} from "../components/ui";
+import { useDebouncedValue } from "../hooks/useDebouncedValue";
+import { usePaginatedFetch } from "../hooks/usePaginatedFetch";
+import { usePaginationControls } from "../hooks/usePaginationControls";
 import {
   DEFAULT_ROUTES_INCLUDE_DELETED,
   DEFAULT_ROUTES_PAGE,
   DEFAULT_ROUTES_PAGE_SIZE,
   listRoutes,
-} from '../shared/api';
-import { useAuth } from '../shared/auth';
+} from "../shared/api";
+import { useAuth } from "../shared/auth";
 
-import { EditRouteModal } from './routes/EditRouteModal';
-import { NewRouteModal } from './routes/NewRouteModal';
+import { DeleteRouteConfirm } from "./routes/DeleteRouteConfirm";
+import { EditRouteModal } from "./routes/EditRouteModal";
+import { NewRouteModal } from "./routes/NewRouteModal";
 
-import type { TableColumn } from '../components/ui';
-import type { ApiClient, RouteDto, SafeRequestOptions } from '../shared/api';
+import type { TableColumn } from "../components/ui";
+import type { ApiClient, RouteDto, SafeRequestOptions } from "../shared/api";
 
 /**
  * Atraso entre a última tecla e o disparo da request de busca. 300 ms é
@@ -51,7 +61,7 @@ const SEARCH_DEBOUNCE_MS = 300;
  * gating client-side é apenas UX — esconder ações que o usuário não
  * pode executar.
  */
-const ROUTES_CREATE_PERMISSION = 'AUTH_V1_SYSTEMS_ROUTES_CREATE';
+const ROUTES_CREATE_PERMISSION = "AUTH_V1_SYSTEMS_ROUTES_CREATE";
 
 /**
  * Code de permissão exigido para o botão "Editar" por linha (Issue #64).
@@ -63,7 +73,24 @@ const ROUTES_CREATE_PERMISSION = 'AUTH_V1_SYSTEMS_ROUTES_CREATE';
  * gating client-side é apenas UX — esconder ações que o usuário não
  * pode executar.
  */
-const ROUTES_UPDATE_PERMISSION = 'AUTH_V1_SYSTEMS_ROUTES_UPDATE';
+const ROUTES_UPDATE_PERMISSION = "AUTH_V1_SYSTEMS_ROUTES_UPDATE";
+
+/**
+ * Code de permissão exigido para o botão "Desativar" por linha
+ * (Issue #65, última sub-issue da EPIC #46).
+ *
+ * Espelha o `AUTH_V1_SYSTEMS_ROUTES_DELETE` cadastrado pelo
+ * `AuthenticatorRoutesSeeder` no `lfc-authenticator`. O backend é a
+ * fonte autoritativa (`DELETE /systems/routes/{id}` valida via
+ * `[Authorize(Policy = PermissionPolicies.SystemsRoutesDelete)]`); o
+ * gating client-side é apenas UX — esconder ações que o usuário não
+ * pode executar.
+ *
+ * Sobre **soft vs hard delete**: o controller faz soft (seta
+ * `DeletedAt = UtcNow` e responde 204). A copy do botão e do diálogo
+ * usa "Desativar/Inativa" para manter paridade com Sistemas (#60).
+ */
+const ROUTES_DELETE_PERMISSION = "AUTH_V1_SYSTEMS_ROUTES_DELETE";
 
 interface RoutesPageProps {
   /**
@@ -383,7 +410,7 @@ const InvalidIdNotice = styled.div`
  * UI; o backend é a fonte de verdade.
  */
 function isProbablyValidSystemId(value: string | undefined): value is string {
-  return typeof value === 'string' && value.trim().length > 0;
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 /**
@@ -419,7 +446,9 @@ function renderDescription(row: RouteDto): React.ReactNode {
   if (row.description === null || row.description.trim().length === 0) {
     return <Placeholder>—</Placeholder>;
   }
-  return <DescriptionCell title={row.description}>{row.description}</DescriptionCell>;
+  return (
+    <DescriptionCell title={row.description}>{row.description}</DescriptionCell>
+  );
 }
 
 /* ─── Component ──────────────────────────────────────────── */
@@ -436,9 +465,10 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
   const { hasPermission } = useAuth();
   const canCreateRoute = hasPermission(ROUTES_CREATE_PERMISSION);
   const canUpdateRoute = hasPermission(ROUTES_UPDATE_PERMISSION);
+  const canDeleteRoute = hasPermission(ROUTES_DELETE_PERMISSION);
 
   // Termo digitado pelo usuário em tempo real (input controlado).
-  const [searchTerm, setSearchTerm] = useState<string>('');
+  const [searchTerm, setSearchTerm] = useState<string>("");
   const debouncedSearch = useDebouncedValue(searchTerm, SEARCH_DEBOUNCE_MS);
 
   const [includeDeleted, setIncludeDeleted] = useState<boolean>(
@@ -460,6 +490,13 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
   // referenciado.
   const [editingRoute, setEditingRoute] = useState<RouteDto | null>(null);
 
+  // Rota selecionada para soft-delete (Issue #65). Quando definida, abre
+  // o `DeleteRouteConfirm` com o `name`/`code` na descrição; `null`
+  // mantém o modal fechado. Mesma estratégia do `editingRoute` — manter
+  // o objeto completo permite ao diálogo exibir copy contextualizada
+  // sem refetch.
+  const [deletingRoute, setDeletingRoute] = useState<RouteDto | null>(null);
+
   const handleOpenCreateModal = useCallback(() => {
     setIsCreateModalOpen(true);
   }, []);
@@ -476,6 +513,14 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
     setEditingRoute(null);
   }, []);
 
+  const handleOpenDeleteConfirm = useCallback((row: RouteDto) => {
+    setDeletingRoute(row);
+  }, []);
+
+  const handleCloseDeleteConfirm = useCallback(() => {
+    setDeletingRoute(null);
+  }, []);
+
   /**
    * Reseta a página para 1 sempre que muda um filtro/busca — evita o
    * caso "estou na página 5 com 100 itens, busco 'auth' que filtra para
@@ -488,7 +533,7 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
   }, []);
 
   const handleClearSearch = useCallback(() => {
-    setSearchTerm('');
+    setSearchTerm("");
     setPage(DEFAULT_ROUTES_PAGE);
   }, []);
 
@@ -511,7 +556,7 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
     (options: SafeRequestOptions) =>
       listRoutes(
         {
-          systemId: hasValidSystemId ? systemId : '',
+          systemId: hasValidSystemId ? systemId : "",
           q: trimmedSearchInput.length > 0 ? trimmedSearchInput : undefined,
           page,
           pageSize: DEFAULT_ROUTES_PAGE_SIZE,
@@ -520,7 +565,14 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
         options,
         client,
       ),
-    [client, hasValidSystemId, includeDeleted, page, systemId, trimmedSearchInput],
+    [
+      client,
+      hasValidSystemId,
+      includeDeleted,
+      page,
+      systemId,
+      trimmedSearchInput,
+    ],
   );
 
   const {
@@ -533,7 +585,8 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
     refetch: handleRefetch,
   } = usePaginatedFetch<RouteDto>({
     fetcher,
-    fallbackErrorMessage: 'Falha ao carregar a lista de rotas. Tente novamente.',
+    fallbackErrorMessage:
+      "Falha ao carregar a lista de rotas. Tente novamente.",
     skip: !hasValidSystemId,
   });
 
@@ -541,14 +594,19 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
   // (lição PR #134 — bloco de 28 linhas duplicado com `SystemsPage`
   // reprovou o SonarCloud Quality Gate). Mesma semântica do bloco
   // inline original, com a única cópia agora em `src/hooks/`.
-  const { totalPages, isFirstPage, isLastPage, handlePrevPage, handleNextPage } =
-    usePaginationControls({
-      total,
-      appliedPageSize,
-      defaultPageSize: DEFAULT_ROUTES_PAGE_SIZE,
-      page,
-      setPage,
-    });
+  const {
+    totalPages,
+    isFirstPage,
+    isLastPage,
+    handlePrevPage,
+    handleNextPage,
+  } = usePaginationControls({
+    total,
+    appliedPageSize,
+    defaultPageSize: DEFAULT_ROUTES_PAGE_SIZE,
+    page,
+    setPage,
+  });
 
   const trimmedSearch = debouncedSearch.trim();
   const hasActiveSearch = trimmedSearch.length > 0;
@@ -583,7 +641,8 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
         <EmptyTitle>Nenhuma rota cadastrada para este sistema.</EmptyTitle>
         {!includeDeleted && (
           <EmptyHint>
-            Rotas removidas podem ser visualizadas ativando &quot;Mostrar inativas&quot;.
+            Rotas removidas podem ser visualizadas ativando &quot;Mostrar
+            inativas&quot;.
           </EmptyHint>
         )}
       </EmptyMessage>
@@ -593,25 +652,25 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
   const columns = useMemo<ReadonlyArray<TableColumn<RouteDto>>>(() => {
     const base: Array<TableColumn<RouteDto>> = [
       {
-        key: 'code',
-        label: 'Código',
+        key: "code",
+        label: "Código",
         render: (row) => <Mono>{row.code}</Mono>,
       },
       {
-        key: 'description',
-        label: 'Descrição',
+        key: "description",
+        label: "Descrição",
         render: renderDescription,
       },
       {
-        key: 'tokenPolicy',
-        label: 'Política JWT alvo',
-        width: '200px',
+        key: "tokenPolicy",
+        label: "Política JWT alvo",
+        width: "200px",
         render: renderTokenPolicy,
       },
       {
-        key: 'status',
-        label: 'Status',
-        width: '120px',
+        key: "status",
+        label: "Status",
+        width: "120px",
         render: (row) =>
           row.deletedAt ? (
             <Badge variant="danger" dot>
@@ -626,13 +685,15 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
     ];
 
     // Coluna "Ações" só aparece quando o usuário tem alguma ação
-    // disponível. Hoje só "Editar" (Issue #64); a #65 vai adicionar
-    // "Desativar"/"Restaurar". Cada botão tem seu próprio gating
-    // individual + check por linha quando aplicável (`row.deletedAt`).
-    if (canUpdateRoute) {
+    // disponível. Hoje "Editar" (Issue #64) e "Desativar" (Issue #65);
+    // a paridade total com Sistemas (restore, #61) fica para uma issue
+    // futura quando a UI de "Restaurar rota" for priorizada. Cada botão
+    // tem seu próprio gating individual + check por linha quando
+    // aplicável (`row.deletedAt`).
+    if (canUpdateRoute || canDeleteRoute) {
       base.push({
-        key: 'actions',
-        label: 'Ações',
+        key: "actions",
+        label: "Ações",
         isActions: true,
         render: (row) => (
           <RowActions>
@@ -653,13 +714,36 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
                 Editar
               </Button>
             )}
+            {canDeleteRoute && row.deletedAt === null && (
+              // "Desativar" só aparece em rotas ativas — o backend
+              // devolve 404 ao tentar DELETE em rota já soft-deletada
+              // (`Routes.FirstOrDefaultAsync` cai no query filter
+              // global), mas esconder no UI alinha com a coluna
+              // Status. Espelha a estratégia do botão "Desativar" em
+              // `SystemsPage`.
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<Trash2 size={14} strokeWidth={1.5} />}
+                onClick={() => handleOpenDeleteConfirm(row)}
+                aria-label={`Desativar rota ${row.name}`}
+                data-testid={`routes-delete-${row.id}`}
+              >
+                Desativar
+              </Button>
+            )}
           </RowActions>
         ),
       });
     }
 
     return base;
-  }, [canUpdateRoute, handleOpenEditModal]);
+  }, [
+    canDeleteRoute,
+    canUpdateRoute,
+    handleOpenDeleteConfirm,
+    handleOpenEditModal,
+  ]);
 
   const showOverlay = isFetching && !isInitialLoading;
 
@@ -667,13 +751,13 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
   // subsequente, anunciamos "Atualizando..."; em sucesso, anunciamos o
   // total. Em erro, o `<Alert role="alert">` já cobre.
   const liveMessage = useMemo<string>(() => {
-    if (isInitialLoading) return 'Carregando lista de rotas.';
-    if (isFetching) return 'Atualizando lista de rotas.';
-    if (errorMessage) return '';
+    if (isInitialLoading) return "Carregando lista de rotas.";
+    if (isFetching) return "Atualizando lista de rotas.";
+    if (errorMessage) return "";
     if (total === 0) {
       return hasActiveSearch
         ? `Nenhuma rota encontrada para ${trimmedSearch}.`
-        : 'Nenhuma rota cadastrada para este sistema.';
+        : "Nenhuma rota cadastrada para este sistema.";
     }
     return `${total} rota(s) encontrada(s). Página ${page} de ${totalPages}.`;
   }, [
@@ -760,14 +844,14 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
         aria-live="polite"
         aria-atomic="true"
         style={{
-          position: 'absolute',
+          position: "absolute",
           width: 1,
           height: 1,
           padding: 0,
           margin: -1,
-          overflow: 'hidden',
-          clip: 'rect(0, 0, 0, 0)',
-          whiteSpace: 'nowrap',
+          overflow: "hidden",
+          clip: "rect(0, 0, 0, 0)",
+          whiteSpace: "nowrap",
           border: 0,
         }}
         data-testid="routes-live"
@@ -833,30 +917,46 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
                   )}
                 </CardHeader>
                 <CardName>{row.name}</CardName>
-                {row.description !== null && row.description.trim().length > 0 && (
-                  <CardDescription>{row.description}</CardDescription>
-                )}
+                {row.description !== null &&
+                  row.description.trim().length > 0 && (
+                    <CardDescription>{row.description}</CardDescription>
+                  )}
                 <CardMeta>
                   <CardMetaTerm>JWT</CardMetaTerm>
                   <CardMetaValue>{renderTokenPolicy(row)}</CardMetaValue>
                 </CardMeta>
-                {canUpdateRoute && row.deletedAt === null && (
-                  // Ações na versão mobile espelham a coluna "Ações" do
-                  // desktop. Só aparecem quando o usuário tem permissão
-                  // e a linha é ativa — coerente com o gating da tabela.
-                  <RowActions>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      icon={<Pencil size={14} strokeWidth={1.5} />}
-                      onClick={() => handleOpenEditModal(row)}
-                      aria-label={`Editar rota ${row.name}`}
-                      data-testid={`routes-card-edit-${row.id}`}
-                    >
-                      Editar
-                    </Button>
-                  </RowActions>
-                )}
+                {(canUpdateRoute || canDeleteRoute) &&
+                  row.deletedAt === null && (
+                    // Ações na versão mobile espelham a coluna "Ações" do
+                    // desktop. Só aparecem quando o usuário tem permissão
+                    // e a linha é ativa — coerente com o gating da tabela.
+                    <RowActions>
+                      {canUpdateRoute && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          icon={<Pencil size={14} strokeWidth={1.5} />}
+                          onClick={() => handleOpenEditModal(row)}
+                          aria-label={`Editar rota ${row.name}`}
+                          data-testid={`routes-card-edit-${row.id}`}
+                        >
+                          Editar
+                        </Button>
+                      )}
+                      {canDeleteRoute && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          icon={<Trash2 size={14} strokeWidth={1.5} />}
+                          onClick={() => handleOpenDeleteConfirm(row)}
+                          aria-label={`Desativar rota ${row.name}`}
+                          data-testid={`routes-card-delete-${row.id}`}
+                        >
+                          Desativar
+                        </Button>
+                      )}
+                    </RowActions>
+                  )}
               </RouteCard>
             ))}
           </CardListForMobile>
@@ -916,6 +1016,16 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
           route={editingRoute}
           onClose={handleCloseEditModal}
           onUpdated={handleRefetch}
+          client={client}
+        />
+      )}
+
+      {canDeleteRoute && (
+        <DeleteRouteConfirm
+          open={deletingRoute !== null}
+          route={deletingRoute}
+          onClose={handleCloseDeleteConfirm}
+          onDeleted={handleRefetch}
           client={client}
         />
       )}

@@ -1,21 +1,46 @@
-import React, { useCallback, useState } from 'react';
-import styled from 'styled-components';
+import React, { useCallback, useState } from "react";
+import styled from "styled-components";
 
-import { Button, Modal, useToast } from '../../components/ui';
+import { Button, Modal, useToast } from "../../components/ui";
 
 import {
   classifyMutationError,
   type MutationErrorCopy,
-} from './systemFormShared';
+} from "./systemFormShared";
 
-import type { ButtonVariant } from '../../components/ui';
-import type { ApiClient, SystemDto } from '../../shared/api';
+import type { ButtonVariant } from "../../components/ui";
+import type { ApiClient } from "../../shared/api";
+
+/**
+ * Shape mínimo exigido para um item alvo de mutação simples — qualquer
+ * DTO com `name` (label legível) e `code` (identificador estável)
+ * encaixa. Generaliza o componente para servir `SystemDto` (Issues
+ * #60/#61) e `RouteDto` (Issue #65) sem duplicar o shell visual entre
+ * `pages/systems/` e `pages/routes/` (lição PR #128 — qualquer trecho
+ * de 10+ linhas em 2+ arquivos vira `New Code Duplication` no Sonar).
+ *
+ * O renderer só consome `name`/`code` para a frase do diálogo; o
+ * caller injeta a função `mutate(target, client?)` sabendo qual `id`
+ * extrair internamente.
+ */
+export interface MutationTarget {
+  /** Texto visível em destaque na descrição do diálogo. */
+  name: string;
+  /**
+   * Identificador curto, exibido em monoespaçado entre parênteses.
+   * Ex.: `'AUTH'` (sistema), `'AUTH_V1_SYSTEMS_ROUTES_LIST'` (rota).
+   */
+  code: string;
+}
 
 /**
  * Componente compartilhado para diálogos de confirmação de mutações
- * simples (sem corpo de form) sobre um `SystemDto` — extraído na Issue
- * #61 a partir do `DeleteSystemConfirm` (#60) para evitar duplicação de
- * blocos ≥10 linhas com o `RestoreSystemConfirm`.
+ * simples (sem corpo de form) sobre uma entidade `MutationTarget` —
+ * extraído na Issue #61 a partir do `DeleteSystemConfirm` (#60) para
+ * evitar duplicação de blocos ≥10 linhas com o `RestoreSystemConfirm`,
+ * e generalizado na Issue #65 para servir `RouteDto` em
+ * `DeleteRouteConfirm` (mesma 5ª recorrência da lição PR #128 evitada
+ * de novo).
  *
  * Sonar marcaria a duplicação direta como `New Code Duplication > 3%`
  * (5ª recorrência das lições PR #119/#123/#127/#128). Compartilhar o
@@ -89,16 +114,20 @@ export interface MutationConfirmCopy {
   errorCopy: MutationErrorCopy;
 }
 
-interface MutationConfirmModalProps {
+interface MutationConfirmModalProps<T extends MutationTarget> {
   /** Estado de visibilidade controlado pelo pai. */
   open: boolean;
   /**
-   * Sistema selecionado para a mutação. Quando `null`, o modal não
-   * renderiza — caller controla `open` em conjunto com `system`.
+   * Item selecionado para a mutação. Quando `null`, o modal não
+   * renderiza — caller controla `open` em conjunto com `target`.
    * Mantemos o objeto completo (não só `id`) para que a copy exiba
    * `name`/`code` sem precisar de re-fetch.
+   *
+   * Tipado por generic `T` para que o caller mantenha tipos fortes do
+   * próprio recurso (`SystemDto`/`RouteDto`/...) e o `mutate` receba
+   * o objeto certo sem cast.
    */
-  system: SystemDto | null;
+  target: T | null;
   /** Fecha o modal sem persistir. Chamado também após sucesso/404. */
   onClose: () => void;
   /**
@@ -111,15 +140,15 @@ interface MutationConfirmModalProps {
   /**
    * Cliente HTTP injetável para isolar testes — em produção, omitido,
    * `mutate` cai no singleton `apiClient` por meio do wrapper específico
-   * (`deleteSystem`/`restoreSystem`).
+   * (`deleteSystem`/`restoreSystem`/`deleteRoute`).
    */
   client?: ApiClient;
   /**
-   * Função pura que dispara a mutação HTTP (`deleteSystem`/`restoreSystem`).
-   * O shell cuida do `isSubmitting`/toast/refetch — `mutate` só precisa
-   * lançar `ApiError` em falha e resolver em sucesso.
+   * Função pura que dispara a mutação HTTP (`deleteSystem`/`restoreSystem`/
+   * `deleteRoute`). O shell cuida do `isSubmitting`/toast/refetch —
+   * `mutate` só precisa lançar `ApiError` em falha e resolver em sucesso.
    */
-  mutate: (system: SystemDto, client?: ApiClient) => Promise<unknown>;
+  mutate: (target: T, client?: ApiClient) => Promise<unknown>;
   /** Copy textual + error copy (ver `MutationConfirmCopy`). */
   copy: MutationConfirmCopy;
   /**
@@ -129,9 +158,10 @@ interface MutationConfirmModalProps {
    */
   confirmVariant: ButtonVariant;
   /**
-   * Prefixo dos `data-testid` (ex.: `'delete-system'`, `'restore-system'`).
-   * Concatenado com `-description`/`-cancel`/`-confirm` para preservar
-   * compatibilidade com asserções legadas das suítes de teste.
+   * Prefixo dos `data-testid` (ex.: `'delete-system'`, `'restore-system'`,
+   * `'delete-route'`). Concatenado com `-description`/`-cancel`/`-confirm`
+   * para preservar compatibilidade com asserções legadas das suítes de
+   * teste.
    */
   testIdPrefix: string;
 }
@@ -179,9 +209,9 @@ const Mono = styled.span`
 
 /* ─── Component ──────────────────────────────────────────── */
 
-export const MutationConfirmModal: React.FC<MutationConfirmModalProps> = ({
+export function MutationConfirmModal<T extends MutationTarget>({
   open,
-  system,
+  target,
   onClose,
   onSuccess,
   client,
@@ -189,7 +219,7 @@ export const MutationConfirmModal: React.FC<MutationConfirmModalProps> = ({
   copy,
   confirmVariant,
   testIdPrefix,
-}) => {
+}: MutationConfirmModalProps<T>): React.ReactElement | null {
   const { show } = useToast();
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
@@ -205,13 +235,13 @@ export const MutationConfirmModal: React.FC<MutationConfirmModalProps> = ({
   }, [isSubmitting, onClose]);
 
   const handleConfirm = useCallback(async () => {
-    if (isSubmitting || !system) return;
+    if (isSubmitting || !target) return;
     setIsSubmitting(true);
     try {
-      await mutate(system, client);
+      await mutate(target, client);
       // Mensagem fixa — o usuário acabou de selecionar e a lista será
       // atualizada. Toast verde sinaliza sucesso visual além do close.
-      show(copy.successMessage, { variant: 'success' });
+      show(copy.successMessage, { variant: "success" });
       // Ordem importa: refetch antes de fechar para o pai não ter que
       // coordenar dois ticks separados (mesmo padrão dos demais modals).
       onSuccess();
@@ -223,36 +253,36 @@ export const MutationConfirmModal: React.FC<MutationConfirmModalProps> = ({
       // compartilhado entre delete (#60) e restore (#61) — lição PR #128.
       const action = classifyMutationError(error, copy.errorCopy);
       switch (action.kind) {
-        case 'not-found':
+        case "not-found":
           // Item removido/já mutado entre abertura e confirm. Fecha
           // modal + toast + refetch (paridade com o tratamento de 404
           // no edit).
-          show(action.message, { variant: 'danger', title: action.title });
+          show(action.message, { variant: "danger", title: action.title });
           onSuccess();
           onClose();
           break;
-        case 'toast':
-          show(action.message, { variant: 'danger', title: action.title });
+        case "toast":
+          show(action.message, { variant: "danger", title: action.title });
           break;
-        case 'conflict':
+        case "conflict":
           // Relevante para o restore quando o backend evoluir para
           // devolver 409 ("já está ativo"). Hoje o backend devolve
           // 404 nesse caminho, mas o branch fica preparado.
-          show(action.message, { variant: 'danger', title: action.title });
+          show(action.message, { variant: "danger", title: action.title });
           break;
-        case 'unhandled':
-          show(action.fallback, { variant: 'danger', title: action.title });
+        case "unhandled":
+          show(action.fallback, { variant: "danger", title: action.title });
           break;
       }
     } finally {
       setIsSubmitting(false);
     }
-  }, [client, copy, isSubmitting, mutate, onClose, onSuccess, show, system]);
+  }, [client, copy, isSubmitting, mutate, onClose, onSuccess, show, target]);
 
-  // Defensive guard: pai controla `open` em conjunto com `system`, mas
-  // cobrimos o caso `open=true && system=null` para não tentar
+  // Defensive guard: pai controla `open` em conjunto com `target`, mas
+  // cobrimos o caso `open=true && target=null` para não tentar
   // `mutate(null)`.
-  if (!system) {
+  if (!target) {
     return null;
   }
 
@@ -267,7 +297,7 @@ export const MutationConfirmModal: React.FC<MutationConfirmModalProps> = ({
       <ConfirmBody>
         <ConfirmText data-testid={`${testIdPrefix}-description`}>
           {copy.descriptionPrefix}
-          <strong>{system.name}</strong> (<Mono>{system.code}</Mono>)
+          <strong>{target.name}</strong> (<Mono>{target.code}</Mono>)
           {copy.descriptionSuffix}
         </ConfirmText>
         <ActionsBar>
@@ -295,4 +325,4 @@ export const MutationConfirmModal: React.FC<MutationConfirmModalProps> = ({
       </ConfirmBody>
     </Modal>
   );
-};
+}
