@@ -2,11 +2,12 @@ import React from 'react';
 import { Navigate, Route, Routes, useParams } from 'react-router-dom';
 
 import { AppLayout } from '../layouts/AppLayout';
+import { ClientDetailShellPage, ClientsListShellPage } from '../pages/clients';
 import { ForbiddenPage } from '../pages/ForbiddenPage';
 import { InternalErrorPage } from '../pages/InternalErrorPage';
 import { LoginPage } from '../pages/LoginPage';
 import { NotFoundPage } from '../pages/NotFoundPage';
-import { PermissionsPage } from '../pages/PermissionsPage';
+import { PermissionsListShellPage } from '../pages/permissions';
 import { PlaceholderPage } from '../pages/PlaceholderPage';
 import { RolesPage } from '../pages/RolesPage';
 import { RoutesPage } from '../pages/RoutesPage';
@@ -14,7 +15,11 @@ import { SettingsPage } from '../pages/SettingsPage';
 import { ShowcasePage } from '../pages/ShowcasePage';
 import { SystemsPage } from '../pages/SystemsPage';
 import { UnauthorizedPage } from '../pages/UnauthorizedPage';
-import { UsersPage } from '../pages/UsersPage';
+import {
+  UserDetailShellPage,
+  UserPermissionsShellPage,
+  UsersListShellPage,
+} from '../pages/users';
 import { RequireAuth, RequirePermission } from '../shared/auth';
 
 /**
@@ -49,10 +54,11 @@ const ErrorRouteResolver: React.FC = () => {
  *   O guard `<RequireAuth>` redireciona para `/login` preservando
  *   `state.from`; em seguida o `<AppLayout>` provê Sidebar + Topbar +
  *   Outlet.
- * - Rotas administrativas com gating de permissão (`/systems`, `/roles`,
- *   `/permissions`, `/users`, `/routes`, `/tokens`) são envolvidas por
- *   `<RequirePermission code="...">`, que redireciona para `/error/403`
- *   quando o usuário autenticado não possui o código exigido.
+ * - Rotas administrativas com gating de permissão (`/systems`,
+ *   `/roles`, `/permissoes`, `/clientes`, `/usuarios`, `/routes`,
+ *   `/tokens`) são envolvidas por `<RequirePermission code="...">`,
+ *   que redireciona para `/error/403` quando o usuário autenticado
+ *   não possui o código exigido.
  * - Rotas administrativas SEM gating de permissão:
  *   - `/` redireciona para `/systems` (decisão estrutural, não dado).
  *   - `/settings` é configuração pessoal — sempre acessível ao usuário
@@ -72,6 +78,15 @@ const ErrorRouteResolver: React.FC = () => {
  * exposto pelo Provider é populado com a lista `routes` de
  * `GET /auth/permissions`, então `hasPermission(code)` consulta a mesma
  * lista usada no `X-Route-Code` do `verify-token`.
+ *
+ * Convenção de naming das rotas (Issue #145):
+ *
+ * As novas seções de primeiro nível introduzidas pelas EPICs #48
+ * (Permissões) e #49 (Clientes/Usuários) usam paths em português
+ * (`/clientes`, `/usuarios`, `/permissoes`) por alinhamento com a UX
+ * em pt-BR do painel. Rotas anteriores (`/systems`, `/routes`,
+ * `/roles`, `/tokens`) permanecem em inglês — a normalização total
+ * fica fora do escopo desta issue.
  */
 export const AppRoutes: React.FC = () => (
   <Routes>
@@ -135,18 +150,50 @@ export const AppRoutes: React.FC = () => (
         }
       />
       <Route
-        path="/permissions"
+        path="/permissoes"
         element={
           <RequirePermission code="AUTH_V1_PERMISSIONS_LIST">
-            <PermissionsPage />
+            <PermissionsListShellPage />
           </RequirePermission>
         }
       />
       <Route
-        path="/users"
+        path="/clientes"
+        element={
+          <RequirePermission code="AUTH_V1_CLIENTS_LIST">
+            <ClientsListShellPage />
+          </RequirePermission>
+        }
+      />
+      <Route
+        path="/clientes/:id"
+        element={
+          <RequirePermission code="AUTH_V1_CLIENTS_GET_BY_ID">
+            <ClientDetailShellPage />
+          </RequirePermission>
+        }
+      />
+      <Route
+        path="/usuarios"
         element={
           <RequirePermission code="AUTH_V1_USERS_LIST">
-            <UsersPage />
+            <UsersListShellPage />
+          </RequirePermission>
+        }
+      />
+      <Route
+        path="/usuarios/:id"
+        element={
+          <RequirePermission code="AUTH_V1_USERS_GET_BY_ID">
+            <UserDetailShellPage />
+          </RequirePermission>
+        }
+      />
+      <Route
+        path="/usuarios/:id/permissoes"
+        element={
+          <RequirePermission code="AUTH_V1_USERS_PERMISSIONS_ASSIGN">
+            <UserPermissionsShellPage />
           </RequirePermission>
         }
       />
@@ -155,7 +202,7 @@ export const AppRoutes: React.FC = () => (
         element={
           <RequirePermission code="AUTH_V1_TOKEN_TYPES_LIST">
             <PlaceholderPage
-              eyebrow="06 Tokens"
+              eyebrow="08 Tokens"
               title="Tokens JWT"
               desc="Tokens emitidos por sistema. tokenVersion atual: 12. Revogar um token invalida a sessão do usuário imediatamente."
             />

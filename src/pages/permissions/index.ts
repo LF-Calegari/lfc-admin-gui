@@ -1,0 +1,1 @@
+export { PermissionsListShellPage } from './PermissionsListShellPage';

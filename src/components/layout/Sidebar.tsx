@@ -3,13 +3,14 @@ import {
   Shuffle,
   Users,
   Lock,
+  Briefcase,
   User,
   Activity,
   Settings,
   Component,
   X,
 } from 'lucide-react';
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { NavLink } from 'react-router-dom';
 import styled from 'styled-components';
 
@@ -20,12 +21,21 @@ import styled from 'styled-components';
 import logoForLightTheme from '../../assets/logo-dark.svg';
 import logoForDarkTheme from '../../assets/logo-white.svg';
 import { useTheme } from '../../hooks/useTheme';
+import { useAuth } from '../../shared/auth';
 
 interface NavItem {
   to: string;
   num: string;
   label: string;
   icon: React.ReactNode;
+  /**
+   * Code da permissão exigida para o item aparecer na Sidebar. Quando
+   * ausente, o item é considerado público (ex.: Settings, Showcase) e
+   * sempre fica visível para o usuário autenticado. O code segue o
+   * catálogo do `lfc-authenticator` (`AUTH_V1_*`) — espelha o
+   * `RequirePermission` da rota correspondente em `routes/index.tsx`.
+   */
+  requiredCode?: string;
   /**
    * Quando `true`, o item só é exibido em build de desenvolvimento. Usado
    * para vitrines internas que não devem aparecer em produção.
@@ -44,20 +54,33 @@ interface SidebarProps {
   onClose: () => void;
 }
 
+/**
+ * Catálogo completo de itens de navegação. A ordem reflete a hierarquia
+ * informacional do painel (Issue #145 reposicionou Permissões → Clientes
+ * → Usuários antes de Configurações):
+ *
+ * 1. Sistemas / Rotas / Roles — catálogo de identidade do ecossistema.
+ * 2. Permissões — vista global do que cada role/usuário pode fazer.
+ * 3. Clientes / Usuários — pessoas (físicas/jurídicas) cadastradas.
+ * 4. Tokens — auditoria de JWT.
+ * 5. Configurações — preferências pessoais (sempre visível).
+ * 6. Showcase UI — vitrine interna do design system (somente DEV).
+ */
 const ALL_NAV_ITEMS: NavItem[] = [
-  { to: '/systems',     num: '01', label: 'Sistemas',       icon: <Monitor size={15} strokeWidth={1.5} /> },
-  { to: '/routes',      num: '02', label: 'Rotas',          icon: <Shuffle size={15} strokeWidth={1.5} /> },
-  { to: '/roles',       num: '03', label: 'Roles',          icon: <Users size={15} strokeWidth={1.5} /> },
-  { to: '/permissions', num: '04', label: 'Permissões',     icon: <Lock size={15} strokeWidth={1.5} /> },
-  { to: '/users',       num: '05', label: 'Usuários',       icon: <User size={15} strokeWidth={1.5} /> },
-  { to: '/tokens',      num: '06', label: 'Tokens',         icon: <Activity size={15} strokeWidth={1.5} /> },
-  { to: '/settings',    num: '07', label: 'Configurações',  icon: <Settings size={15} strokeWidth={1.5} /> },
-  { to: '/showcase',    num: '08', label: 'Showcase UI',    icon: <Component size={15} strokeWidth={1.5} />, devOnly: true },
+  { to: '/systems',    num: '01', label: 'Sistemas',       icon: <Monitor size={15} strokeWidth={1.5} />,   requiredCode: 'AUTH_V1_SYSTEMS_LIST' },
+  { to: '/routes',     num: '02', label: 'Rotas',          icon: <Shuffle size={15} strokeWidth={1.5} />,   requiredCode: 'AUTH_V1_SYSTEMS_ROUTES_LIST' },
+  { to: '/roles',      num: '03', label: 'Roles',          icon: <Users size={15} strokeWidth={1.5} />,     requiredCode: 'AUTH_V1_ROLES_LIST' },
+  { to: '/permissoes', num: '04', label: 'Permissões',     icon: <Lock size={15} strokeWidth={1.5} />,      requiredCode: 'AUTH_V1_PERMISSIONS_LIST' },
+  { to: '/clientes',   num: '05', label: 'Clientes',       icon: <Briefcase size={15} strokeWidth={1.5} />, requiredCode: 'AUTH_V1_CLIENTS_LIST' },
+  { to: '/usuarios',   num: '06', label: 'Usuários',       icon: <User size={15} strokeWidth={1.5} />,      requiredCode: 'AUTH_V1_USERS_LIST' },
+  { to: '/tokens',     num: '07', label: 'Tokens',         icon: <Activity size={15} strokeWidth={1.5} />,  requiredCode: 'AUTH_V1_TOKEN_TYPES_LIST' },
+  { to: '/settings',   num: '08', label: 'Configurações',  icon: <Settings size={15} strokeWidth={1.5} /> },
+  { to: '/showcase',   num: '09', label: 'Showcase UI',    icon: <Component size={15} strokeWidth={1.5} />, devOnly: true },
 ];
 
 // Showcase UI é página de demonstração interna do design system —
 // expor apenas em build de desenvolvimento para não poluir produção.
-const NAV_ITEMS: NavItem[] = ALL_NAV_ITEMS.filter(
+const VISIBLE_NAV_ITEMS: NavItem[] = ALL_NAV_ITEMS.filter(
   item => !item.devOnly || import.meta.env.DEV,
 );
 
@@ -266,7 +289,28 @@ const FootVersion = styled.div`
 export const Sidebar: React.FC<SidebarProps> = ({ open, onClose }) => {
   const wrapperRef = useRef<HTMLElement | null>(null);
   const { resolvedTheme } = useTheme();
+  const { hasPermission } = useAuth();
   const logoSrc = resolvedTheme === 'dark' ? logoForDarkTheme : logoForLightTheme;
+
+  /**
+   * Filtra os itens visíveis combinando:
+   * - flag `devOnly` (já aplicada em `VISIBLE_NAV_ITEMS`);
+   * - gating por permissão: itens com `requiredCode` só aparecem quando
+   *   `hasPermission(code) === true`. Mantém paridade com o
+   *   `RequirePermission` da rota — usuário sem o code não vê o item e
+   *   também não consegue navegar até a página.
+   *
+   * Memoizado para evitar recomputar a cada render — o resultado só
+   * muda quando o catálogo de permissões mudar (login, logout, refresh
+   * de cache).
+   */
+  const navItems = useMemo<NavItem[]>(
+    () =>
+      VISIBLE_NAV_ITEMS.filter(
+        item => !item.requiredCode || hasPermission(item.requiredCode),
+      ),
+    [hasPermission],
+  );
 
   /**
    * Tecla ESC fecha o drawer. Listener só ativa quando aberto para evitar
@@ -330,7 +374,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ open, onClose }) => {
         </SidebarHeader>
         <PanelLabel>Admin Panel</PanelLabel>
         <Nav>
-          {NAV_ITEMS.map(item => (
+          {navItems.map(item => (
             <NavItemLink
               key={item.to}
               to={item.to}

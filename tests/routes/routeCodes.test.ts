@@ -31,8 +31,13 @@ const POSITIVE_CASES: ReadonlyArray<ResolveCase> = [
     pathname: '/systems/11111111-1111-1111-1111-111111111111/roles',
     expected: 'AUTH_V1_ROLES_LIST',
   },
-  { pathname: '/permissions', expected: 'AUTH_V1_PERMISSIONS_LIST' },
-  { pathname: '/users', expected: 'AUTH_V1_USERS_LIST' },
+  // Issue #145: rotas em PT introduzidas pelas EPICs #48/#49.
+  { pathname: '/permissoes', expected: 'AUTH_V1_PERMISSIONS_LIST' },
+  { pathname: '/clientes', expected: 'AUTH_V1_CLIENTS_LIST' },
+  { pathname: '/clientes/42', expected: 'AUTH_V1_CLIENTS_GET_BY_ID' },
+  { pathname: '/usuarios', expected: 'AUTH_V1_USERS_LIST' },
+  { pathname: '/usuarios/42', expected: 'AUTH_V1_USERS_GET_BY_ID' },
+  { pathname: '/usuarios/42/permissoes', expected: 'AUTH_V1_USERS_PERMISSIONS_ASSIGN' },
   { pathname: '/tokens', expected: 'AUTH_V1_TOKEN_TYPES_LIST' },
 ];
 
@@ -71,7 +76,20 @@ describe('resolveRouteCode — paths privados conhecidos', () => {
     // páginas evoluírem para `:id`/abas/etc sem precisar atualizar a
     // tabela.
     expect(resolveRouteCode('/systems/123')).toBe('AUTH_V1_SYSTEMS_LIST');
-    expect(resolveRouteCode('/users/42/edit')).toBe('AUTH_V1_USERS_LIST');
+    // Sub-rota mais específica vence: edição é resolvida pelo
+    // `:id` antes do `/usuarios` cair no LIST.
+    expect(resolveRouteCode('/usuarios/42/edit')).toBe('AUTH_V1_USERS_GET_BY_ID');
+  });
+
+  it('precedência: /usuarios/:id/permissoes vence /usuarios/:id e /usuarios', () => {
+    // A ordem em ROUTE_CODE_ENTRIES coloca o pattern mais específico
+    // primeiro — a primeira correspondência ganha, então a sub-rota
+    // de atribuição direta de permissões deve resolver corretamente
+    // mesmo que `/usuarios` e `/usuarios/:id` também sejam possíveis
+    // matches sob `end: false`.
+    expect(resolveRouteCode('/usuarios/42/permissoes')).toBe(
+      'AUTH_V1_USERS_PERMISSIONS_ASSIGN',
+    );
   });
 });
 
