@@ -88,3 +88,20 @@ export type {
   SystemsStats,
   UpdateSystemPayload,
 } from './systems';
+export {
+  createRoute,
+  DEFAULT_ROUTES_INCLUDE_DELETED,
+  DEFAULT_ROUTES_PAGE,
+  DEFAULT_ROUTES_PAGE_SIZE,
+  deleteRoute,
+  isPagedRoutesResponse,
+  isRouteDto,
+  listRoutes,
+  updateRoute,
+} from './routes';
+export type {
+  CreateRoutePayload,
+  ListRoutesParams,
+  RouteDto,
+  UpdateRoutePayload,
+} from './routes';

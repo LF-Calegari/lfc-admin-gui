@@ -51,8 +51,18 @@ interface RouteCodeEntry {
  * privadas.
  */
 const ROUTE_CODES: ReadonlyArray<RouteCodeEntry> = [
+  // Issue #62 (EPIC #46): listagem de rotas escopada a um sistema.
+  // O `/systems/:id/routes` é o caminho real cadastrado no
+  // `AuthenticatorRoutesSeeder` para `AUTH_V1_SYSTEMS_ROUTES_LIST`. A
+  // página global `/routes` é placeholder herdado da fundação (#43) e
+  // será desativada quando a EPIC #46 concluir; até lá ela continua no
+  // `AppRoutes` gated apenas pelo `RequirePermission` client-side, sem
+  // entrada própria nesta tabela — `resolveRouteCode('/routes')`
+  // devolve `null` e o `RequireAuth` pula o `verify-token`. Isso é
+  // intencional para preservar o invariante "um routeCode por linha"
+  // exigido pelos testes de sanidade.
+  { pattern: '/systems/:id/routes', routeCode: 'AUTH_V1_SYSTEMS_ROUTES_LIST' },
   { pattern: '/systems', routeCode: 'AUTH_V1_SYSTEMS_LIST' },
-  { pattern: '/routes', routeCode: 'AUTH_V1_SYSTEMS_ROUTES_LIST' },
   { pattern: '/roles', routeCode: 'AUTH_V1_ROLES_LIST' },
   { pattern: '/permissions', routeCode: 'AUTH_V1_PERMISSIONS_LIST' },
   { pattern: '/users', routeCode: 'AUTH_V1_USERS_LIST' },

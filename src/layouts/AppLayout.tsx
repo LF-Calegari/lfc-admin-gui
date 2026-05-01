@@ -23,6 +23,11 @@ interface RouteTitleEntry {
  * por isso ordene do mais específico ao mais genérico.
  */
 const ROUTE_TITLES: RouteTitleEntry[] = [
+  // Issue #62: `/systems/:systemId/routes` precisa vir ANTES de
+  // `/systems` — `matchPath` com `end: false` faz prefix-match e o
+  // primeiro padrão que casar ganha. Sem essa ordem, a Topbar exibiria
+  // "Sistemas" na página de listagem de rotas escopada a um sistema.
+  { pattern: '/systems/:systemId/routes', title: 'Rotas' },
   { pattern: '/systems', title: 'Sistemas' },
   { pattern: '/routes', title: 'Rotas' },
   { pattern: '/roles', title: 'Roles' },

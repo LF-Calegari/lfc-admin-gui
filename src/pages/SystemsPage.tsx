@@ -8,17 +8,17 @@ import {
   Trash2,
   Undo2,
 } from 'lucide-react';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import styled from 'styled-components';
 
 import { PageHeader } from '../components/layout/PageHeader';
 import { Alert, Badge, Button, Input, Spinner, Switch, Table } from '../components/ui';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
+import { usePaginatedFetch } from '../hooks/usePaginatedFetch';
 import {
   DEFAULT_INCLUDE_DELETED,
   DEFAULT_PAGE,
   DEFAULT_PAGE_SIZE,
-  isApiError,
   listSystems,
 } from '../shared/api';
 import { useAuth } from '../shared/auth';
@@ -30,7 +30,7 @@ import { RestoreSystemConfirm } from './systems/RestoreSystemConfirm';
 import { SystemsStatsRow } from './systems/SystemsStatsRow';
 
 import type { TableColumn } from '../components/ui';
-import type { ApiClient, PagedResponse, SystemDto } from '../shared/api';
+import type { ApiClient, SafeRequestOptions, SystemDto } from '../shared/api';
 
 /**
  * Atraso entre a última tecla e o disparo da request de busca. 300 ms é
@@ -101,21 +101,6 @@ interface SystemsPageProps {
    */
   hideStats?: boolean;
 }
-
-interface PageData {
-  /** Itens da página corrente devolvidos pelo backend. */
-  rows: ReadonlyArray<SystemDto>;
-  /** Tamanho de página efetivamente aplicado. */
-  pageSize: number;
-  /** Total filtrado (antes do skip/take). */
-  total: number;
-}
-
-const INITIAL_PAGE_DATA: PageData = {
-  rows: [],
-  pageSize: DEFAULT_PAGE_SIZE,
-  total: 0,
-};
 
 /* ─── Styled primitives ──────────────────────────────────── */
 
@@ -281,21 +266,6 @@ function computeTotalPages(total: number, pageSize: number): number {
   return Math.ceil(total / pageSize);
 }
 
-/**
- * Extrai mensagem amigável de qualquer erro vindo da camada HTTP.
- *
- * Quando o erro é um `ApiError`, devolvemos a `message` (o cliente já
- * resolveu fallbacks por status). Para erros arbitrários, usamos uma
- * mensagem genérica em pt-BR — preserva privacidade da arquitetura
- * (não vaza stack/objeto cru) sem mascarar a origem do problema.
- */
-function extractErrorMessage(error: unknown): string {
-  if (isApiError(error)) {
-    return error.message;
-  }
-  return 'Falha ao carregar a lista de sistemas. Tente novamente.';
-}
-
 /* ─── Component ──────────────────────────────────────────── */
 
 export const SystemsPage: React.FC<SystemsPageProps> = ({ client, hideStats = false }) => {
@@ -311,11 +281,6 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client, hideStats = fa
 
   const [includeDeleted, setIncludeDeleted] = useState<boolean>(DEFAULT_INCLUDE_DELETED);
   const [page, setPage] = useState<number>(DEFAULT_PAGE);
-
-  const [data, setData] = useState<PageData>(INITIAL_PAGE_DATA);
-  const [isInitialLoading, setIsInitialLoading] = useState<boolean>(true);
-  const [isFetching, setIsFetching] = useState<boolean>(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Estado de abertura do modal "Novo sistema" (Issue #58). O modal é
   // controlado por essa página para que a Toolbar consiga ocultar o
@@ -374,14 +339,6 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client, hideStats = fa
     setRestoringSystem(null);
   }, []);
 
-  // Controller da request mais recente — usado para cancelar a anterior
-  // em mudanças rápidas de busca/paginação/toggle.
-  const lastControllerRef = useRef<AbortController | null>(null);
-  // Sinaliza se a primeira request já completou (sucesso OU erro). O
-  // estado `isInitialLoading` deve cair na primeira resposta para que o
-  // próximo refetch use o overlay leve em vez do spinner cheio.
-  const hasCompletedFirstRequestRef = useRef<boolean>(false);
-
   /**
    * Reseta a página para 1 sempre que muda um filtro/busca — evita o
    * caso "estou na página 5 com 100 itens, busco 'auth' que filtra para
@@ -403,89 +360,72 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client, hideStats = fa
     setPage(DEFAULT_PAGE);
   }, []);
 
-  // Bumper monotônico para forçar refetch via "Tentar novamente" sem
-  // mexer em filtros — dependência sintética do useEffect. Reusado pelo
-  // callback `onCreated` do modal de criação (Issue #58): após criação
-  // bem-sucedida, incrementamos o nonce para reexecutar `listSystems`
-  // mantendo a página/filtros atuais. Mais simples que exigir que o pai
-  // conheça `setData` e propagar manualmente o item novo (ainda que
-  // custe um round-trip extra, é coerente com o resto dos refetches da
-  // página e evita estado inconsistente quando outras pessoas estão
-  // criando sistemas em paralelo).
-  //
-  // O mesmo callback (`handleRefetch`) cobre os dois call sites — antes
-  // havia duas funções idênticas (`handleRetry` + `handleCreatedRefetch`)
-  // que o Sonar marcou como duplicação no PR #127. Colapsadas em uma só.
-  const [retryNonce, setRetryNonce] = useState<number>(0);
-  const handleRefetch = useCallback(() => {
-    setRetryNonce((n) => n + 1);
-  }, []);
-
   /**
-   * Dispara `listSystems` sempre que mudam: termo debounced, página,
-   * filtro de inativos ou bumper de retry. Cancela qualquer request em
-   * voo antes de disparar a nova — ignorando `AbortError` no catch.
+   * `fetcher` memoizado para o `usePaginatedFetch`. Captura os params
+   * derivados (busca debounced, page, filtro) e devolve uma função que
+   * aceita `signal` no `options`. O hook reage à mudança de identidade
+   * do `fetcher` para reexecutar — `useCallback` com as deps corretas
+   * mantém o ciclo previsível.
+   *
+   * Reusado pelo callback `onCreated`/`onUpdated`/`onDeleted` dos
+   * modais (Issues #58/#59/#60/#61) via `refetch` devolvido pelo hook:
+   * após mutação bem-sucedida, incrementamos o nonce interno para
+   * reexecutar `listSystems` mantendo a página/filtros atuais. Mais
+   * simples que exigir que o pai conheça `setData` e propagar
+   * manualmente o item novo (ainda que custe um round-trip extra, é
+   * coerente com o resto dos refetches da página e evita estado
+   * inconsistente quando outras pessoas estão mutando em paralelo).
+   *
+   * O mesmo callback (`handleRefetch`) cobre os múltiplos call sites
+   * (retry + onCreated/onUpdated/onDeleted/onRestored) — antes havia
+   * funções separadas que o Sonar marcou como duplicação no PR #127.
    */
-  useEffect(() => {
-    let cancelled = false;
-    const controller = new AbortController();
-    lastControllerRef.current?.abort();
-    lastControllerRef.current = controller;
+  const trimmedSearchInput = debouncedSearch.trim();
+  const fetcher = useCallback(
+    (options: SafeRequestOptions) =>
+      listSystems(
+        {
+          q: trimmedSearchInput.length > 0 ? trimmedSearchInput : undefined,
+          page,
+          pageSize: DEFAULT_PAGE_SIZE,
+          includeDeleted,
+        },
+        options,
+        client,
+      ),
+    [client, includeDeleted, page, trimmedSearchInput],
+  );
 
-    if (hasCompletedFirstRequestRef.current) {
-      setIsFetching(true);
-    }
+  const {
+    rows,
+    pageSize: appliedPageSize,
+    total,
+    isInitialLoading,
+    isFetching,
+    errorMessage,
+    refetch: refetchList,
+  } = usePaginatedFetch<SystemDto>({
+    fetcher,
+    fallbackErrorMessage: 'Falha ao carregar a lista de sistemas. Tente novamente.',
+  });
 
-    const trimmed = debouncedSearch.trim();
-    const params = {
-      q: trimmed.length > 0 ? trimmed : undefined,
-      page,
-      pageSize: DEFAULT_PAGE_SIZE,
-      includeDeleted,
-    };
-
-    listSystems(params, { signal: controller.signal }, client)
-      .then((response: PagedResponse<SystemDto>) => {
-        if (cancelled) return;
-        setData({
-          rows: response.data,
-          pageSize: response.pageSize,
-          total: response.total,
-        });
-        setErrorMessage(null);
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        // Cancelamento explícito (fetch abortado) é fluxo normal —
-        // não vira erro de UI.
-        if (error instanceof DOMException && error.name === 'AbortError') {
-          return;
-        }
-        if (
-          isApiError(error) &&
-          error.kind === 'network' &&
-          error.message === 'Requisição cancelada.'
-        ) {
-          return;
-        }
-        setErrorMessage(extractErrorMessage(error));
-      })
-      .finally(() => {
-        if (cancelled) return;
-        hasCompletedFirstRequestRef.current = true;
-        setIsInitialLoading(false);
-        setIsFetching(false);
-      });
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, [client, debouncedSearch, includeDeleted, page, retryNonce]);
+  // Bumper duplicado para o painel de stats (`SystemsStatsRow`). Antes
+  // o painel usava o mesmo `retryNonce` da tabela porque ambos viviam
+  // no mesmo `useState` da página. Após extrair o ciclo de fetch para
+  // `usePaginatedFetch` (Issue #62), o nonce ficou encapsulado no hook
+  // e o `SystemsStatsRow` precisa de um sinal próprio para refetchear.
+  // Mantemos os dois alinhados disparando ambos do mesmo callback —
+  // assim "Tentar novamente" e os refetches pós-mutação continuam
+  // atualizando tabela e painel ao mesmo tempo (Issue #131).
+  const [statsRefreshKey, setStatsRefreshKey] = useState<number>(0);
+  const handleRefetch = useCallback(() => {
+    refetchList();
+    setStatsRefreshKey((n) => n + 1);
+  }, [refetchList]);
 
   const totalPages = useMemo(
-    () => computeTotalPages(data.total, data.pageSize),
-    [data.total, data.pageSize],
+    () => computeTotalPages(total, appliedPageSize > 0 ? appliedPageSize : DEFAULT_PAGE_SIZE),
+    [appliedPageSize, total],
   );
 
   const isFirstPage = page <= 1;
@@ -503,7 +443,7 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client, hideStats = fa
   const hasActiveSearch = trimmedSearch.length > 0;
 
   /**
-   * Decide qual mensagem renderizar quando `data.rows` está vazio:
+   * Decide qual mensagem renderizar quando `rows` está vazio:
    *
    * - Vazio com busca ativa → cita o termo + sugere limpar.
    * - Vazio com toggle "incluir inativos" mas sem busca → mensagem
@@ -653,14 +593,14 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client, hideStats = fa
     if (isInitialLoading) return 'Carregando lista de sistemas.';
     if (isFetching) return 'Atualizando lista de sistemas.';
     if (errorMessage) return '';
-    if (data.total === 0) {
+    if (total === 0) {
       return hasActiveSearch
         ? `Nenhum sistema encontrado para ${trimmedSearch}.`
         : 'Nenhum sistema cadastrado.';
     }
-    return `${data.total} sistema(s) encontrado(s). Página ${page} de ${totalPages}.`;
+    return `${total} sistema(s) encontrado(s). Página ${page} de ${totalPages}.`;
   }, [
-    data.total,
+    total,
     errorMessage,
     hasActiveSearch,
     isFetching,
@@ -678,7 +618,7 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client, hideStats = fa
         desc="Serviços registrados no ecossistema de autenticação. Cada sistema possui suas próprias rotas, roles e permissões."
       />
 
-      {!hideStats && <SystemsStatsRow refreshKey={retryNonce} client={client} />}
+      {!hideStats && <SystemsStatsRow refreshKey={statsRefreshKey} client={client} />}
 
       <Toolbar>
         <SearchSlot>
@@ -762,7 +702,7 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client, hideStats = fa
           <Table<SystemDto>
             caption="Lista de sistemas cadastrados no auth-service."
             columns={columns}
-            data={data.rows}
+            data={rows}
             getRowKey={(row) => row.id}
             emptyState={emptyContent}
           />
@@ -774,10 +714,10 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client, hideStats = fa
         </TableShell>
       )}
 
-      {!isInitialLoading && !errorMessage && data.total > 0 && (
+      {!isInitialLoading && !errorMessage && total > 0 && (
         <FootBar>
           <PageInfo data-testid="systems-page-info">
-            Página {page} de {totalPages} · {data.total} resultado(s)
+            Página {page} de {totalPages} · {total} resultado(s)
           </PageInfo>
           <PageNav>
             <Button
