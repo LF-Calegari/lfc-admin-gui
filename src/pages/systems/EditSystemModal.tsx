@@ -1,12 +1,17 @@
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo } from 'react';
 
 import { Modal, useToast } from '../../components/ui';
 import { updateSystem } from '../../shared/api';
+import {
+  useEditEntitySubmit,
+  type EditEntitySubmitCopy,
+  type EditSubmitActionCopy,
+} from '../../shared/forms';
 
 import { SystemFormBody } from './SystemFormFields';
 import {
-  classifySubmitError,
   type SubmitErrorCopy,
+  type SystemFieldErrors,
   type SystemFormState,
 } from './systemFormShared';
 import { useSystemForm } from './useSystemForm';
@@ -27,6 +32,20 @@ const SUBMIT_ERROR_COPY: SubmitErrorCopy = {
 
 /** Texto exibido em toast quando o sistema some entre abertura e submit (404). */
 const NOT_FOUND_MESSAGE = 'Sistema não encontrado ou foi removido. Atualize a lista.';
+
+/**
+ * Cópia textual injetada em `applyEditSubmitAction`. Concentra os
+ * literais que diferem entre `EditSystemModal` e `EditRouteModal`
+ * sem duplicar a árvore de switch (lição PR #128/#134).
+ */
+const EDIT_SUBMIT_ACTION_COPY: EditSubmitActionCopy = {
+  // `conflictInlineMessage` ausente → o helper usa `action.message`
+  // (mensagem do backend), preservando o comportamento histórico do
+  // `EditSystemModal` ("Já existe outro sistema com este Code." vinha
+  // direto do `RoutesController`).
+  notFoundMessage: NOT_FOUND_MESSAGE,
+  forbiddenTitle: SUBMIT_ERROR_COPY.forbiddenTitle,
+};
 
 /**
  * Modal de edição de sistema (Issue #59).
@@ -147,79 +166,74 @@ export const EditSystemModal: React.FC<EditSystemModalProps> = ({
     onClose();
   }, [isSubmitting, onClose, setFieldErrors, setSubmitError]);
 
-  const handleSubmit = useCallback(
-    async (event: React.FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      if (isSubmitting || !system) return;
+  /**
+   * Wrapper de `prepareSubmit` que retorna `null` quando o gate de
+   * `isSubmitting`/`!system` reprovar — preserva o dedupe original
+   * (clicar duas vezes em "Salvar" durante uma submissão em curso) ao
+   * mover a lógica para dentro de `useEditEntitySubmit` (lição PR
+   * #135, 6ª recorrência de Sonar).
+   */
+  const prepareSubmitSafe = useCallback((): unknown | null => {
+    if (isSubmitting || !system) return null;
+    return prepareSubmit();
+  }, [isSubmitting, prepareSubmit, system]);
 
-      // `prepareSubmit` valida + zera erros + marca submitting + devolve
-      // payload trimado, ou `null` quando há erros client-side. Idêntico
-      // ao usado no `NewSystemModal` — extrair eliminou ~14 linhas de
-      // boilerplate duplicadas (lição PR #127).
-      const payload = prepareSubmit();
-      if (!payload) return;
-
-      try {
-        await updateSystem(system.id, payload, undefined, client);
-        // Mensagem de sucesso fixa (não citamos o nome porque o usuário
-        // acabou de editá-lo — a lista será atualizada).
-        show('Sistema atualizado.', { variant: 'success' });
-        // Ordem importa: refetch antes de fechar para o pai não ter que
-        // coordenar dois ticks separados.
-        setFieldErrors({});
-        setSubmitError(null);
-        onUpdated();
-        onClose();
-      } catch (error: unknown) {
-        // `classifySubmitError` colapsa a cascata `if (status === 409)
-        // { ... } if (... === 400) { ... } if (... === 404) { ... } if (
-        //  ... === 401 || ... === 403) { ... }` — Cognitive Complexity
-        // do handleSubmit cai de 17 (BLOCKER) para abaixo de 10. Mesma
-        // tabela do `NewSystemModal` (lição PR #128).
-        const action = classifySubmitError(error, SUBMIT_ERROR_COPY);
-        switch (action.kind) {
-          case 'conflict':
-            setFieldErrors({ [action.field]: action.message });
-            setSubmitError(null);
-            break;
-          case 'bad-request':
-            applyBadRequest(action.details, action.fallbackMessage);
-            break;
-          case 'not-found':
-            // Sistema removido entre abertura e submit. Fecha modal +
-            // toast + refetch.
-            show(NOT_FOUND_MESSAGE, {
-              variant: 'danger',
-              title: SUBMIT_ERROR_COPY.forbiddenTitle,
-            });
-            onUpdated();
-            onClose();
-            break;
-          case 'toast':
-            show(action.message, { variant: 'danger', title: action.title });
-            break;
-          case 'unhandled':
-            show(action.fallback, { variant: 'danger', title: action.title });
-            break;
-        }
-      } finally {
-        setIsSubmitting(false);
+  /**
+   * Closure sobre `system.id` + `client`. Quando `system` é `null` o
+   * `prepareSubmitSafe` já reprova antes do `mutationFn` rodar — a
+   * checagem inline aqui é defensiva (preserva o tipo sem `!`).
+   */
+  const mutationFn = useCallback(
+    (payload: unknown): Promise<unknown> => {
+      if (!system) {
+        return Promise.reject(new Error('System unavailable.'));
       }
+      return updateSystem(
+        system.id,
+        payload as Parameters<typeof updateSystem>[1],
+        undefined,
+        client,
+      );
     },
-    [
-      applyBadRequest,
-      client,
-      isSubmitting,
-      onClose,
-      onUpdated,
-      prepareSubmit,
-      setFieldErrors,
-      setIsSubmitting,
-      setSubmitError,
-      show,
-      system,
-    ],
+    [client, system],
   );
+
+  /**
+   * Copy estável (não muda entre renders) — memoizada pra fechar a
+   * deps array do hook sem recriar referência a cada tick.
+   */
+  const submitCopy = useMemo<EditEntitySubmitCopy>(
+    () => ({
+      successMessage: 'Sistema atualizado.',
+      submitErrorCopy: SUBMIT_ERROR_COPY,
+      editSubmitActionCopy: EDIT_SUBMIT_ACTION_COPY,
+    }),
+    [],
+  );
+
+  /**
+   * `handleSubmit` orquestrado pelo hook compartilhado — encapsula o
+   * `try/catch/finally` + `classifyApiSubmitError` +
+   * `applyEditSubmitAction` que vivia inline. O bloco extraído tinha
+   * ~33 linhas idênticas com o `EditRouteModal` (lição PR #134/#135).
+   */
+  const handleSubmit = useEditEntitySubmit<keyof SystemFieldErrors>({
+    dispatchers: {
+      setFieldErrors,
+      setSubmitError,
+      setIsSubmitting,
+      applyBadRequest,
+      showToast: show,
+    },
+    copy: submitCopy,
+    callbacks: {
+      prepareSubmit: prepareSubmitSafe,
+      mutationFn,
+      onUpdated,
+      onClose,
+    },
+    conflictField: 'code',
+  });
 
   // Não renderiza nada quando não houver `system` selecionado — o pai
   // controla `open` em conjunto com o `system`, mas cobrimos o caso
