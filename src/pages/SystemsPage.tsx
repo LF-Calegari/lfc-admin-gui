@@ -15,6 +15,7 @@ import { PageHeader } from '../components/layout/PageHeader';
 import { Alert, Badge, Button, Input, Spinner, Switch, Table } from '../components/ui';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { usePaginatedFetch } from '../hooks/usePaginatedFetch';
+import { usePaginationControls } from '../hooks/usePaginationControls';
 import {
   DEFAULT_INCLUDE_DELETED,
   DEFAULT_PAGE,
@@ -251,21 +252,6 @@ const RowActions = styled.div`
   justify-content: flex-end;
 `;
 
-/* ─── Helpers ─────────────────────────────────────────────── */
-
-/**
- * Calcula a quantidade total de páginas a partir do `total` filtrado e
- * do `pageSize` aplicado. Com `total === 0`, devolve `1` para que os
- * controles de paginação sigam exibindo "página 1 de 1" (e ambos prev/
- * next apareçam desabilitados) — preserva consistência visual no estado
- * vazio.
- */
-function computeTotalPages(total: number, pageSize: number): number {
-  if (pageSize <= 0) return 1;
-  if (total <= 0) return 1;
-  return Math.ceil(total / pageSize);
-}
-
 /* ─── Component ──────────────────────────────────────────── */
 
 export const SystemsPage: React.FC<SystemsPageProps> = ({ client, hideStats = false }) => {
@@ -423,21 +409,19 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client, hideStats = fa
     setStatsRefreshKey((n) => n + 1);
   }, [refetchList]);
 
-  const totalPages = useMemo(
-    () => computeTotalPages(total, appliedPageSize > 0 ? appliedPageSize : DEFAULT_PAGE_SIZE),
-    [appliedPageSize, total],
-  );
-
-  const isFirstPage = page <= 1;
-  const isLastPage = page >= totalPages;
-
-  const handlePrevPage = useCallback(() => {
-    setPage((prev) => (prev > 1 ? prev - 1 : prev));
-  }, []);
-
-  const handleNextPage = useCallback(() => {
-    setPage((prev) => (prev < totalPages ? prev + 1 : prev));
-  }, [totalPages]);
+  // Controles de paginação centralizados em `usePaginationControls`
+  // (lição PR #134 — bloco de 28 linhas duplicado com `RoutesPage`
+  // reprovou o SonarCloud Quality Gate). O hook devolve a mesma
+  // tupla de cálculos/handlers que vivia inline aqui, com a mesma
+  // semântica de memoização.
+  const { totalPages, isFirstPage, isLastPage, handlePrevPage, handleNextPage } =
+    usePaginationControls({
+      total,
+      appliedPageSize,
+      defaultPageSize: DEFAULT_PAGE_SIZE,
+      page,
+      setPage,
+    });
 
   const trimmedSearch = debouncedSearch.trim();
   const hasActiveSearch = trimmedSearch.length > 0;

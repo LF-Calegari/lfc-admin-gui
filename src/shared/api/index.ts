@@ -105,3 +105,9 @@ export type {
   RouteDto,
   UpdateRoutePayload,
 } from './routes';
+export {
+  isTokenTypeArray,
+  isTokenTypeDto,
+  listTokenTypes,
+} from './tokenTypes';
+export type { TokenTypeDto } from './tokenTypes';

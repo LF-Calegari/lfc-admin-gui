@@ -1,10 +1,11 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { expect, vi } from 'vitest';
 
-import type { ApiClient, PagedResponse, RouteDto } from '@/shared/api';
+import type { ApiClient, ApiError, PagedResponse, RouteDto, TokenTypeDto } from '@/shared/api';
 
+import { ToastProvider } from '@/components/ui';
 import { RoutesPage } from '@/pages/RoutesPage';
 
 /**
@@ -113,17 +114,25 @@ export function makePagedRoutes(
  * `systemId` é parametrizável para que o teste de `:systemId` inválido
  * possa simular a URL `/systems/ /routes` (whitespace) e cair no
  * `InvalidIdNotice` — espelhando o comportamento real do componente.
+ *
+ * A partir da Issue #63, envolvemos em `ToastProvider` para que os
+ * modals (`NewRouteModal`) consigam disparar `useToast()` sem quebrar
+ * — espelha a estratégia do `renderSystemsPage` em
+ * `systemsTestHelpers.tsx` (PR #127). Suítes de listagem que não
+ * abrem modal não pagam custo perceptível por ter o provider ativo.
  */
 export function renderRoutesPage(
   client: ApiClientStub,
   systemId: string = ID_SYS_AUTH,
 ): void {
   render(
-    <MemoryRouter initialEntries={[`/systems/${systemId}/routes`]}>
-      <Routes>
-        <Route path="/systems/:systemId/routes" element={<RoutesPage client={client} />} />
-      </Routes>
-    </MemoryRouter>,
+    <ToastProvider>
+      <MemoryRouter initialEntries={[`/systems/${systemId}/routes`]}>
+        <Routes>
+          <Route path="/systems/:systemId/routes" element={<RoutesPage client={client} />} />
+        </Routes>
+      </MemoryRouter>
+    </ToastProvider>,
   );
 }
 
@@ -152,4 +161,291 @@ export function lastGetPath(client: ApiClientStub): string {
   if (calls.length === 0) return '';
   const path = calls[calls.length - 1][0];
   return typeof path === 'string' ? path : '';
+}
+
+/* ─── Helpers para suítes de mutação (Issue #63 — criar) ───── */
+
+/**
+ * Constrói um `TokenTypeDto` com defaults — testes só sobrescrevem o
+ * que importa para o cenário sem repetir todos os campos.
+ *
+ * Centralizado aqui (em vez de em `tokenTypes.test.ts`) porque a
+ * suíte da `RoutesPage.create.test.tsx` precisa fabricar tokens para
+ * popular o `<Select>`, e a suíte de wrapper (`tokenTypes.test.ts`)
+ * também precisa fabricar dummies — Sonar marca a duplicação dessa
+ * factory de ~10 linhas se aparecer nos dois lugares (lição PR #128).
+ */
+export function makeTokenType(overrides: Partial<TokenTypeDto> = {}): TokenTypeDto {
+  return {
+    id: ID_TOKEN_TYPE_DEFAULT,
+    name: 'Acesso padrão',
+    code: 'default',
+    description: null,
+    createdAt: '2026-01-10T12:00:00Z',
+    updatedAt: '2026-01-10T12:00:00Z',
+    deletedAt: null,
+    ...overrides,
+  };
+}
+
+/** UUID adicional usado nos testes da suíte de criação para um token type alternativo. */
+export const ID_TOKEN_TYPE_ADMIN = '88888888-8888-8888-8888-888888888888';
+
+/**
+ * Empilha respostas no stub do cliente para simular a sequência típica
+ * da `RoutesPage` ao abrir o modal de criação:
+ *
+ *  1. `GET /systems/routes?systemId=...` (listagem inicial da página).
+ *  2. `GET /tokens/types` (carregamento da lista do `<Select>` ao
+ *     abrir o modal).
+ *  3. (opcional) `GET /systems/routes?...` (refetch após criação).
+ *
+ * Centralizar evita repetir o mesmo `client.get.mockResolvedValueOnce`
+ * em 3 níveis em quase todos os testes da suíte (lição PR #127 —
+ * trechos de 5+ linhas em 2+ testes são `New Code Duplication`).
+ */
+export function mockOpenCreateModalResponses(
+  client: ApiClientStub,
+  options: {
+    /** Linhas devolvidas pelo GET inicial. Default: 1 rota fake. */
+    initialRows?: ReadonlyArray<RouteDto>;
+    /** Token types devolvidos pelo `GET /tokens/types`. Default: `[default]`. */
+    tokenTypes?: ReadonlyArray<TokenTypeDto>;
+  } = {},
+): void {
+  const initialRows = options.initialRows ?? [makeRoute()];
+  const tokenTypes = options.tokenTypes ?? [makeTokenType()];
+  client.get
+    .mockResolvedValueOnce(makePagedRoutes(initialRows))
+    .mockResolvedValueOnce(tokenTypes);
+}
+
+/**
+ * Mocka as respostas iniciais (listagem + token types), renderiza a
+ * `RoutesPage`, espera a lista carregar e clica no botão "Nova rota"
+ * para abrir o modal de criação. Aguarda também o `<Select>` da
+ * política JWT sair do estado disabled (request de token types
+ * resolvida).
+ *
+ * Helper extraído porque o BLOCKER do PR #127 apontou que esse trecho
+ * estava se repetindo em ~8 testes da suíte de criação de sistemas —
+ * Sonar marca como duplicação. Aplicamos a mesma estratégia para
+ * rotas desde o **primeiro PR do recurso** (lição PR #128).
+ *
+ * Quem precisar de mocks diferentes pode chamar `client.get.mockXxx`
+ * antes para sobrescrever a fila — a detecção de mocks pré-existentes
+ * preserva o caso "fila customizada de respostas" (ex.: cenários de
+ * erro 5xx no carregamento de token types).
+ */
+export async function openCreateRouteModal(
+  client: ApiClientStub,
+  options: {
+    initialRows?: ReadonlyArray<RouteDto>;
+    tokenTypes?: ReadonlyArray<TokenTypeDto>;
+  } = {},
+): Promise<void> {
+  if (client.get.mock.calls.length === 0 && client.get.mock.results.length === 0) {
+    mockOpenCreateModalResponses(client, options);
+  }
+  renderRoutesPage(client);
+  await waitForInitialList(client);
+  fireEvent.click(screen.getByTestId('routes-create-open'));
+  // Aguarda o segundo GET (token types) — sem isso, o `<Select>`
+  // continua disabled e os testes de `fillNewRouteForm` não conseguem
+  // setar o valor.
+  await waitFor(() => {
+    expect(client.get).toHaveBeenCalledTimes(2);
+  });
+  // Garante que o efeito do modal terminou — checamos a presença do
+  // form (cuja primeira opção do <Select> sai de "Carregando..." pra
+  // "Selecione uma política JWT" quando a lista carregou). Asserir o
+  // testid específico do form é suficiente.
+  await waitFor(() => {
+    expect(screen.getByTestId('new-route-form')).toBeInTheDocument();
+  });
+}
+
+/**
+ * Preenche os campos do form do `NewRouteModal`. Cada chave é
+ * opcional — testes que validam só `name` e `code` deixam os demais
+ * ausentes. Trim é responsabilidade do componente
+ * (`createRoute`/`validateRouteForm`).
+ *
+ * `systemTokenTypeId` é setado via `fireEvent.change` no `<Select>`,
+ * espelhando o que o usuário faria — escolher uma opção dispara o
+ * `onChange` do controle.
+ */
+export function fillNewRouteForm(values: {
+  name?: string;
+  code?: string;
+  description?: string;
+  systemTokenTypeId?: string;
+}): void {
+  if (values.name !== undefined) {
+    fireEvent.change(screen.getByTestId('new-route-name'), {
+      target: { value: values.name },
+    });
+  }
+  if (values.code !== undefined) {
+    fireEvent.change(screen.getByTestId('new-route-code'), {
+      target: { value: values.code },
+    });
+  }
+  if (values.description !== undefined) {
+    fireEvent.change(screen.getByTestId('new-route-description'), {
+      target: { value: values.description },
+    });
+  }
+  if (values.systemTokenTypeId !== undefined) {
+    fireEvent.change(screen.getByTestId('new-route-system-token-type-id'), {
+      target: { value: values.systemTokenTypeId },
+    });
+  }
+}
+
+/**
+ * Submete o form do `NewRouteModal` e aguarda o `client.post` ser
+ * chamado pelo menos `expectedPostCalls` vezes (default `1`). Faz o
+ * `act(async)` necessário para flushar a microtask do submit antes do
+ * `waitFor`, padrão repetido em todos os testes de submissão.
+ * Espelha `submitNewSystemForm` em `systemsTestHelpers.tsx`.
+ */
+export async function submitNewRouteForm(
+  client: ApiClientStub,
+  expectedPostCalls = 1,
+): Promise<void> {
+  await act(async () => {
+    fireEvent.submit(screen.getByTestId('new-route-form'));
+    await Promise.resolve();
+  });
+  await waitFor(() => expect(client.post).toHaveBeenCalledTimes(expectedPostCalls));
+}
+
+/**
+ * Caso de teste declarativo para os cenários `it.each(ERROR_CASES)`
+ * da suíte de criação (#63) — e da futura suíte de edição (#64).
+ *
+ * Espelha o `SystemsErrorCase` em `systemsTestHelpers.tsx`.
+ * Centralizar o tipo evita que cada suíte declare a mesma `interface
+ * ErrorCase` (~6 linhas) — Sonar marca tipos idênticos em arquivos
+ * diferentes como duplicação (lição PR #127).
+ */
+export interface RoutesErrorCase {
+  /** Descrição usada como `it.each($name)`. */
+  name: string;
+  /** Erro lançado pelo cliente HTTP no submit. */
+  error: ApiError;
+  /** Texto visível no UI após o submit (string vira regex case-insensitive). */
+  expectedText: RegExp | string;
+  /** Default `true` — quando `false`, o modal fecha após o erro (ex.: 404 no edit). */
+  modalStaysOpen?: boolean;
+}
+
+/**
+ * Aceita string ou regex e devolve sempre um `RegExp` insensível a
+ * caixa, com escape de metacaracteres. Espelha
+ * `toCaseInsensitiveMatcher` em `systemsTestHelpers.tsx`.
+ */
+export function toCaseInsensitiveMatcher(text: RegExp | string): RegExp {
+  if (typeof text !== 'string') {
+    return text;
+  }
+  return new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`), 'i');
+}
+
+/**
+ * Constrói os 5 cenários de erro de submit que diferem **apenas** no
+ * verbo (`criar` vs `atualizar`) entre as suítes de criação (#63) e
+ * edição (#64).
+ *
+ * Pré-fabrica o helper já no primeiro PR do recurso para evitar a
+ * recorrência de `New Code Duplication` no Sonar quando a #64 chegar
+ * (lição PR #128 — projetar shared helpers desde o primeiro PR).
+ */
+export function buildSharedRouteSubmitErrorCases(
+  verb: 'criar' | 'atualizar',
+): ReadonlyArray<RoutesErrorCase> {
+  const verbAcao = verb === 'criar' ? 'criação' : 'atualização';
+  return [
+    {
+      name: '400 com errors mapeia mensagens para os campos correspondentes',
+      error: {
+        kind: 'http',
+        status: 400,
+        message: 'Erro de validação.',
+        details: {
+          errors: {
+            Name: ['Name é obrigatório e não pode ser apenas espaços.'],
+            Code: ['Code deve ter no máximo 50 caracteres.'],
+          },
+        },
+      },
+      expectedText: 'Name é obrigatório e não pode ser apenas espaços.',
+    },
+    {
+      name: '400 sem errors mapeáveis exibe Alert no topo do form',
+      error: {
+        kind: 'http',
+        status: 400,
+        message: `Payload inválido para ${verbAcao} de rota.`,
+      },
+      expectedText: `Payload inválido para ${verbAcao} de rota.`,
+    },
+    {
+      name: '401 dispara toast vermelho com mensagem do backend',
+      error: {
+        kind: 'http',
+        status: 401,
+        message: 'Sessão expirada. Faça login novamente.',
+      },
+      expectedText: 'Sessão expirada. Faça login novamente.',
+    },
+    {
+      name: '403 dispara toast vermelho com mensagem do backend',
+      error: {
+        kind: 'http',
+        status: 403,
+        message: 'Você não tem permissão para esta ação.',
+      },
+      expectedText: 'Você não tem permissão para esta ação.',
+    },
+    {
+      name: 'erro genérico de rede dispara toast vermelho genérico',
+      error: {
+        kind: 'network',
+        message: 'Falha de conexão com o servidor.',
+      },
+      expectedText: `Não foi possível ${verb} a rota. Tente novamente.`,
+    },
+  ];
+}
+
+/**
+ * Constrói os 3 cenários de fechamento sem persistência (Esc,
+ * Cancelar, backdrop) usando o `cancelTestId` da suíte chamadora.
+ * Espelha `buildCloseCases` em `systemsTestHelpers.tsx` — pré-
+ * fabricado já agora para a suíte de criação reusar com a futura
+ * suíte de edição.
+ */
+export interface RoutesModalCloseCase {
+  name: string;
+  close: () => void;
+}
+
+export function buildRoutesCloseCases(cancelTestId: string): ReadonlyArray<RoutesModalCloseCase> {
+  return [
+    {
+      name: 'Esc',
+      // eslint-disable-next-line no-restricted-globals
+      close: () => fireEvent.keyDown(window, { key: 'Escape' }),
+    },
+    {
+      name: 'botão Cancelar',
+      close: () => fireEvent.click(screen.getByTestId(cancelTestId)),
+    },
+    {
+      name: 'clique no backdrop',
+      close: () => fireEvent.mouseDown(screen.getByTestId('modal-backdrop')),
+    },
+  ];
 }

@@ -1,4 +1,9 @@
 import { isApiError } from '../../shared/api';
+import {
+  classifyApiSubmitError,
+  type ApiSubmitErrorAction,
+  type ApiSubmitErrorCopy,
+} from '../../shared/forms';
 
 /**
  * Helpers compartilhados pelos formulários de criação e edição de sistemas.
@@ -180,86 +185,49 @@ export function decideBadRequestHandling(
  * Copy textual usado por `classifySubmitError` para diferenciar create
  * de edit sem duplicar a lógica de classificação. Cada modal injeta sua
  * versão (`'um sistema'` vs `'outro sistema'`, `'criar'` vs `'atualizar'`).
+ *
+ * Estrutural: alias de `ApiSubmitErrorCopy` (helper genérico em
+ * `shared/forms`). Mantemos o nome local para preservar imports
+ * existentes (lição PR #134 — extrair sem quebrar callsites).
  */
-export interface SubmitErrorCopy {
-  /** Mensagem default em 409 quando o backend não envia uma. */
-  conflictDefault: string;
-  /** Título do toast em 401/403/erro genérico (`Falha ao criar sistema`/`Falha ao atualizar sistema`). */
-  forbiddenTitle: string;
-  /** Mensagem do toast quando o erro não é classificável (rede/parse/5xx). */
-  genericFallback: string;
-}
+export type SubmitErrorCopy = ApiSubmitErrorCopy;
 
 /**
  * Resultado da classificação de um erro lançado por `createSystem` ou
  * `updateSystem`. O caller usa o `kind` num `switch` curto para chamar o
  * side-effect correto (set field error, applyBadRequest, toast, etc.).
  *
- * Separar a **decisão** (puro) do **efeito** (com setState/show/etc.)
- * elimina o bloco de ~25 linhas `if (apiError.status === 409) { ... } if (
- *  ... === 400) { ... } if (... === 401 || ... === 403) { ... }` que ficou
- * duplicado entre `NewSystemModal.handleSubmit` e
- * `EditSystemModal.handleSubmit` (lição PR #128 — 4ª recorrência de
- * BLOCKER de duplicação Sonar).
- *
- * Bonus: a redução da cascata `if`-aninhada em `EditSystemModal` cai a
- * Cognitive Complexity de 17 para abaixo de 10 (BLOCKER do Sonar nessa
- * mesma rodada de review).
+ * Estrutural: alias de `ApiSubmitErrorAction<keyof SystemFieldErrors>`.
+ * A lógica vive em `shared/forms/classifySubmitError.ts` para evitar
+ * duplicação Sonar entre `systemFormShared.ts` e `routeFormShared.ts`
+ * (lição PR #134 — bloco de 26 linhas idênticas).
  */
-export type SubmitErrorAction =
-  | { kind: 'conflict'; field: keyof SystemFieldErrors; message: string }
-  | { kind: 'bad-request'; details: unknown; fallbackMessage: string }
-  | { kind: 'not-found' }
-  | { kind: 'toast'; message: string; title: string }
-  | { kind: 'unhandled'; title: string; fallback: string };
+export type SubmitErrorAction = ApiSubmitErrorAction<keyof SystemFieldErrors>;
 
 /**
  * Classifica um erro lançado por `createSystem`/`updateSystem` em uma
- * `SubmitErrorAction` discriminada. Não toca em React state — é puro,
- * fácil de testar isoladamente, e idêntico entre os dois modals.
+ * `SubmitErrorAction` discriminada. Delegação de uma linha para o
+ * helper genérico — preserva a assinatura pública usada pelos modals
+ * de sistemas e pelos testes unitários.
  *
- * - `409` → `conflict` no campo `code` com mensagem do backend (ou copy
- *   default). Caller exibe inline.
+ * - `409` → `conflict` no campo `code` com mensagem do backend (ou
+ *   `copy.conflictDefault`). Caller exibe inline.
  * - `400` → `bad-request` com `details` cru. Caller chama
  *   `applyBadRequest` que decide entre erros por campo (mapeáveis de
  *   `ValidationProblemDetails`) e `Alert` no topo.
- * - `404` → `not-found`. Só relevante para o `EditSystemModal` (sistema
- *   removido entre abertura e submit). Caller dispara refetch + close.
- * - `401`/`403` → `toast` vermelho com mensagem do backend e título de
- *   `forbidden` (caller continua aberto, deixa cliente HTTP cuidar do
- *   redirect 401).
- * - Qualquer outro `ApiError`/erro não-`ApiError` → `unhandled` com a
- *   copy genérica de fallback. Caller só dispara o toast.
+ * - `404` → `not-found`. Só relevante para o `EditSystemModal`
+ *   (sistema removido entre abertura e submit).
+ * - `401`/`403` → `toast` vermelho.
+ * - Outros → `unhandled` com a copy genérica.
+ *
+ * (Detalhe: o `conflictField` é fixo em `'code'` — o campo único de
+ * unicidade do contrato `CreateSystemRequest`/`UpdateSystemRequest`.)
  */
 export function classifySubmitError(
   error: unknown,
   copy: SubmitErrorCopy,
 ): SubmitErrorAction {
-  if (!isApiError(error) || error.kind !== 'http') {
-    return { kind: 'unhandled', title: copy.forbiddenTitle, fallback: copy.genericFallback };
-  }
-  const status = error.status;
-  if (status === 409) {
-    return {
-      kind: 'conflict',
-      field: 'code',
-      message: error.message ?? copy.conflictDefault,
-    };
-  }
-  if (status === 400) {
-    return { kind: 'bad-request', details: error.details, fallbackMessage: error.message };
-  }
-  if (status === 404) {
-    return { kind: 'not-found' };
-  }
-  if (status === 401 || status === 403) {
-    return {
-      kind: 'toast',
-      message: error.message ?? 'Você não tem permissão para esta ação.',
-      title: copy.forbiddenTitle,
-    };
-  }
-  return { kind: 'unhandled', title: copy.forbiddenTitle, fallback: copy.genericFallback };
+  return classifyApiSubmitError<keyof SystemFieldErrors>(error, copy, 'code');
 }
 
 /**

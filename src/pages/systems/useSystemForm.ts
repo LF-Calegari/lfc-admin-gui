@@ -1,5 +1,7 @@
 import { useCallback, useState } from 'react';
 
+import { useFieldChangeHandlers } from '../../shared/forms';
+
 import {
   decideBadRequestHandling,
   validateSystemForm,
@@ -8,6 +10,14 @@ import {
 } from './systemFormShared';
 
 import type { CreateSystemPayload } from '../../shared/api';
+
+/**
+ * Lista fixa dos campos do form de sistema, usada por
+ * `useFieldChangeHandlers` para gerar os handlers `name`/`code`/
+ * `description` em uma única linha. `as const` preserva os literais
+ * para o helper genérico inferir as chaves do `SystemFormState`.
+ */
+const SYSTEM_FORM_FIELDS = ['name', 'code', 'description'] as const;
 
 /**
  * Hook compartilhado pelos formulários de criação (`NewSystemModal`) e
@@ -70,22 +80,19 @@ export function useSystemForm(initialState: SystemFormState): UseSystemFormRetur
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
-  const handleNameChange = useCallback((value: string) => {
-    setFormState((prev) => ({ ...prev, name: value }));
-    setFieldErrors((prev) => (prev.name === undefined ? prev : { ...prev, name: undefined }));
-  }, []);
-
-  const handleCodeChange = useCallback((value: string) => {
-    setFormState((prev) => ({ ...prev, code: value }));
-    setFieldErrors((prev) => (prev.code === undefined ? prev : { ...prev, code: undefined }));
-  }, []);
-
-  const handleDescriptionChange = useCallback((value: string) => {
-    setFormState((prev) => ({ ...prev, description: value }));
-    setFieldErrors((prev) =>
-      prev.description === undefined ? prev : { ...prev, description: undefined },
-    );
-  }, []);
+  // Handlers `name`/`code`/`description` gerados pelo helper genérico
+  // (lição PR #134 — Sonar tokenizou ~19 linhas idênticas entre
+  // `useSystemForm` e `useRouteForm`). Cada handler atualiza o campo
+  // correspondente e limpa o erro inline associado.
+  const {
+    name: handleNameChange,
+    code: handleCodeChange,
+    description: handleDescriptionChange,
+  } = useFieldChangeHandlers<SystemFormState, SystemFieldErrors>(
+    SYSTEM_FORM_FIELDS,
+    setFormState,
+    setFieldErrors,
+  );
 
   const prepareSubmit = useCallback((): CreateSystemPayload | null => {
     const clientErrors = validateSystemForm(formState);
