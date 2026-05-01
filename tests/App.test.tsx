@@ -59,8 +59,10 @@ async function seedAdminSession(): Promise<void> {
     },
     routes: [
       'AUTH_V1_SYSTEMS_LIST',
+      'AUTH_V1_SYSTEMS_ROUTES_LIST',
       'AUTH_V1_ROLES_LIST',
       'AUTH_V1_PERMISSIONS_LIST',
+      'AUTH_V1_CLIENTS_LIST',
       'AUTH_V1_USERS_LIST',
     ],
   } as Omit<CachedPermissions, 'cachedAt'>);

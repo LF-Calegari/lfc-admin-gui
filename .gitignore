@@ -93,6 +93,9 @@ lib-cov
 coverage
 *.lcov
 
+# JSCPD duplicate-detection report (gerado pelo gate de qualidade pré-PR)
+jscpd-report/
+
 # nyc test coverage
 .nyc_output
 

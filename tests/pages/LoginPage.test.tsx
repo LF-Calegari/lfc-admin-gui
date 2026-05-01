@@ -99,8 +99,8 @@ function renderLogin(options: RenderOptions = {}): { client: ClientStub } {
               element={<div data-testid="systems-page">systems</div>}
             />
             <Route
-              path="/permissions"
-              element={<div data-testid="permissions-page">permissions</div>}
+              path="/permissoes"
+              element={<div data-testid="permissions-page">permissoes</div>}
             />
           </Routes>
         </ToastProvider>
@@ -284,7 +284,7 @@ describe('LoginPage — submit feliz', () => {
     renderLogin({
       client,
       initialEntries: [
-        { pathname: '/login', state: { from: { pathname: '/permissions' } } },
+        { pathname: '/login', state: { from: { pathname: '/permissoes' } } },
       ],
     });
 

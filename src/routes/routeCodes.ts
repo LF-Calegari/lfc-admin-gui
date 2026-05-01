@@ -33,6 +33,11 @@ import { matchPath } from 'react-router-dom';
  * Páginas sem mapeamento (ex.: `/settings`, `/showcase`) não disparam
  * `verify-token` — `resolveRouteCode` devolve `null` e o `RequireAuth`
  * pula a chamada para evitar 400 `"Rota inválida"` do backend.
+ *
+ * Convenção de naming (Issue #145): rotas em português (`/clientes`,
+ * `/usuarios`, `/permissoes`) representam as seções introduzidas
+ * pelas EPICs #48/#49; rotas anteriores em inglês permanecem para não
+ * estourar o escopo da issue.
  */
 interface RouteCodeEntry {
   /** `path` exatamente como declarado no `<Route>` (suporta params). */
@@ -43,8 +48,9 @@ interface RouteCodeEntry {
 
 /**
  * Tabela de rotas privadas do `AppRoutes`. Ordem importa: padrões mais
- * específicos primeiro (ainda que hoje não haja sobreposição, evita
- * regressão futura ao adicionar rotas com params).
+ * específicos primeiro para que `matchPath({ end: false })` resolva
+ * `/usuarios/:id/permissoes` para `AUTH_V1_USERS_PERMISSIONS_ASSIGN`
+ * antes de cair em `/usuarios/:id`.
  *
  * Rotas públicas (`/login`, `/error/:code`, `*` 404) NÃO entram aqui —
  * `RequireAuth` é o único call site, e o guard só roda em subárvores
@@ -74,8 +80,21 @@ const ROUTE_CODES: ReadonlyArray<RouteCodeEntry> = [
   // no `matchPath` (mesmo motivo da regra de routes).
   { pattern: '/systems/:id/roles', routeCode: 'AUTH_V1_ROLES_LIST' },
   { pattern: '/systems', routeCode: 'AUTH_V1_SYSTEMS_LIST' },
-  { pattern: '/permissions', routeCode: 'AUTH_V1_PERMISSIONS_LIST' },
-  { pattern: '/users', routeCode: 'AUTH_V1_USERS_LIST' },
+  // Issue #145: rotas em português introduzidas pelas EPICs #48
+  // (Permissões) e #49 (Clientes/Usuários). Sub-rotas mais específicas
+  // precedem as listagens — `/usuarios/:id/permissoes` precisa vencer
+  // `/usuarios/:id` no `matchPath`. As páginas globais `/permissoes`
+  // (vista global) e `/clientes`/`/usuarios` mantêm seus próprios codes
+  // de "list" porque, ao contrário de `/routes`/`/roles` (placeholders
+  // sem rota canônica), as 3 novas seções têm rotas concretas
+  // cadastradas no `AuthenticatorRoutesSeeder` e estão no escopo
+  // ativo das EPICs.
+  { pattern: '/permissoes', routeCode: 'AUTH_V1_PERMISSIONS_LIST' },
+  { pattern: '/usuarios/:id/permissoes', routeCode: 'AUTH_V1_USERS_PERMISSIONS_ASSIGN' },
+  { pattern: '/usuarios/:id', routeCode: 'AUTH_V1_USERS_GET_BY_ID' },
+  { pattern: '/usuarios', routeCode: 'AUTH_V1_USERS_LIST' },
+  { pattern: '/clientes/:id', routeCode: 'AUTH_V1_CLIENTS_GET_BY_ID' },
+  { pattern: '/clientes', routeCode: 'AUTH_V1_CLIENTS_LIST' },
   { pattern: '/tokens', routeCode: 'AUTH_V1_TOKEN_TYPES_LIST' },
 ];
 
@@ -91,7 +110,10 @@ const ROUTE_CODES: ReadonlyArray<RouteCodeEntry> = [
  *   chamar.
  *
  * Uso de `matchPath` (mesmo helper que o `AppLayout` usa para resolver
- * títulos) garante consistência com o roteador.
+ * títulos) garante consistência com o roteador. `end: false` aceita
+ * subpaths — útil para que `/usuarios/42/edit` (futura sub-rota) caia
+ * no code de "list" enquanto não houver sub-rota mais específica
+ * cadastrada acima.
  */
 export function resolveRouteCode(pathname: string): string | null {
   for (const entry of ROUTE_CODES) {
