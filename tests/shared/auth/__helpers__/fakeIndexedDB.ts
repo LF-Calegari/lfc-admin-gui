@@ -50,32 +50,38 @@ let originalIndexedDB: IDBFactory | undefined;
 let installed = false;
 
 /**
+ * Cria um IDBRequest simulado que dispara `onsuccess` na microtask
+ * seguinte, espelhando o comportamento assíncrono real do IndexedDB.
+ *
+ * Mantida em escopo de módulo (top-level) — não depende de nenhum
+ * binding interno do `createFakeStore`, então não precisa estar
+ * aninhada (Sonar S7721).
+ */
+function makeRequest<T>(result: T): IDBRequest<T> {
+  const request: MutableRequest<T> = {
+    result,
+    error: null,
+    onsuccess: null,
+    onerror: null,
+  };
+  queueMicrotask(() => {
+    request.onsuccess?.call(request as unknown as IDBRequest<T>, new Event('success'));
+  });
+  return request as unknown as IDBRequest<T>;
+}
+
+/**
  * Cria um IDBObjectStore mínimo que opera sobre o `Map` interno do
- * banco. Cada `request` resolvido aciona `onsuccess` na microtask
- * seguinte, simulando o comportamento assíncrono real do IndexedDB.
+ * banco.
  */
 function createFakeStore(state: FakeStoreState): IDBObjectStore {
-  function makeRequest<T>(result: T): IDBRequest<T> {
-    const request: MutableRequest<T> = {
-      result,
-      error: null,
-      onsuccess: null,
-      onerror: null,
-    };
-    queueMicrotask(() => {
-      request.onsuccess?.call(request as unknown as IDBRequest<T>, new Event('success'));
-    });
-    return request as unknown as IDBRequest<T>;
-  }
-
   return {
     get(key: IDBValidKey): IDBRequest<unknown> {
       return makeRequest(state.data.get(key));
     },
-    put(value: unknown, key?: IDBValidKey): IDBRequest<IDBValidKey> {
-      const k = key ?? 'current';
-      state.data.set(k, value);
-      return makeRequest<IDBValidKey>(k);
+    put(value: unknown, key: IDBValidKey = 'current'): IDBRequest<IDBValidKey> {
+      state.data.set(key, value);
+      return makeRequest<IDBValidKey>(key);
     },
     delete(key: IDBValidKey): IDBRequest<undefined> {
       state.data.delete(key);
@@ -191,8 +197,7 @@ function createFakeFactory(): IDBFactory {
       };
       let state = databases.get(name);
       const requestedVersion = version ?? 1;
-      const isNew = !state;
-      const needsUpgrade = !state || (state && state.version < requestedVersion);
+      const needsUpgrade = !state || state.version < requestedVersion;
       if (!state) {
         state = { version: requestedVersion, stores: new Map() };
         databases.set(name, state);
@@ -208,9 +213,6 @@ function createFakeFactory(): IDBFactory {
             new Event('upgradeneeded') as IDBVersionChangeEvent,
           );
         }
-        // Ignora o `isNew` para silenciar warning de não uso quando a
-        // semântica `needsUpgrade` já cobre o disparo.
-        void isNew;
         request.onsuccess?.call(
           request as unknown as IDBOpenDBRequest,
           new Event('success'),
@@ -257,11 +259,11 @@ export function installFakeIndexedDB(): void {
   if (installed) {
     return;
   }
-  if (typeof window === 'undefined') {
+  if (typeof globalThis.window === 'undefined') {
     return;
   }
-  originalIndexedDB = window.indexedDB;
-  Object.defineProperty(window, 'indexedDB', {
+  originalIndexedDB = globalThis.indexedDB;
+  Object.defineProperty(globalThis, 'indexedDB', {
     configurable: true,
     writable: true,
     value: createFakeFactory(),
@@ -275,10 +277,10 @@ export function installFakeIndexedDB(): void {
  */
 export function uninstallFakeIndexedDB(): void {
   databases.clear();
-  if (!installed || typeof window === 'undefined') {
+  if (!installed || typeof globalThis.window === 'undefined') {
     return;
   }
-  Object.defineProperty(window, 'indexedDB', {
+  Object.defineProperty(globalThis, 'indexedDB', {
     configurable: true,
     writable: true,
     value: originalIndexedDB,
@@ -287,12 +289,13 @@ export function uninstallFakeIndexedDB(): void {
 }
 
 /**
- * Remove o `indexedDB` do `window` para simular browser sem suporte.
- * Útil para testar o caminho de fallback gracioso do `permissionsCache`.
+ * Remove o `indexedDB` do contexto global para simular browser sem
+ * suporte. Útil para testar o caminho de fallback gracioso do
+ * `permissionsCache`.
  */
 export function disableIndexedDB(): void {
-  if (typeof window === 'undefined') return;
-  Object.defineProperty(window, 'indexedDB', {
+  if (typeof globalThis.window === 'undefined') return;
+  Object.defineProperty(globalThis, 'indexedDB', {
     configurable: true,
     writable: true,
     value: undefined,

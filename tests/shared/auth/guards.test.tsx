@@ -34,7 +34,7 @@ import { STORAGE_KEYS } from '@/shared/auth/storage';
 async function seedSession(
   routes: ReadonlyArray<string> = ['AUTH_V1_SYSTEMS_LIST'],
 ): Promise<void> {
-  window.localStorage.setItem(STORAGE_KEYS.token, 'jwt-test');
+  globalThis.localStorage.setItem(STORAGE_KEYS.token, 'jwt-test');
   await permissionsCache.save({
     user: SAMPLE_USER,
     routes,
@@ -124,7 +124,7 @@ function renderRequireAuthWithContext(options: {
 
 beforeEach(() => {
   installFakeIndexedDB();
-  window.localStorage.clear();
+  globalThis.localStorage.clear();
 });
 
 afterEach(() => {

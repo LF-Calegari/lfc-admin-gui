@@ -43,7 +43,7 @@ import { STORAGE_KEYS } from '@/shared/auth/storage';
  */
 beforeEach(() => {
   installFakeIndexedDB();
-  window.localStorage.clear();
+  globalThis.localStorage.clear();
 });
 
 afterEach(() => {
@@ -89,14 +89,14 @@ describe('AuthProvider — estado inicial', () => {
   });
 
   test('migração: clearLegacyKeys remove lfc-admin-auth-user no boot', () => {
-    window.localStorage.setItem(
+    globalThis.localStorage.setItem(
       STORAGE_KEYS.legacyUser,
       JSON.stringify({ user: SAMPLE_USER, permissions: [] }),
     );
     const client = createAuthClientStub();
     renderHook(() => useAuth(), { wrapper: makeAuthWrapper(client) });
 
-    expect(window.localStorage.getItem(STORAGE_KEYS.legacyUser)).toBeNull();
+    expect(globalThis.localStorage.getItem(STORAGE_KEYS.legacyUser)).toBeNull();
   });
 });
 
@@ -122,22 +122,21 @@ describe('AuthProvider — login (Issue #122)', () => {
   });
 
   test('login persiste catálogo em IndexedDB', async () => {
-    const { result: _ } = await setupLoggedInProvider();
+    await setupLoggedInProvider();
 
-    // Aguarda o `void permissionsCache.save(...)` resolver.
+    // Aguarda o `permissionsCache.save(...)` resolver.
     await waitFor(async () => {
       const cached = await permissionsCache.load();
       expect(cached?.user.email).toBe('ada@lfc.com.br');
     });
     const cached = await permissionsCache.load();
     expect(cached?.routes).toEqual(SAMPLE_PERMISSIONS.routes);
-    void _;
   });
 
   test('login persiste token em localStorage', async () => {
     await setupLoggedInProvider();
 
-    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBe('jwt-xyz');
+    expect(globalThis.localStorage.getItem(STORAGE_KEYS.token)).toBe('jwt-xyz');
   });
 
   test('tokenRef é setado ANTES do /auth/permissions (header Authorization presente)', async () => {
@@ -202,7 +201,7 @@ describe('AuthProvider — login (Issue #122)', () => {
     expect(result.current.isLoading).toBe(false);
 
     // Storage limpo — a sessão parcial foi descartada.
-    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
+    expect(globalThis.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
 
     // Token injetado no client também foi zerado.
     const latest = lastCall(client.setAuth.mock.calls)?.[0];
@@ -254,7 +253,7 @@ describe('AuthProvider — login (Issue #122)', () => {
 
     expect(captured).toMatchObject({ kind: 'parse' });
     expect(result.current.isAuthenticated).toBe(false);
-    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
+    expect(globalThis.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
   });
 });
 
@@ -297,7 +296,7 @@ describe('AuthProvider — logout', () => {
     expect(client.get).toHaveBeenLastCalledWith('/auth/logout');
     expect(result.current.isAuthenticated).toBe(false);
     expect(result.current.user).toBeNull();
-    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
+    expect(globalThis.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
     if (expectsWarning) {
       expect(warnSpy).toHaveBeenCalled();
     } else {
@@ -342,7 +341,7 @@ describe('AuthProvider — logout', () => {
 
     expect(client.get).toHaveBeenLastCalledWith('/auth/logout');
     expect(result.current.isAuthenticated).toBe(false);
-    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
+    expect(globalThis.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
     expect(warnSpy).not.toHaveBeenCalled();
 
     warnSpy.mockRestore();
@@ -402,7 +401,7 @@ describe('AuthProvider — logout', () => {
 
     await waitFor(() => expect(capturedPath).toBe('/login'));
     expect(client.get).toHaveBeenLastCalledWith('/auth/logout');
-    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
+    expect(globalThis.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
   });
 });
 
@@ -457,7 +456,7 @@ describe('AuthProvider — hidratação (Issue #122)', () => {
   });
 
   test('com cache vazio mas token presente, dispara /auth/permissions', async () => {
-    window.localStorage.setItem(STORAGE_KEYS.token, 'jwt-persistido');
+    globalThis.localStorage.setItem(STORAGE_KEYS.token, 'jwt-persistido');
     const client = createAuthClientStub();
     client.get.mockResolvedValueOnce(SAMPLE_PERMISSIONS);
 
@@ -479,7 +478,7 @@ describe('AuthProvider — hidratação (Issue #122)', () => {
   });
 
   test('hidratação com /auth/permissions em 401 limpa sessão', async () => {
-    window.localStorage.setItem(STORAGE_KEYS.token, 'jwt-persistido');
+    globalThis.localStorage.setItem(STORAGE_KEYS.token, 'jwt-persistido');
     const client = createAuthClientStub();
     client.get.mockImplementationOnce(async () => {
       const config = lastCall(client.setAuth.mock.calls)?.[0];
@@ -494,11 +493,11 @@ describe('AuthProvider — hidratação (Issue #122)', () => {
     await waitFor(() => expect(result.current.isAuthenticated).toBe(false));
     expect(result.current.user).toBeNull();
     expect(result.current.permissions).toEqual([]);
-    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
+    expect(globalThis.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
   });
 
   test('hidratação com falha de rede mantém sessão local intacta (warning)', async () => {
-    window.localStorage.setItem(STORAGE_KEYS.token, 'jwt-persistido');
+    globalThis.localStorage.setItem(STORAGE_KEYS.token, 'jwt-persistido');
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const client = createAuthClientStub();
     client.get.mockRejectedValueOnce(NETWORK_ERROR);
@@ -507,14 +506,14 @@ describe('AuthProvider — hidratação (Issue #122)', () => {
 
     // Sessão local preservada — usuário continua autenticado.
     expect(result.current.isAuthenticated).toBe(true);
-    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBe('jwt-persistido');
+    expect(globalThis.localStorage.getItem(STORAGE_KEYS.token)).toBe('jwt-persistido');
     expect(warnSpy).toHaveBeenCalled();
 
     warnSpy.mockRestore();
   });
 
   test('renderiza splash enquanto hidratação está em curso (token sem cache)', async () => {
-    window.localStorage.setItem(STORAGE_KEYS.token, 'jwt-persistido');
+    globalThis.localStorage.setItem(STORAGE_KEYS.token, 'jwt-persistido');
     const client = createAuthClientStub();
     let resolveFetch: ((value: PermissionsResponse) => void) | null = null;
     client.get.mockImplementationOnce(
@@ -567,7 +566,7 @@ describe('AuthProvider — hidratação (Issue #122)', () => {
   });
 
   test('unmount cancela /auth/permissions pendente via AbortController', async () => {
-    window.localStorage.setItem(STORAGE_KEYS.token, 'jwt-persistido');
+    globalThis.localStorage.setItem(STORAGE_KEYS.token, 'jwt-persistido');
     const client = createAuthClientStub();
     let abortSignal: AbortSignal | undefined;
     client.get.mockImplementationOnce((_path: string, options?: { signal?: AbortSignal }) => {

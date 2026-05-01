@@ -35,11 +35,34 @@ function noContentResponse(): Response {
   return new Response(null, { status: 204 });
 }
 
+// Tipo do spy de `fetch` reutilizado entre helpers de módulo e o describe.
+type FetchSpy = ReturnType<typeof vi.fn<(...args: unknown[]) => Promise<Response>>>;
+
+/**
+ * Helper que dispara um GET único com o cliente configurado e retorna
+ * os headers efetivamente enviados ao `fetch`. Centraliza o boilerplate
+ * (mock de resposta + leitura dos headers da call) para que os testes
+ * expressem só o cenário sendo coberto — configuração e expectativa.
+ *
+ * Mantida top-level (Sonar S7721) recebendo `fetchSpy` por parâmetro;
+ * o `let fetchSpy` do `describe` é injetado em cada chamada.
+ */
+async function captureHeaders(
+  fetchSpy: FetchSpy,
+  configOverrides: Partial<Parameters<typeof createApiClient>[0]>,
+  requestOptions?: { headers?: Record<string, string> },
+): Promise<Headers> {
+  fetchSpy.mockResolvedValueOnce(jsonResponse({}));
+  const client = createApiClient({ baseUrl: '', ...configOverrides });
+  await client.get('/r', requestOptions);
+  return new Headers((fetchSpy.mock.calls[0][1] as RequestInit).headers);
+}
+
 describe('createApiClient', () => {
   // Mock tipado de `fetch`. `unknown[]` no input afrouxa a comparação com a
   // assinatura sobrecarregada do `fetch` global sem perder o `Response`
   // como retorno — basta para os asserts feitos pelos testes.
-  let fetchSpy: ReturnType<typeof vi.fn<(...args: unknown[]) => Promise<Response>>>;
+  let fetchSpy: FetchSpy;
 
   beforeEach(() => {
     fetchSpy = vi.fn();
@@ -137,24 +160,6 @@ describe('createApiClient', () => {
   });
 
   describe('X-System-Id (Issue #118)', () => {
-    /**
-     * Helper que dispara um GET único com o cliente configurado e
-     * retorna os headers efetivamente enviados ao `fetch`. Centraliza
-     * o boilerplate (mock de resposta + leitura dos headers da call)
-     * para que os testes expressem só o cenário sendo coberto —
-     * configuração e expectativa — eliminando duplicação que dispara
-     * o Quality Gate do SonarCloud.
-     */
-    async function captureHeaders(
-      configOverrides: Partial<Parameters<typeof createApiClient>[0]>,
-      requestOptions?: { headers?: Record<string, string> },
-    ): Promise<Headers> {
-      fetchSpy.mockResolvedValueOnce(jsonResponse({}));
-      const client = createApiClient({ baseUrl: '', ...configOverrides });
-      await client.get('/r', requestOptions);
-      return new Headers((fetchSpy.mock.calls[0][1] as RequestInit).headers);
-    }
-
     test.each([
       {
         name: 'injeta X-System-Id quando o cliente é configurado com systemId',
@@ -182,7 +187,7 @@ describe('createApiClient', () => {
         expected: 'override',
       },
     ])('$name', async ({ config, options, expected }) => {
-      const headers = await captureHeaders(config, options);
+      const headers = await captureHeaders(fetchSpy, config, options);
       if (expected === null) {
         expect(headers.has('X-System-Id')).toBe(false);
       } else {

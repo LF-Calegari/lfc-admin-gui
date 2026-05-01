@@ -5,7 +5,7 @@ import { ThemeToggle } from '@/components/ui/ThemeToggle';
 import { THEME_STORAGE_KEY } from '@/hooks/useTheme';
 
 const installMatchMedia = (initialDark: boolean) => {
-  vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({
+  vi.spyOn(globalThis, 'matchMedia').mockImplementation((query: string) => ({
     matches: query.includes('dark') ? initialDark : false,
     media: query,
     onchange: null,
@@ -19,8 +19,8 @@ const installMatchMedia = (initialDark: boolean) => {
 
 describe('ThemeToggle', () => {
   beforeEach(() => {
-    window.localStorage.clear();
-    document.documentElement.removeAttribute('data-theme');
+    globalThis.localStorage.clear();
+    delete document.documentElement.dataset.theme;
   });
 
   afterEach(() => {
@@ -40,11 +40,11 @@ describe('ThemeToggle', () => {
     render(<ThemeToggle />);
 
     const button = screen.getByTestId('theme-toggle');
-    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+    expect(document.documentElement.dataset.theme).toBe('light');
 
     fireEvent.click(button);
 
-    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    expect(document.documentElement.dataset.theme).toBe('dark');
     expect(button).toHaveAttribute('aria-pressed', 'true');
     expect(button).toHaveAttribute('aria-label', 'Ativar tema claro');
   });
@@ -55,23 +55,23 @@ describe('ThemeToggle', () => {
 
     fireEvent.click(screen.getByTestId('theme-toggle'));
 
-    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark');
+    expect(globalThis.localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark');
   });
 
   it('respeita preferência de sistema (dark) no primeiro render', () => {
     installMatchMedia(true);
     render(<ThemeToggle />);
 
-    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    expect(document.documentElement.dataset.theme).toBe('dark');
     expect(screen.getByTestId('theme-toggle')).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('respeita preferência persistida sobre o sistema', () => {
-    window.localStorage.setItem(THEME_STORAGE_KEY, 'light');
+    globalThis.localStorage.setItem(THEME_STORAGE_KEY, 'light');
     installMatchMedia(true);
     render(<ThemeToggle />);
 
-    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+    expect(document.documentElement.dataset.theme).toBe('light');
     expect(screen.getByTestId('theme-toggle')).toHaveAttribute('aria-pressed', 'false');
   });
 

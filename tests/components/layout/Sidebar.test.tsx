@@ -12,7 +12,7 @@ import { THEME_STORAGE_KEY } from '@/hooks/useTheme';
  * dark do SO, basta passar `dark = true`.
  */
 const installMatchMedia = (dark = false) => {
-  Object.defineProperty(window, 'matchMedia', {
+  Object.defineProperty(globalThis, 'matchMedia', {
     writable: true,
     configurable: true,
     value: vi.fn().mockImplementation((query: string) => ({
@@ -34,7 +34,7 @@ const installMatchMedia = (dark = false) => {
  * própria URL.
  */
 const decodeLogoSrc = (src: string): string => {
-  const dataUrlMatch = src.match(/^data:image\/svg\+xml;base64,(.+)$/);
+  const dataUrlMatch = /^data:image\/svg\+xml;base64,(.+)$/.exec(src);
   if (dataUrlMatch) return atob(dataUrlMatch[1]);
   return src;
 };
@@ -50,8 +50,8 @@ function renderSidebar(open = false, onClose: () => void = vi.fn()) {
 describe('Sidebar', () => {
   beforeEach(() => {
     installMatchMedia(false);
-    window.localStorage.clear();
-    document.documentElement.removeAttribute('data-theme');
+    globalThis.localStorage.clear();
+    delete document.documentElement.dataset.theme;
   });
 
   it('renderiza navegação acessível com itens principais', () => {
@@ -147,7 +147,7 @@ describe('Sidebar', () => {
   });
 
   it('renderiza logo clara quando preferência persistida é dark (sobrepõe SO light)', () => {
-    window.localStorage.setItem(THEME_STORAGE_KEY, 'dark');
+    globalThis.localStorage.setItem(THEME_STORAGE_KEY, 'dark');
     renderSidebar(false);
 
     const logo = screen.getByTestId('sidebar-logo') as HTMLImageElement;
