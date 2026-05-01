@@ -3,10 +3,12 @@ import styled from 'styled-components';
 
 import { Alert, Modal, useToast } from '../../components/ui';
 import { updateRoute } from '../../shared/api';
+import { applyEditSubmitAction, type EditSubmitActionCopy } from '../../shared/forms';
 
 import { RouteFormBody } from './RouteFormFields';
 import {
   classifyRouteSubmitError,
+  type RouteFieldErrors,
   type RouteFormState,
   type RouteSubmitErrorCopy,
 } from './routeFormShared';
@@ -32,6 +34,18 @@ const CONFLICT_INLINE_MESSAGE = 'Já existe outra rota com este código neste si
 
 /** Texto exibido em toast quando a rota some entre abertura e submit (404). */
 const NOT_FOUND_MESSAGE = 'Rota não encontrada ou foi removida. Atualize a lista.';
+
+/**
+ * Cópia textual injetada em `applyEditSubmitAction`. Concentra os
+ * literais que diferem entre `EditRouteModal` e `EditSystemModal`
+ * (recurso "rota" vs "sistema") sem duplicar o switch de
+ * dispatch — lição PR #128/#134 reforçada.
+ */
+const EDIT_SUBMIT_ACTION_COPY: EditSubmitActionCopy = {
+  conflictInlineMessage: CONFLICT_INLINE_MESSAGE,
+  notFoundMessage: NOT_FOUND_MESSAGE,
+  forbiddenTitle: 'Falha ao atualizar rota',
+};
 
 /**
  * Aviso exibido como Alert warning no topo do modal quando a rota
@@ -290,40 +304,27 @@ export const EditRouteModal: React.FC<EditRouteModalProps> = ({
         onUpdated();
         onClose();
       } catch (error: unknown) {
-        // `classifyRouteSubmitError` colapsa a cascata `if (status ===
-        // 409) { ... } if (... === 400) { ... } if (... === 404) { ... }
-        // if (... === 401 || ... === 403) { ... }` — Cognitive Complexity
-        // do handleSubmit cai abaixo de 10. Mesma tabela do
-        // `NewRouteModal` (lição PR #128).
+        // `classifyRouteSubmitError` decide o `kind` do erro;
+        // `applyEditSubmitAction` despacha os efeitos colaterais
+        // (setState/toast/onClose). Helper compartilhado com o
+        // `EditSystemModal` — eliminou ~33 linhas de switch duplicado
+        // que o Sonar tokenizou como New Code Duplication na 1ª
+        // tentativa de PR (lição PR #134, 6ª recorrência evitada).
         const action = classifyRouteSubmitError(error, SUBMIT_ERROR_COPY);
-        switch (action.kind) {
-          case 'conflict':
-            // Mensagem inline customizada (citando "outra rota neste
-            // sistema") em vez de propagar a do backend ("Já existe
-            // uma route com este Code.") — mais clara para o operador.
-            setFieldErrors({ [action.field]: CONFLICT_INLINE_MESSAGE });
-            setSubmitError(null);
-            break;
-          case 'bad-request':
-            applyBadRequest(action.details, action.fallbackMessage);
-            break;
-          case 'not-found':
-            // Rota removida entre abertura e submit. Fecha modal +
-            // toast + refetch.
-            show(NOT_FOUND_MESSAGE, {
-              variant: 'danger',
-              title: SUBMIT_ERROR_COPY.forbiddenTitle,
-            });
-            onUpdated();
-            onClose();
-            break;
-          case 'toast':
-            show(action.message, { variant: 'danger', title: action.title });
-            break;
-          case 'unhandled':
-            show(action.fallback, { variant: 'danger', title: action.title });
-            break;
-        }
+        applyEditSubmitAction<keyof RouteFieldErrors>(
+          action,
+          {
+            setFieldErrors,
+            setSubmitError,
+            applyBadRequest,
+            showToast: show,
+            onAfterNotFound: () => {
+              onUpdated();
+              onClose();
+            },
+          },
+          EDIT_SUBMIT_ACTION_COPY,
+        );
       } finally {
         setIsSubmitting(false);
       }

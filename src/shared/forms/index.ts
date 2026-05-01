@@ -21,3 +21,8 @@ export {
   type ApiSubmitErrorCopy,
 } from './classifySubmitError';
 export { useFieldChangeHandlers, type FieldChangeHandlers } from './createFieldChangeHandler';
+export {
+  applyEditSubmitAction,
+  type EditSubmitActionCopy,
+  type EditSubmitActionDispatchers,
+} from './applyEditSubmitAction';

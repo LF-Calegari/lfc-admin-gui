@@ -2,11 +2,13 @@ import React, { useCallback, useEffect } from 'react';
 
 import { Modal, useToast } from '../../components/ui';
 import { updateSystem } from '../../shared/api';
+import { applyEditSubmitAction, type EditSubmitActionCopy } from '../../shared/forms';
 
 import { SystemFormBody } from './SystemFormFields';
 import {
   classifySubmitError,
   type SubmitErrorCopy,
+  type SystemFieldErrors,
   type SystemFormState,
 } from './systemFormShared';
 import { useSystemForm } from './useSystemForm';
@@ -27,6 +29,20 @@ const SUBMIT_ERROR_COPY: SubmitErrorCopy = {
 
 /** Texto exibido em toast quando o sistema some entre abertura e submit (404). */
 const NOT_FOUND_MESSAGE = 'Sistema não encontrado ou foi removido. Atualize a lista.';
+
+/**
+ * Cópia textual injetada em `applyEditSubmitAction`. Concentra os
+ * literais que diferem entre `EditSystemModal` e `EditRouteModal`
+ * sem duplicar a árvore de switch (lição PR #128/#134).
+ */
+const EDIT_SUBMIT_ACTION_COPY: EditSubmitActionCopy = {
+  // `conflictInlineMessage` ausente → o helper usa `action.message`
+  // (mensagem do backend), preservando o comportamento histórico do
+  // `EditSystemModal` ("Já existe outro sistema com este Code." vinha
+  // direto do `RoutesController`).
+  notFoundMessage: NOT_FOUND_MESSAGE,
+  forbiddenTitle: SUBMIT_ERROR_COPY.forbiddenTitle,
+};
 
 /**
  * Modal de edição de sistema (Issue #59).
@@ -171,37 +187,27 @@ export const EditSystemModal: React.FC<EditSystemModalProps> = ({
         onUpdated();
         onClose();
       } catch (error: unknown) {
-        // `classifySubmitError` colapsa a cascata `if (status === 409)
-        // { ... } if (... === 400) { ... } if (... === 404) { ... } if (
-        //  ... === 401 || ... === 403) { ... }` — Cognitive Complexity
-        // do handleSubmit cai de 17 (BLOCKER) para abaixo de 10. Mesma
-        // tabela do `NewSystemModal` (lição PR #128).
+        // `classifySubmitError` decide o `kind`; `applyEditSubmitAction`
+        // despacha os efeitos colaterais (setState/toast/onClose) — o
+        // switch de 33 linhas que vivia inline foi extraído em
+        // `src/shared/forms/applyEditSubmitAction.ts` para ser
+        // compartilhado com o `EditRouteModal` (lição PR #134, evita
+        // 6ª recorrência de New Code Duplication no Sonar).
         const action = classifySubmitError(error, SUBMIT_ERROR_COPY);
-        switch (action.kind) {
-          case 'conflict':
-            setFieldErrors({ [action.field]: action.message });
-            setSubmitError(null);
-            break;
-          case 'bad-request':
-            applyBadRequest(action.details, action.fallbackMessage);
-            break;
-          case 'not-found':
-            // Sistema removido entre abertura e submit. Fecha modal +
-            // toast + refetch.
-            show(NOT_FOUND_MESSAGE, {
-              variant: 'danger',
-              title: SUBMIT_ERROR_COPY.forbiddenTitle,
-            });
-            onUpdated();
-            onClose();
-            break;
-          case 'toast':
-            show(action.message, { variant: 'danger', title: action.title });
-            break;
-          case 'unhandled':
-            show(action.fallback, { variant: 'danger', title: action.title });
-            break;
-        }
+        applyEditSubmitAction<keyof SystemFieldErrors>(
+          action,
+          {
+            setFieldErrors,
+            setSubmitError,
+            applyBadRequest,
+            showToast: show,
+            onAfterNotFound: () => {
+              onUpdated();
+              onClose();
+            },
+          },
+          EDIT_SUBMIT_ACTION_COPY,
+        );
       } finally {
         setIsSubmitting(false);
       }
