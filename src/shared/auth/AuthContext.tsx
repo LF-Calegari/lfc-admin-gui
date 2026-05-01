@@ -138,8 +138,7 @@ function isUnauthorizedError(error: unknown): boolean {
   if (!isApiError(error)) {
     return false;
   }
-  const httpError = error as ApiError;
-  return httpError.kind === 'http' && httpError.status === 401;
+  return error.kind === 'http' && error.status === 401;
 }
 
 /**
@@ -154,8 +153,53 @@ function isForbiddenError(error: unknown): boolean {
   if (!isApiError(error)) {
     return false;
   }
-  const httpError = error as ApiError;
-  return httpError.kind === 'http' && httpError.status === 403;
+  return error.kind === 'http' && error.status === 403;
+}
+
+/**
+ * Constrói um `ApiError` real (com `Error.stack`) sinalizando payload
+ * corrompido. Sonar `S3696` desencoraja `throw` de objeto-literal — o
+ * `Object.assign(new Error(...), {kind})` mantém o contrato `ApiError`
+ * para `isApiError` e ainda dá stack trace para diagnóstico.
+ */
+function makeParseError(): ApiError {
+  return Object.assign(new Error('Resposta inválida do servidor.'), {
+    kind: 'parse' as const,
+  });
+}
+
+/**
+ * Resolve o pathname atual de forma SSR-safe, devolvendo um fallback
+ * quando `globalThis` não tem `location` definido (jsdom puro,
+ * ambiente de testes sem `MemoryRouter`, SSR).
+ */
+function readCurrentPathname(fallback: string): string {
+  if (typeof globalThis === 'undefined') return fallback;
+  const loc = (globalThis as { location?: Location }).location;
+  return loc?.pathname ?? fallback;
+}
+
+/**
+ * Navega para uma rota interna usando `useNavigate`; se o Router não
+ * estiver montado (cenário raro fora do `BrowserRouter`), cai para
+ * `globalThis.location.assign`. Centralizado aqui porque tanto o
+ * `redirectToLogin` quanto o redirect 403 do `verify-token` periódico
+ * compartilham o mesmo padrão e o Sonar contava as duplicatas como
+ * `S7735` (condição negada inesperada) inline.
+ */
+function navigateOrAssign(
+  navigate: (path: string, options?: { replace?: boolean; state?: unknown }) => void,
+  target: string,
+  options?: { replace?: boolean; state?: unknown },
+): void {
+  try {
+    navigate(target, options);
+  } catch {
+    if (typeof globalThis !== 'undefined') {
+      const loc = (globalThis as { location?: Location }).location;
+      loc?.assign(target);
+    }
+  }
 }
 
 /**
@@ -214,9 +258,10 @@ interface AuthProviderProps {
  *    hidratação carrega o catálogo do IndexedDB; se vazio, dispara
  *    `GET /auth/permissions`. Em paralelo, dispara o `verify-token`
  *    para a rota corrente.
- * 3. **`verify-token` reduzido** — payload novo é `{ valid, issuedAt,
- *    expiresAt }`. Não re-hidrata user/permissions; serve apenas como
- *    sinal de validade do token + autorização da rota corrente.
+ * 3. **`verify-token` reduzido** — payload novo é
+ *    `{ valid, issuedAt, expiresAt }`. Não re-hidrata user/permissions;
+ *    serve apenas como sinal de validade do token + autorização da
+ *    rota corrente.
  * 4. **`X-Route-Code` em todo verify-token** — header obrigatório no
  *    novo contrato. Resolvido pelo caller (login/hidratação periódica
  *    usa rota corrente; navegação usa rota destino via `verifyRoute`).
@@ -249,15 +294,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
 }) => {
   const navigate = useNavigate();
 
-  // Migração de chaves legadas (Issue #122): roda exatamente uma vez
-  // por mount do Provider. `useState` com inicializador lazy garante
-  // execução em uma passagem síncrona antes do primeiro render, sem
-  // dependência de `useEffect` (evita race com a hidratação que lê
-  // `tokenStorage` no mesmo tick).
-  useState(() => {
+  // Migração de chaves legadas (Issue #122). Roda uma única vez por
+  // mount via `useRef` "guard" — o padrão `useState(() => {...; return
+  // null;})` antes usado violava `S6754` (state desestruturado nunca lê
+  // o valor). O `useRef` permite manter o efeito síncrono "antes do
+  // primeiro render" com tipagem honesta.
+  const legacyMigrationRanRef = useRef(false);
+  if (!legacyMigrationRanRef.current) {
+    legacyMigrationRanRef.current = true;
     tokenStorage.clearLegacyKeys();
-    return null;
-  });
+  }
 
   // Hidratação inicial: leitura síncrona do token em `localStorage`. Se
   // houver token, montamos já autenticado para evitar flash de redirect
@@ -320,15 +366,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
    * em ambiente sem Router — futuro, hoje sempre dentro de BrowserRouter).
    */
   const redirectToLogin = useCallback(() => {
-    if (typeof window === 'undefined') return;
-    if (window.location.pathname === '/login') return;
-    try {
-      navigate('/login', { replace: true });
-    } catch {
-      // Em ambientes sem Router context, `navigate` lança — degradamos
-      // graciosamente para `window.location` como fallback.
-      window.location.assign('/login');
-    }
+    if (typeof globalThis === 'undefined') return;
+    if (readCurrentPathname('/') === '/login') return;
+    navigateOrAssign(navigate, '/login', { replace: true });
   }, [navigate]);
 
   // `onUnauthorized` precisa do `clearSession`/`redirectToLogin` mais
@@ -387,10 +427,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
         signal ? { signal } : undefined,
       );
       if (!isValidPermissionsResponse(data)) {
-        throw {
-          kind: 'parse',
-          message: 'Resposta inválida do servidor.',
-        } satisfies ApiError;
+        throw makeParseError();
       }
       const user = toUser(data);
       // Persiste em IndexedDB best-effort (falha não propaga). O
@@ -475,7 +512,62 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
       }
     };
 
-    // eslint-disable-next-line sonarjs/cognitive-complexity -- TODO: extrair em helper menor (débito técnico, PR separada)
+    /**
+     * Realiza a chamada do `verify-token` periódico para a rota
+     * corrente. Extraído para baixar a complexidade cognitiva do
+     * `performPeriodicVerify` e isolar o caminho feliz do tratamento
+     * de erros.
+     */
+    const callPeriodicVerify = async (
+      controller: AbortController,
+    ): Promise<void> => {
+      const pathname = readCurrentPathname('');
+      const routeCode = resolveRouteCode(pathname);
+      if (!routeCode) {
+        // Sem rota privada (resolveRouteCode == null em /, /login,
+        // /error/...) o backend rejeitaria com 400. Pula a chamada.
+        return;
+      }
+      const data = await client.get<VerifyTokenResponse>(
+        '/auth/verify-token',
+        {
+          signal: controller.signal,
+          headers: { 'X-Route-Code': routeCode },
+        },
+      );
+      if (cancelled) return;
+      if (!isValidVerifyTokenResponse(data)) {
+        // Payload inesperado: não desautenticamos por segurança.
+        return;
+      }
+      // Sucesso: nada a fazer (não re-hidrata catálogo). 401/403 caem
+      // no `catch` em `performPeriodicVerify` e são tratados.
+    };
+
+    /**
+     * Lida com erros do `verify-token` periódico. Devolve `true` quando
+     * o erro foi tratado (401 → `onUnauthorized`, 403 → redirect) e
+     * `false` para falhas silenciosas (rede / parse / 5xx).
+     */
+    const handlePeriodicVerifyError = (error: unknown): boolean => {
+      if (isUnauthorizedError(error)) {
+        // Cliente HTTP já limpou via `onUnauthorized`.
+        return true;
+      }
+      if (isForbiddenError(error)) {
+        // Periódico em rota proibida: o usuário perdeu acesso à rota
+        // corrente entre cliques. Não derruba a sessão (token segue
+        // válido), mas redireciona para 403.
+        const currentPathname = readCurrentPathname('/');
+        if (currentPathname === FORBIDDEN_ROUTE) {
+          return true;
+        }
+        navigateOrAssign(navigate, FORBIDDEN_ROUTE, { replace: true });
+        return true;
+      }
+      return false;
+    };
+
     const performPeriodicVerify = async (): Promise<void> => {
       if (!tokenRef.current) {
         return;
@@ -483,49 +575,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
       const controller = new AbortController();
       controllers.add(controller);
       try {
-        // Periódico: usa a rota corrente como sinal de "ainda autorizado
-        // para o que estou olhando agora". Sem rota privada
-        // (resolveRouteCode == null em /, /login, /error/...), pula a
-        // chamada — o backend rejeitaria com 400.
-        const pathname =
-          typeof window === 'undefined' ? '' : window.location.pathname;
-        const routeCode = resolveRouteCode(pathname);
-        if (!routeCode) {
-          return;
-        }
-        const data = await client.get<VerifyTokenResponse>(
-          '/auth/verify-token',
-          {
-            signal: controller.signal,
-            headers: { 'X-Route-Code': routeCode },
-          },
-        );
-        if (cancelled) return;
-        if (!isValidVerifyTokenResponse(data)) {
-          // Payload inesperado: não desautenticamos por segurança.
-          return;
-        }
-        // Sucesso: nada a fazer (não re-hidrata catálogo). 401/403
-        // caem no `catch` abaixo e são tratados.
+        await callPeriodicVerify(controller);
       } catch (error) {
         if (cancelled) return;
-        if (isUnauthorizedError(error)) {
-          // Cliente HTTP já limpou via `onUnauthorized`.
-          return;
-        }
-        if (isForbiddenError(error)) {
-          // Periódico em rota proibida: o usuário perdeu acesso à
-          // rota corrente entre cliques. Não derruba a sessão (token
-          // segue válido), mas redireciona para 403.
-          if (typeof window !== 'undefined' && window.location.pathname !== FORBIDDEN_ROUTE) {
-            try {
-              navigate(FORBIDDEN_ROUTE, { replace: true });
-            } catch {
-              window.location.assign(FORBIDDEN_ROUTE);
-            }
-          }
-          return;
-        }
+        if (handlePeriodicVerifyError(error)) return;
         // Falha de rede / parse / 5xx / 400 (rota inválida): silencioso.
         // eslint-disable-next-line no-console
         console.warn('[auth] verify-token periódico falhou; mantendo sessão local.');
@@ -658,6 +711,76 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
   );
 
   /**
+   * Resolve o pathname de origem para popular `state.from` no redirect
+   * 403, com fallback `'/'` quando nem o caller nem o `globalThis.location`
+   * têm informação útil.
+   */
+  const resolveFromPathname = useCallback((fromPathname?: string): string => {
+    if (typeof fromPathname === 'string' && fromPathname.length > 0) {
+      return fromPathname;
+    }
+    return readCurrentPathname('/');
+  }, []);
+
+  /**
+   * Faz a requisição do `verify-token` por navegação e devolve o booleano
+   * `valid`. Centralizar aqui mantém o `verifyRoute` curto (S3776).
+   */
+  const fetchVerifyToken = useCallback(
+    async (
+      routeCode: string,
+      signal?: AbortSignal,
+    ): Promise<boolean> => {
+      const data = await client.get<VerifyTokenResponse>(
+        '/auth/verify-token',
+        {
+          signal,
+          headers: { 'X-Route-Code': routeCode },
+        },
+      );
+      if (!isValidVerifyTokenResponse(data)) {
+        // Payload corrompido: liberamos a navegação por segurança de
+        // UX (próximo tick valida). Não logamos aqui — o erro vem de
+        // proxy/divergência, raro.
+        return true;
+      }
+      return data.valid === true;
+    },
+    [client],
+  );
+
+  /**
+   * Trata erros do `verify-token` por navegação. Devolve `false` quando
+   * a navegação deve ser bloqueada (401 ou 403, com efeito colateral
+   * apropriado) e `true` quando a falha é silenciosa (rede / parse /
+   * 5xx) — caso em que liberamos o destino.
+   */
+  const handleVerifyRouteError = useCallback(
+    (error: unknown, fromPathname?: string): boolean => {
+      if (isUnauthorizedError(error)) {
+        // Sessão já foi limpa pelo cliente HTTP.
+        return false;
+      }
+      if (isForbiddenError(error)) {
+        // Redirect 403 preservando rota tentada.
+        const resolvedFrom = resolveFromPathname(fromPathname);
+        const from = { pathname: resolvedFrom };
+        navigateOrAssign(navigate, FORBIDDEN_ROUTE, {
+          replace: true,
+          state: { from },
+        });
+        return false;
+      }
+      // Falha de rede / parse / 5xx / 400 "Rota inválida": silencioso e
+      // libera a navegação (UX > consistência estrita).
+      // eslint-disable-next-line no-console
+      console.warn('[auth] verify-token de navegação falhou; liberando destino.');
+      return true;
+    },
+    [navigate, resolveFromPathname],
+  );
+
+  /**
    * Verifica autorização do usuário para um `routeCode` específico
    * (Issue #122 / adendo).
    *
@@ -678,9 +801,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
    *
    * O parâmetro `fromPathname` (opcional) é a rota de origem usada para
    * popular `state.from` no redirect 403. Quando ausente, lê
-   * `window.location.pathname` como fallback (cenários sem Router
+   * `globalThis.location.pathname` como fallback (cenários sem Router
    * superior). O `RequireAuth` sempre passa o pathname capturado via
-   * `useLocation()` para evitar dependência de `window.location` em
+   * `useLocation()` para evitar dependência de `globalThis.location` em
    * jsdom/MemoryRouter.
    */
   const verifyRoute = useCallback(
@@ -688,54 +811,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
       routeCode: string,
       signal?: AbortSignal,
       fromPathname?: string,
-      // eslint-disable-next-line sonarjs/cognitive-complexity -- TODO: extrair em helper menor (débito técnico, PR separada)
     ): Promise<boolean> => {
       if (!tokenRef.current) {
         return false;
       }
       try {
-        const data = await client.get<VerifyTokenResponse>(
-          '/auth/verify-token',
-          {
-            signal,
-            headers: { 'X-Route-Code': routeCode },
-          },
-        );
-        if (!isValidVerifyTokenResponse(data)) {
-          // Payload corrompido: liberamos a navegação por segurança
-          // de UX (próximo tick valida). Não logamos aqui — o erro
-          // vem de proxy/divergência, raro.
-          return true;
-        }
-        return data.valid === true;
+        return await fetchVerifyToken(routeCode, signal);
       } catch (error) {
-        if (isUnauthorizedError(error)) {
-          // Sessão já foi limpa pelo cliente HTTP.
-          return false;
-        }
-        if (isForbiddenError(error)) {
-          // Redirect 403 preservando rota tentada.
-          const resolvedFrom =
-            fromPathname ??
-            (typeof window !== 'undefined' ? window.location.pathname : '/');
-          const from = { pathname: resolvedFrom };
-          try {
-            navigate(FORBIDDEN_ROUTE, { replace: true, state: { from } });
-          } catch {
-            if (typeof window !== 'undefined') {
-              window.location.assign(FORBIDDEN_ROUTE);
-            }
-          }
-          return false;
-        }
-        // Falha de rede / parse / 5xx / 400 "Rota inválida":
-        // silencioso e libera a navegação (UX > consistência estrita).
-        // eslint-disable-next-line no-console
-        console.warn('[auth] verify-token de navegação falhou; liberando destino.');
-        return true;
+        return handleVerifyRouteError(error, fromPathname);
       }
     },
-    [client, navigate],
+    [fetchVerifyToken, handleVerifyRouteError],
   );
 
   const value = useMemo<AuthContextValue>(

@@ -309,7 +309,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ open, onClose }) => {
         id="sidebar-drawer"
         role="navigation"
         aria-label="Navegação principal"
-        aria-modal="true"
         tabIndex={-1}
       >
         <SidebarHeader>

@@ -183,7 +183,7 @@ export function Table<T>({
   stickyHeader = false,
   onRowClick,
   emptyState,
-}: TableProps<T>) {
+}: Readonly<TableProps<T>>) {
   const isEmpty = data.length === 0;
   const isClickable = typeof onRowClick === 'function';
 

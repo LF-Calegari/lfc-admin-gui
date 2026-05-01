@@ -185,6 +185,50 @@ const IconSlot = styled.span`
 `;
 
 /**
+ * Builders de handlers extraídos do componente principal para baixar a
+ * complexidade cognitiva da função render (Sonar `S3776`). Cada helper
+ * encapsula o early-return de `disabled` e o curto-circuito quando a
+ * variante "interativa" está desligada — assim o JSX apenas pluga o
+ * resultado nas props sem precisar inspecionar condicionais.
+ */
+function buildKeyDownHandler(
+  interactive: boolean,
+  disabled: boolean,
+  onClick: (() => void) | undefined,
+): ((e: React.KeyboardEvent<HTMLSpanElement>) => void) | undefined {
+  if (!interactive) return undefined;
+  return event => {
+    if (disabled) return;
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    onClick?.();
+  };
+}
+
+function buildClickHandler(
+  interactive: boolean,
+  disabled: boolean,
+  onClick: (() => void) | undefined,
+): (() => void) | undefined {
+  if (!interactive) return undefined;
+  return () => {
+    if (disabled) return;
+    onClick?.();
+  };
+}
+
+function buildRemoveClickHandler(
+  disabled: boolean,
+  onRemove: (() => void) | undefined,
+): (e: React.MouseEvent) => void {
+  return event => {
+    event.stopPropagation();
+    if (disabled) return;
+    onRemove?.();
+  };
+}
+
+/**
  * Chip — pílula compacta usada para tags, filtros, atributos e seleções.
  *
  * Interativo quando recebe `onClick` (vira `<button>`-like com `role="button"`).
@@ -202,26 +246,11 @@ export const Chip: React.FC<ChipProps> = ({
   onClick,
   disabled = false,
   ariaLabel,
-  // eslint-disable-next-line sonarjs/cognitive-complexity -- TODO: extrair em helper menor (débito técnico, PR separada)
 }) => {
   const interactive = typeof onClick === 'function';
-
-  const handleKeyDown = interactive
-    ? (e: React.KeyboardEvent<HTMLSpanElement>) => {
-        if (disabled) return;
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onClick?.();
-        }
-      }
-    : undefined;
-
-  const handleClick = interactive
-    ? () => {
-        if (disabled) return;
-        onClick?.();
-      }
-    : undefined;
+  const handleKeyDown = buildKeyDownHandler(interactive, disabled, onClick);
+  const handleClick = buildClickHandler(interactive, disabled, onClick);
+  const handleRemoveClick = buildRemoveClickHandler(disabled, onRemove);
 
   return (
     <StyledChip
@@ -242,10 +271,7 @@ export const Chip: React.FC<ChipProps> = ({
       {onRemove && (
         <RemoveButton
           type="button"
-          onClick={e => {
-            e.stopPropagation();
-            if (!disabled) onRemove();
-          }}
+          onClick={handleRemoveClick}
           disabled={disabled}
           aria-label={`Remover ${label}`}
         >

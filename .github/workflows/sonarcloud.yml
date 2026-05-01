@@ -64,7 +64,11 @@ jobs:
 
       - name: SonarCloud Scan (PR)
         if: github.event_name == 'pull_request'
-        uses: SonarSource/sonarqube-scan-action@v7
+        # Pin para SHA exato evita risco de supply-chain via tag mutável
+        # (githubactions:S7637). v7 (release de 2025) → commit fixado em
+        # c7ee0f9df90b7aa20e8dcf9695dcfe2e7da5b4f2; atualizar em bloco
+        # quando subir de versão.
+        uses: SonarSource/sonarqube-scan-action@c7ee0f9df90b7aa20e8dcf9695dcfe2e7da5b4f2 # v7
         with:
           args: >
             -Dsonar.organization=${{ env.SONAR_ORGANIZATION }}
@@ -77,7 +81,11 @@ jobs:
 
       - name: SonarCloud Scan (branch)
         if: github.event_name == 'push'
-        uses: SonarSource/sonarqube-scan-action@v7
+        # Pin para SHA exato evita risco de supply-chain via tag mutável
+        # (githubactions:S7637). v7 (release de 2025) → commit fixado em
+        # c7ee0f9df90b7aa20e8dcf9695dcfe2e7da5b4f2; atualizar em bloco
+        # quando subir de versão.
+        uses: SonarSource/sonarqube-scan-action@c7ee0f9df90b7aa20e8dcf9695dcfe2e7da5b4f2 # v7
         with:
           args: >
             -Dsonar.organization=${{ env.SONAR_ORGANIZATION }}
