@@ -1,4 +1,8 @@
-import { isApiError } from '../../shared/api';
+import {
+  classifyApiSubmitError,
+  type ApiSubmitErrorAction,
+  type ApiSubmitErrorCopy,
+} from '../../shared/forms';
 
 /**
  * Helpers compartilhados pelos formulários de criação e edição de rotas.
@@ -212,82 +216,44 @@ export function decideRouteBadRequestHandling(
  * create de edit sem duplicar a lógica de classificação. Cada modal
  * injeta sua versão (`'uma rota'` vs `'outra rota'`, `'criar'` vs
  * `'atualizar'`).
+ *
+ * Estrutural: alias de `ApiSubmitErrorCopy` (helper genérico em
+ * `shared/forms`). Mantemos o nome local para preservar os imports
+ * dos modals de rota (lição PR #134).
  */
-export interface RouteSubmitErrorCopy {
-  /** Mensagem default em 409 quando o backend não envia uma. */
-  conflictDefault: string;
-  /** Título do toast em 401/403/erro genérico. */
-  forbiddenTitle: string;
-  /** Mensagem do toast quando o erro não é classificável (rede/parse/5xx). */
-  genericFallback: string;
-}
+export type RouteSubmitErrorCopy = ApiSubmitErrorCopy;
 
 /**
  * Resultado da classificação de um erro lançado por `createRoute` ou
  * `updateRoute`. O caller usa o `kind` num `switch` curto para chamar o
  * side-effect correto (set field error, applyBadRequest, toast, etc.).
  *
- * Separar a **decisão** (puro) do **efeito** (com setState/show/etc.)
- * elimina o bloco de ~25 linhas `if (apiError.status === 409) { ... }
- * if (... === 400) { ... } if (... === 401 || ... === 403) { ... }`
- * que ficaria duplicado entre `NewRouteModal.handleSubmit` e
- * `EditRouteModal.handleSubmit`. Mesma estratégia de
- * `classifySubmitError` em `systemFormShared.ts` (lição PR #128).
- *
- * Bonus: o switch curto mantém Cognitive Complexity < 10 no
- * `handleSubmit` de cada modal.
+ * Estrutural: alias de `ApiSubmitErrorAction<keyof RouteFieldErrors>`.
+ * A lógica vive em `shared/forms/classifySubmitError.ts` (centralizada
+ * entre sistemas e rotas para eliminar a duplicação Sonar de 26 linhas
+ * detectada na PR #134).
  */
-export type RouteSubmitErrorAction =
-  | { kind: 'conflict'; field: keyof RouteFieldErrors; message: string }
-  | { kind: 'bad-request'; details: unknown; fallbackMessage: string }
-  | { kind: 'not-found' }
-  | { kind: 'toast'; message: string; title: string }
-  | { kind: 'unhandled'; title: string; fallback: string };
+export type RouteSubmitErrorAction = ApiSubmitErrorAction<keyof RouteFieldErrors>;
 
 /**
  * Classifica um erro lançado por `createRoute`/`updateRoute` em uma
- * `RouteSubmitErrorAction` discriminada. Não toca em React state — é
- * puro, fácil de testar isoladamente, e idêntico entre os dois modals.
+ * `RouteSubmitErrorAction` discriminada. Delegação de uma linha para o
+ * helper genérico — preserva a assinatura pública usada pelos modals
+ * de rota e pelos testes unitários.
  *
  * - `409` → `conflict` no campo `code` com mensagem do backend (ou
- *   copy default). Caller exibe inline.
- * - `400` → `bad-request` com `details` cru. Caller chama
- *   `applyBadRequest` que decide entre erros por campo (mapeáveis de
- *   `ValidationProblemDetails`) e `Alert` no topo.
- * - `404` → `not-found`. Só relevante para o `EditRouteModal` (rota
- *   removida entre abertura e submit). Caller dispara refetch + close.
- * - `401`/`403` → `toast` vermelho com mensagem do backend e título
- *   de `forbidden`.
- * - Qualquer outro `ApiError`/erro não-`ApiError` → `unhandled` com
- *   a copy genérica de fallback. Caller só dispara o toast.
+ *   `copy.conflictDefault`). Caller exibe inline.
+ * - `400` → `bad-request` com `details` cru.
+ * - `404` → `not-found` (só relevante no `EditRouteModal`).
+ * - `401`/`403` → `toast` vermelho.
+ * - Outros → `unhandled`.
+ *
+ * O `conflictField` é fixo em `'code'` — campo único de unicidade do
+ * contrato `CreateRouteRequest`/`UpdateRouteRequest`.
  */
 export function classifyRouteSubmitError(
   error: unknown,
   copy: RouteSubmitErrorCopy,
 ): RouteSubmitErrorAction {
-  if (!isApiError(error) || error.kind !== 'http') {
-    return { kind: 'unhandled', title: copy.forbiddenTitle, fallback: copy.genericFallback };
-  }
-  const status = error.status;
-  if (status === 409) {
-    return {
-      kind: 'conflict',
-      field: 'code',
-      message: error.message ?? copy.conflictDefault,
-    };
-  }
-  if (status === 400) {
-    return { kind: 'bad-request', details: error.details, fallbackMessage: error.message };
-  }
-  if (status === 404) {
-    return { kind: 'not-found' };
-  }
-  if (status === 401 || status === 403) {
-    return {
-      kind: 'toast',
-      message: error.message ?? 'Você não tem permissão para esta ação.',
-      title: copy.forbiddenTitle,
-    };
-  }
-  return { kind: 'unhandled', title: copy.forbiddenTitle, fallback: copy.genericFallback };
+  return classifyApiSubmitError<keyof RouteFieldErrors>(error, copy, 'code');
 }

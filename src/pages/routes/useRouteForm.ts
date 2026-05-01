@@ -1,5 +1,7 @@
 import { useCallback, useState } from 'react';
 
+import { useFieldChangeHandlers } from '../../shared/forms';
+
 import {
   decideRouteBadRequestHandling,
   validateRouteForm,
@@ -8,6 +10,19 @@ import {
 } from './routeFormShared';
 
 import type { CreateRoutePayload } from '../../shared/api';
+
+/**
+ * Lista fixa dos campos do form de rota, usada por
+ * `useFieldChangeHandlers` para gerar os handlers em uma única linha.
+ * `as const` preserva os literais para o helper genérico inferir as
+ * chaves do `RouteFormState`.
+ */
+const ROUTE_FORM_FIELDS = [
+  'name',
+  'code',
+  'description',
+  'systemTokenTypeId',
+] as const;
 
 /**
  * Hook compartilhado pelos formulários de criação (`NewRouteModal`) e
@@ -83,29 +98,21 @@ export function useRouteForm(initialState: RouteFormState): UseRouteFormReturn {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
-  const handleNameChange = useCallback((value: string) => {
-    setFormState((prev) => ({ ...prev, name: value }));
-    setFieldErrors((prev) => (prev.name === undefined ? prev : { ...prev, name: undefined }));
-  }, []);
-
-  const handleCodeChange = useCallback((value: string) => {
-    setFormState((prev) => ({ ...prev, code: value }));
-    setFieldErrors((prev) => (prev.code === undefined ? prev : { ...prev, code: undefined }));
-  }, []);
-
-  const handleDescriptionChange = useCallback((value: string) => {
-    setFormState((prev) => ({ ...prev, description: value }));
-    setFieldErrors((prev) =>
-      prev.description === undefined ? prev : { ...prev, description: undefined },
-    );
-  }, []);
-
-  const handleSystemTokenTypeIdChange = useCallback((value: string) => {
-    setFormState((prev) => ({ ...prev, systemTokenTypeId: value }));
-    setFieldErrors((prev) =>
-      prev.systemTokenTypeId === undefined ? prev : { ...prev, systemTokenTypeId: undefined },
-    );
-  }, []);
+  // Handlers `name`/`code`/`description`/`systemTokenTypeId` gerados
+  // pelo helper genérico (lição PR #134 — bloco de 19 linhas
+  // duplicado com `useSystemForm` foi um dos motivos do
+  // SonarCloud Quality Gate FAILED). Cada handler atualiza o campo
+  // correspondente e limpa o erro inline associado.
+  const {
+    name: handleNameChange,
+    code: handleCodeChange,
+    description: handleDescriptionChange,
+    systemTokenTypeId: handleSystemTokenTypeIdChange,
+  } = useFieldChangeHandlers<RouteFormState, RouteFieldErrors>(
+    ROUTE_FORM_FIELDS,
+    setFormState,
+    setFieldErrors,
+  );
 
   const prepareSubmit = useCallback(
     (systemId: string): CreateRoutePayload | null => {
