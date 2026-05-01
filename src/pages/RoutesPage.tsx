@@ -1,4 +1,4 @@
-import { ArrowLeft, ChevronLeft, ChevronRight, RotateCcw, Search } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Plus, RotateCcw, Search } from 'lucide-react';
 import React, { useCallback, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import styled from 'styled-components';
@@ -13,6 +13,9 @@ import {
   DEFAULT_ROUTES_PAGE_SIZE,
   listRoutes,
 } from '../shared/api';
+import { useAuth } from '../shared/auth';
+
+import { NewRouteModal } from './routes/NewRouteModal';
 
 import type { TableColumn } from '../components/ui';
 import type { ApiClient, RouteDto, SafeRequestOptions } from '../shared/api';
@@ -27,6 +30,18 @@ import type { ApiClient, RouteDto, SafeRequestOptions } from '../shared/api';
  * quando ≥ 2 páginas reusam, lição PR #128).
  */
 const SEARCH_DEBOUNCE_MS = 300;
+
+/**
+ * Code de permissão exigido para o botão "Nova rota" (Issue #63).
+ *
+ * Espelha o `AUTH_V1_SYSTEMS_ROUTES_CREATE` cadastrado pelo
+ * `AuthenticatorRoutesSeeder` no `lfc-authenticator`. O backend é a
+ * fonte autoritativa (o `POST /systems/routes` valida via
+ * `[Authorize(Policy = PermissionPolicies.SystemsRoutesCreate)]`); o
+ * gating client-side é apenas UX — esconder ações que o usuário não
+ * pode executar.
+ */
+const ROUTES_CREATE_PERMISSION = 'AUTH_V1_SYSTEMS_ROUTES_CREATE';
 
 interface RoutesPageProps {
   /**
@@ -393,6 +408,9 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
   const { systemId } = useParams<{ systemId: string }>();
   const hasValidSystemId = isProbablyValidSystemId(systemId);
 
+  const { hasPermission } = useAuth();
+  const canCreateRoute = hasPermission(ROUTES_CREATE_PERMISSION);
+
   // Termo digitado pelo usuário em tempo real (input controlado).
   const [searchTerm, setSearchTerm] = useState<string>('');
   const debouncedSearch = useDebouncedValue(searchTerm, SEARCH_DEBOUNCE_MS);
@@ -401,6 +419,19 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
     DEFAULT_ROUTES_INCLUDE_DELETED,
   );
   const [page, setPage] = useState<number>(DEFAULT_ROUTES_PAGE);
+
+  // Estado de abertura do modal "Nova rota" (Issue #63). O modal é
+  // controlado por essa página para que a Toolbar consiga ocultar o
+  // botão por permissão sem perder o ciclo de vida do form.
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState<boolean>(false);
+
+  const handleOpenCreateModal = useCallback(() => {
+    setIsCreateModalOpen(true);
+  }, []);
+
+  const handleCloseCreateModal = useCallback(() => {
+    setIsCreateModalOpen(false);
+  }, []);
 
   /**
    * Reseta a página para 1 sempre que muda um filtro/busca — evita o
@@ -637,6 +668,17 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
             onChange={handleIncludeDeletedChange}
             data-testid="routes-include-deleted"
           />
+          {canCreateRoute && (
+            <Button
+              variant="primary"
+              size="md"
+              icon={<Plus size={14} strokeWidth={1.75} />}
+              onClick={handleOpenCreateModal}
+              data-testid="routes-create-open"
+            >
+              Nova rota
+            </Button>
+          )}
         </ToolbarActions>
       </Toolbar>
 
@@ -765,6 +807,16 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
             </Button>
           </PageNav>
         </FootBar>
+      )}
+
+      {canCreateRoute && hasValidSystemId && (
+        <NewRouteModal
+          open={isCreateModalOpen}
+          systemId={systemId}
+          onClose={handleCloseCreateModal}
+          onCreated={handleRefetch}
+          client={client}
+        />
       )}
     </>
   );

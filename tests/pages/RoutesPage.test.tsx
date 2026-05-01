@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { buildAuthMock } from './__helpers__/mockUseAuth';
 import {
   createRoutesClientStub,
   ID_ROUTE_CREATE,
@@ -33,9 +34,25 @@ import { RoutesPage } from '@/pages/RoutesPage';
  * - O endpoint é `/systems/routes?systemId=...` em vez de `/systems`.
  * - A página exibe cards no mobile (testIDs `routes-card-<id>`) além
  *   da tabela desktop — testes verificam ambos.
- * - Não há gating de criação/edição (sub-issues futuras), portanto
- *   sem `vi.mock('@/shared/auth')` aqui.
+ * - A partir da Issue #63 (criar rota), a página consome `useAuth`
+ *   para gating do botão "Nova rota". Mockamos via `buildAuthMock`
+ *   com permissions vazias por default — a suíte de criação
+ *   (`RoutesPage.create.test.tsx`) sobrescreve quando precisa testar o
+ *   gating real. Mantém a suíte de listagem agnóstica de auth (foco no
+ *   contrato de fetch/UI da listagem), e cobre o cenário "perfil read-
+ *   only consegue listar mesmo sem permissão de criar".
  */
+
+/**
+ * Mock de `useAuth` para a suíte de listagem. Permissions vazias →
+ * usuário read-only sem `AUTH_V1_SYSTEMS_ROUTES_CREATE`, então o
+ * botão "Nova rota" fica oculto. A suíte de criação testa o caminho
+ * inverso. Centralizar em `buildAuthMock` é a estratégia herdada da
+ * `SystemsPage.test.tsx` (lição PR #123/#127 — Sonar marca o bloco
+ * `vi.mock('@/shared/auth', () => ({ useAuth: ... }))` como duplicação
+ * quando aparece em mais de um arquivo).
+ */
+vi.mock('@/shared/auth', () => buildAuthMock(() => []));
 
 /**
  * Atraso de debounce esperado pela página (300 ms). Espelha o valor
