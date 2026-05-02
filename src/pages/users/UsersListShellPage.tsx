@@ -1,4 +1,4 @@
-import { Pencil, Plus, Power } from 'lucide-react';
+import { KeyRound, Pencil, Plus, Power } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { PageHeader } from '../../components/layout/PageHeader';
@@ -49,6 +49,7 @@ import {
 
 import { EditUserModal } from './EditUserModal';
 import { NewUserModal } from './NewUserModal';
+import { ResetUserPasswordConfirm } from './ResetUserPasswordConfirm';
 import { ToggleUserActiveConfirm } from './ToggleUserActiveConfirm';
 
 import type { TableColumn } from '../../components/ui';
@@ -198,6 +199,18 @@ export const UsersListShellPage: React.FC<UsersListShellPageProps> = ({
     close: handleCloseToggleConfirm,
   } = useListModalState<UserDto>();
 
+  // Usuário selecionado para reset de senha (Issue #81). Mantemos o
+  // objeto completo (não só `id`) para que o `ResetUserPasswordConfirm`
+  // possa exibir `name`/`email` no contexto do diálogo sem re-fetch.
+  // O endpoint dedicado (`PUT /users/{id}/password`) só consome `id` +
+  // a nova senha — outros campos do `UserDto` ficam inertes mas a
+  // copy do diálogo se beneficia.
+  const {
+    selected: resettingUser,
+    open: handleOpenResetPassword,
+    close: handleCloseResetPassword,
+  } = useListModalState<UserDto>();
+
   /**
    * Renderiza o bloco de ações por linha (Editar + Desativar/Ativar)
    * para uma linha de usuário. Reutilizado pelo desktop (coluna
@@ -234,6 +247,16 @@ export const UsersListShellPage: React.FC<UsersListShellPageProps> = ({
             Editar
           </Button>
           <Button
+            variant="ghost"
+            size="sm"
+            icon={<KeyRound size={14} strokeWidth={1.5} />}
+            onClick={() => handleOpenResetPassword(row)}
+            aria-label={`Redefinir senha do usuário ${row.name}`}
+            data-testid={`${testIdPrefix}-reset-password-${row.id}`}
+          >
+            Redefinir senha
+          </Button>
+          <Button
             variant={toggleVariant}
             size="sm"
             icon={<Power size={14} strokeWidth={1.5} />}
@@ -246,7 +269,7 @@ export const UsersListShellPage: React.FC<UsersListShellPageProps> = ({
         </RowActions>
       );
     },
-    [handleOpenEditModal, handleOpenToggleConfirm],
+    [handleOpenEditModal, handleOpenResetPassword, handleOpenToggleConfirm],
   );
 
   /**
@@ -658,6 +681,16 @@ export const UsersListShellPage: React.FC<UsersListShellPageProps> = ({
           user={togglingUser}
           onClose={handleCloseToggleConfirm}
           onToggled={handleRefetch}
+          client={client}
+        />
+      )}
+
+      {canUpdateUser && (
+        <ResetUserPasswordConfirm
+          open={resettingUser !== null}
+          user={resettingUser}
+          onClose={handleCloseResetPassword}
+          onResetCompleted={handleRefetch}
           client={client}
         />
       )}

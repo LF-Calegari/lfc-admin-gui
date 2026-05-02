@@ -164,11 +164,13 @@ export {
   isPagedUsersResponse,
   isUserDto,
   listUsers,
+  resetUserPassword,
   updateUser,
 } from './users';
 export type {
   CreateUserPayload,
   ListUsersParams,
+  ResetUserPasswordPayload,
   UpdateUserPayload,
   UserDto,
 } from './users';

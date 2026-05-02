@@ -479,3 +479,86 @@ export async function updateUser(
   }
   return data;
 }
+
+/**
+ * Body aceito pelo `PUT /users/{id}/password` no `lfc-authenticator`
+ * (`UsersController.UpdatePasswordRequest`).
+ *
+ * Issue #81 (EPIC #49) — fluxo dedicado de reset de senha do operador
+ * sobre outro usuário. O backend mantém este endpoint **separado** do
+ * `PUT /users/{id}` para preservar simetria com o contrato:
+ *
+ * - `Password` (obrigatório, máx. 60 chars) — senha em texto plano que
+ *   o backend trima e hasheia via
+ *   `UserPasswordHasher.HashPlainPassword` antes de persistir. Frontend
+ *   nunca grava em log/storage e o body **não** é serializado em URL.
+ *
+ * Permissão: `Users.Update` — mesma do `PUT /users/{id}`. Backend
+ * valida via `[Authorize(Policy = PermissionPolicies.UsersUpdate)]`.
+ *
+ * Status codes esperados:
+ *
+ * - `200` com `UserResponse` no body (idêntico ao `updateUser`).
+ * - `400` com `ValidationProblemDetails` quando a senha é vazia/só
+ *   espaços/longa demais.
+ * - `404` (`{ message: "Usuário não encontrado." }`) quando o id
+ *   referenciado foi soft-deletado entre abertura e submit.
+ * - `401`/`403` por gating de permissão.
+ *
+ * Mantemos exportável (em vez de `string` literal inline) para que o
+ * teste unitário e o modal compartilhem a mesma fonte de verdade.
+ */
+export interface ResetUserPasswordPayload {
+  password: string;
+}
+
+/**
+ * Reset de senha de um usuário via `PUT /users/{id}/password` (Issue #81).
+ *
+ * Retorna o `UserDto` atualizado (`200 OK` com `UserResponse` no body —
+ * mesmo shape do `updateUser`). Lança `ApiError` em qualquer falha — o
+ * caller tipicamente trata:
+ *
+ * - 400 → validação de campo (`ValidationProblemDetails` com chave
+ *   `Password`). Caller exibe inline no campo "Nova senha".
+ * - 404 → usuário não encontrado (soft-deletado entre abertura e
+ *   submit). UI fecha o modal, dispara toast e força refetch.
+ * - 401/403 → toast vermelho (gating de permissão).
+ *
+ * O parâmetro `client` é injetável para isolar testes (passa-se um
+ * stub tipado como `ApiClient`); em produção usa-se o singleton
+ * `apiClient`.
+ *
+ * **Por que `password` é parâmetro literal e não `ResetUserPasswordPayload`?**
+ * O endpoint só aceita esse campo — exigir um objeto wrapper
+ * adicionaria boilerplate sem benefício de tipagem (a única chave já
+ * está nomeada). Mantemos a assinatura `(id, password)` simétrica com a
+ * percepção semântica do reset ("resetar senha do usuário X para Y") e
+ * evita o teste tipo `expect.objectContaining({ password: 'x' })` que
+ * seria menos legível.
+ *
+ * O response é validado contra `isUserDto` para detectar drift de
+ * contrato precocemente — backend retornando shape inesperado dispara
+ * `ApiError(parse)` em vez de propagar shape inválido para a UI.
+ *
+ * Espelha o padrão de `updateUser`/`createUser` mas sem `buildBody`
+ * dedicado — o body é trivial (`{ password }`) e o trim acontece no
+ * backend (`request.Password.Trim()` em `UpdatePassword`). Trimar
+ * client-side aqui daria comportamento divergente do que o operador
+ * vê: se ele digitar `"  abc  "`, o backend salvaria `"abc"` mesmo —
+ * preservar literal preserva paridade visual com a senha exibida no
+ * input.
+ */
+export async function resetUserPassword(
+  id: string,
+  password: string,
+  options?: BodyRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<UserDto> {
+  const body: ResetUserPasswordPayload = { password };
+  const data = await client.put<unknown>(`/users/${id}/password`, body, options);
+  if (!isUserDto(data)) {
+    throw makeParseError();
+  }
+  return data;
+}

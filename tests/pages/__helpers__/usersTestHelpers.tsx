@@ -113,6 +113,60 @@ export function renderUsersPage(client: ApiClientStub): void {
 }
 
 /**
+ * Mocka `client.get` para responder à listagem de usuários e ao
+ * lookup de clientes (que a página dispara em paralelo) com defaults
+ * sensatos. Centralizar evita repetir o mesmo `mockImplementation`
+ * (`/users` → page, `/clients/{id}` → null) em vários testes de
+ * gating/listagem (lição PR #127/#134/#135 — bloco ≥10 linhas
+ * idêntico vira clone JSCPD).
+ *
+ * O caller passa apenas a lista de usuários para a página corrente —
+ * o helper monta o `PagedResponse<UserDto>` via `makeUsersPagedResponse`
+ * e define o lookup de clientes como "best-effort missing" (`null`).
+ *
+ * Quem precisar de comportamento diferente (ex.: cenários de erro)
+ * pode chamar `client.get.mockImplementation(...)` antes de invocar
+ * — esta função sobrescreve apenas se o caller não tiver definido
+ * implementação prévia.
+ */
+export function mockUserListResponse(
+  client: ApiClientStub,
+  users: ReadonlyArray<UserDto>,
+): void {
+  client.get.mockImplementation((path: string) => {
+    if (path.startsWith('/users')) {
+      return Promise.resolve(makeUsersPagedResponse(users));
+    }
+    return Promise.resolve(null);
+  });
+}
+
+/**
+ * Variante de `mockUserListResponse` que retorna um getter para o
+ * número de chamadas em `/users`. Usado pelos testes que precisam
+ * asserir refetch (`getCalls >= 2` após a mutação) sem repetir o
+ * boilerplate do `let getCalls = 0; client.get.mockImplementation(...)`
+ * em cada teste.
+ *
+ * O getter é uma closure sobre uma variável local — chamar
+ * `getUserListCallCount()` devolve o contador atual a cada momento.
+ */
+export function mockUserListResponseWithCounter(
+  client: ApiClientStub,
+  users: ReadonlyArray<UserDto>,
+): () => number {
+  let count = 0;
+  client.get.mockImplementation((path: string) => {
+    if (path.startsWith('/users')) {
+      count += 1;
+      return Promise.resolve(makeUsersPagedResponse(users));
+    }
+    return Promise.resolve(null);
+  });
+  return () => count;
+}
+
+/**
  * Aguarda a primeira renderização da listagem (a `UsersListShellPage`
  * faz `listUsers` no mount). Centraliza o "esperar listagem" para que
  * cada teste comece em estado estável sem precisar replicar `waitFor`
@@ -494,18 +548,30 @@ export function buildUsersCloseCases(
 /**
  * Verbos suportados pelas suítes de mutação de usuário. Cada um
  * controla a copy genérica do toast vermelho (`"Não foi possível
- * {verb} o usuário. Tente novamente."`):
+ * {verb} o usuário. Tente novamente."` ou — no caso do reset de senha
+ * — `"Não foi possível redefinir a senha. Tente novamente."`).
  *
  * - `'criar'`/`'atualizar'` — usados pelo create/edit do form de
  *   usuário (Issues #78/#79).
  * - `'ativar'`/`'desativar'` — usados pelo toggle ativo (Issue #80).
+ * - `'redefinir senha do'` — usado pelo reset de senha (Issue #81).
+ *   O sufixo "do" preserva concordância: a copy fica
+ *   `"Não foi possível redefinir senha do o usuário..."` — o helper
+ *   ignora a copy do verbo e usa o fallback exato do
+ *   `ResetUserPasswordConfirm` (`'Não foi possível redefinir a senha.
+ *   Tente novamente.'`), preservando a UX coerente.
  *
  * Centralizar o tipo aqui (em vez de declarar dois alias paralelos)
  * permite que `buildSharedUserMutationErrorCases` cubra todos os
  * cenários sem duplicar a função (lição PR #134/#135 — sonarjs/
  * no-identical-functions).
  */
-export type UserMutationVerb = 'criar' | 'atualizar' | 'ativar' | 'desativar';
+export type UserMutationVerb =
+  | 'criar'
+  | 'atualizar'
+  | 'ativar'
+  | 'desativar'
+  | 'redefinir senha do';
 
 /**
  * Constrói os cenários comuns de erro 401/403/network para qualquer
@@ -523,6 +589,14 @@ export type UserMutationVerb = 'criar' | 'atualizar' | 'ativar' | 'desativar';
 export function buildSharedUserMutationErrorCases(
   verb: UserMutationVerb,
 ): ReadonlyArray<UsersErrorCase> {
+  // Reset de senha tem copy genérica distinta — refere ao recurso
+  // ("a senha"), não ao usuário. Mantemos o branch isolado para que
+  // os demais verbos preservem o template "Não foi possível {verb}
+  // o usuário..." sem regredir.
+  const networkExpectedText =
+    verb === 'redefinir senha do'
+      ? 'Não foi possível redefinir a senha. Tente novamente.'
+      : `Não foi possível ${verb} o usuário. Tente novamente.`;
   return [
     {
       name: '401 dispara toast vermelho com mensagem do backend',
@@ -545,7 +619,7 @@ export function buildSharedUserMutationErrorCases(
     {
       name: 'erro genérico de rede dispara toast vermelho genérico',
       error: { kind: 'network', message: 'Falha de conexão.' },
-      expectedText: `Não foi possível ${verb} o usuário. Tente novamente.`,
+      expectedText: networkExpectedText,
     },
   ];
 }
@@ -560,4 +634,79 @@ export function buildSharedUserSubmitErrorCases(
   verb: 'criar' | 'atualizar',
 ): ReadonlyArray<UsersErrorCase> {
   return buildSharedUserMutationErrorCases(verb);
+}
+
+/* ─── Helpers para suíte de reset de senha (Issue #81) ──────── */
+
+/**
+ * Mocka a resposta inicial (listagem com o usuário-alvo), renderiza a
+ * `UsersListShellPage`, espera a lista carregar e clica no botão
+ * "Redefinir senha" da linha do usuário informado. Espelha
+ * `openEditUserModal`/`openToggleUserActiveConfirm` mas dispara o
+ * `ResetUserPasswordConfirm` — Issue #81.
+ *
+ * Quem precisar de mocks diferentes (ex.: cenários de erro 404 com
+ * refetch) pode chamar `client.get.mockImplementation(...)` antes de
+ * invocar este helper — a detecção de mocks pré-existentes preserva
+ * o caso "fila customizada de respostas".
+ */
+export async function openResetUserPasswordModal(
+  client: ApiClientStub,
+  options: { user?: UserDto } = {},
+): Promise<void> {
+  const user = options.user ?? makeUser();
+  if (
+    client.get.getMockImplementation() === undefined &&
+    client.get.mock.calls.length === 0 &&
+    client.get.mock.results.length === 0
+  ) {
+    client.get.mockImplementation((path: string) => {
+      if (typeof path === 'string' && path.startsWith('/users')) {
+        return Promise.resolve(makeUsersPagedResponse([user]));
+      }
+      if (typeof path === 'string' && path.startsWith('/clients/')) {
+        return Promise.resolve(null);
+      }
+      return Promise.reject(new Error(`unexpected path: ${String(path)}`));
+    });
+  }
+  renderUsersPage(client);
+  await waitForInitialList(client);
+  fireEvent.click(screen.getByTestId(`users-reset-password-${user.id}`));
+  // Aguarda a abertura do modal — a presença do form indica que o
+  // `useEffect` de sincronização já rodou.
+  await waitFor(() => {
+    expect(screen.getByTestId('reset-user-password-form')).toBeInTheDocument();
+  });
+}
+
+/**
+ * Preenche o campo "Nova senha" do `ResetUserPasswordConfirm`. Helper
+ * trivial mantido por simetria com `fillNewUserForm`/`fillEditUserForm`
+ * — testes que validam campo vazio (validação client-side) chamam
+ * sem `password` ou com string vazia.
+ */
+export function fillResetUserPasswordForm(values: { password?: string }): void {
+  if (values.password !== undefined) {
+    fireEvent.change(screen.getByTestId('reset-user-password-input'), {
+      target: { value: values.password },
+    });
+  }
+}
+
+/**
+ * Submete o form do `ResetUserPasswordConfirm` e aguarda o
+ * `client.put` ser chamado pelo menos `expectedPutCalls` vezes
+ * (default `1`). Faz o `act(async)` necessário para flushar a
+ * microtask do submit — espelha `submitEditUserForm`.
+ */
+export async function submitResetUserPasswordForm(
+  client: ApiClientStub,
+  expectedPutCalls = 1,
+): Promise<void> {
+  await act(async () => {
+    fireEvent.submit(screen.getByTestId('reset-user-password-form'));
+    await Promise.resolve();
+  });
+  await waitFor(() => expect(client.put).toHaveBeenCalledTimes(expectedPutCalls));
 }
