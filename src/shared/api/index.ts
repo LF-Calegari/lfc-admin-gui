@@ -141,6 +141,8 @@ export type {
 } from './roles';
 export {
   addClientExtraEmail,
+  addClientLandlinePhone,
+  addClientMobilePhone,
   clientDisplayName,
   createClient,
   DEFAULT_CLIENTS_INCLUDE_DELETED,
@@ -153,7 +155,10 @@ export {
   isPagedClientsResponse,
   listClients,
   MAX_CLIENT_EXTRA_EMAILS,
+  MAX_CLIENT_PHONES_PER_TYPE,
   removeClientExtraEmail,
+  removeClientLandlinePhone,
+  removeClientMobilePhone,
   restoreClient,
   updateClient,
 } from './clients';

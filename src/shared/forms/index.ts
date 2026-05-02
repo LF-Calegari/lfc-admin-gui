@@ -21,6 +21,14 @@ export {
   type ApiSubmitErrorCopy,
 } from "./classifySubmitError";
 export {
+  classifyAddCollectionApiError,
+  classifySharedHttpError,
+  unhandledHttpAction,
+  type AddCollectionApiAction,
+  type SharedHttpErrorAction,
+  type SharedHttpErrorCopy,
+} from "./classifySharedHttpError";
+export {
   computeIdSetDiff,
   idSetDiffHasChanges,
   type IdSetDiff,
