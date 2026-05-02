@@ -546,27 +546,31 @@ export const UsersListShellPage: React.FC<UsersListShellPageProps> = ({
             data-testid="users-card-list"
           >
             {rows.length === 0 && emptyContent}
-            {rows.map((row) => (
-              <EntityCard
-                key={row.id}
-                role="listitem"
-                tabIndex={0}
-                data-testid={`users-card-${row.id}`}
-              >
-                <CardHeader>
-                  <CardCode>{row.email}</CardCode>
-                  <StatusBadge deletedAt={deriveStatusDeletedAt(row)} />
-                </CardHeader>
-                <CardName>{row.name}</CardName>
-                <CardMeta>
-                  <CardMetaTerm>Cliente</CardMetaTerm>
-                  <CardMetaValue>
-                    {renderClientCell(row, clientsById)}
-                  </CardMetaValue>
-                </CardMeta>
-                {renderMobileEditAction(row)}
-              </EntityCard>
-            ))}
+            {rows.map((user) => {
+              const userId = user.id;
+              const userStatus = deriveStatusDeletedAt(user);
+              return (
+                <EntityCard
+                  key={userId}
+                  role="listitem"
+                  tabIndex={0}
+                  data-testid={`users-card-${userId}`}
+                >
+                  <CardHeader>
+                    <CardCode>{user.email}</CardCode>
+                    <StatusBadge deletedAt={userStatus} />
+                  </CardHeader>
+                  <CardName>{user.name}</CardName>
+                  <CardMeta>
+                    <CardMetaTerm>Cliente</CardMetaTerm>
+                    <CardMetaValue>
+                      {renderClientCell(user, clientsById)}
+                    </CardMetaValue>
+                  </CardMeta>
+                  {renderMobileEditAction(user)}
+                </EntityCard>
+              );
+            })}
           </CardListForMobile>
           {showOverlay && <RefetchOverlay testId="users-overlay" />}
         </TableShell>
