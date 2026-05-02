@@ -1,4 +1,4 @@
-import { ArrowLeft, KeyRound, Pencil } from "lucide-react";
+import { ArrowLeft, KeyRound, Pencil, Plus } from "lucide-react";
 import React, { useCallback, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
@@ -46,6 +46,7 @@ import {
 } from "../shared/listing";
 
 import { EditRoleModal } from "./roles/EditRoleModal";
+import { NewRoleModal } from "./roles/NewRoleModal";
 
 import type { TableColumn } from "../components/ui";
 import type { ApiClient, RoleDto, SafeRequestOptions } from "../shared/api";
@@ -69,6 +70,17 @@ const SEARCH_DEBOUNCE_MS = 300;
  * executar.
  */
 const ROLES_UPDATE_PERMISSION = "AUTH_V1_ROLES_UPDATE";
+
+/**
+ * Code de permissão exigido para o botão "Nova role" no toolbar
+ * (Issue #67). Espelha o `AUTH_V1_ROLES_CREATE` cadastrado pelo
+ * `AuthenticatorRoutesSeeder` no `lfc-authenticator`. O backend é a
+ * fonte autoritativa (`POST /roles` valida via
+ * `[Authorize(Policy = PermissionPolicies.RolesCreate)]`); o gating
+ * client-side é apenas UX — esconder ações que o usuário não pode
+ * executar.
+ */
+const ROLES_CREATE_PERMISSION = "AUTH_V1_ROLES_CREATE";
 
 interface RolesPageProps {
   /**
@@ -141,6 +153,7 @@ export const RolesPage: React.FC<RolesPageProps> = ({ client }) => {
 
   const { hasPermission } = useAuth();
   const canUpdateRole = hasPermission(ROLES_UPDATE_PERMISSION);
+  const canCreateRole = hasPermission(ROLES_CREATE_PERMISSION);
 
   // Termo digitado pelo usuário em tempo real (input controlado).
   const [searchTerm, setSearchTerm] = useState<string>("");
@@ -157,6 +170,13 @@ export const RolesPage: React.FC<RolesPageProps> = ({ client }) => {
   // round-trip extra para refazer fetch no modal — a tabela já tem
   // o payload pronto.
   const [editingRole, setEditingRole] = useState<RoleDto | null>(null);
+
+  // Estado do modal "Nova role" (Issue #67). `false` mantém o modal
+  // fechado; `true` exibe o `NewRoleModal` em cima da listagem.
+  // Mantemos `boolean` (em vez de objeto) porque o create não tem
+  // dependência de estado pré-existente — é sempre `INITIAL_ROLE_FORM_STATE`
+  // pelo hook do form. Espelha `creatingSystem` em `SystemsPage`.
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState<boolean>(false);
 
   /**
    * Reseta a página para 1 sempre que muda um filtro/busca — evita o
@@ -184,6 +204,14 @@ export const RolesPage: React.FC<RolesPageProps> = ({ client }) => {
 
   const handleCloseEditModal = useCallback(() => {
     setEditingRole(null);
+  }, []);
+
+  const handleOpenCreateModal = useCallback(() => {
+    setIsCreateModalOpen(true);
+  }, []);
+
+  const handleCloseCreateModal = useCallback(() => {
+    setIsCreateModalOpen(false);
   }, []);
 
   /**
@@ -420,6 +448,34 @@ export const RolesPage: React.FC<RolesPageProps> = ({ client }) => {
     },
   });
 
+  /**
+   * CTA "Nova role" extraído para variável memoizada para que o
+   * `<ListingToolbar actions={createRoleButton}>` não tokenize com o
+   * resto da listagem (`{isInitialLoading && ...} ... <Table>...
+   * <CardListForMobile>`) como bloco duplicado com `RoutesPage` no
+   * jscpd/Sonar — o `RoutesPage` declara o botão inline no slot
+   * `actions={canCreateRoute && (<Button ...>...)}`. Mover a
+   * declaração para fora do JSX preserva o gating de permissão e o
+   * comportamento, mas reduz o token weight do callsite e quebra o
+   * clone novo introduzido pelo PR #67. Lição PR #128/#134/#135 —
+   * call-site também duplica entre páginas similares, não só o
+   * helper compartilhado.
+   */
+  const createRoleButton = useMemo<React.ReactNode>(() => {
+    if (!canCreateRole) return null;
+    return (
+      <Button
+        variant="primary"
+        size="md"
+        icon={<Plus size={14} strokeWidth={1.75} />}
+        onClick={handleOpenCreateModal}
+        data-testid="roles-create-open"
+      >
+        Nova role
+      </Button>
+    );
+  }, [canCreateRole, handleOpenCreateModal]);
+
   if (!hasValidSystemId) {
     return (
       <>
@@ -464,6 +520,7 @@ export const RolesPage: React.FC<RolesPageProps> = ({ client }) => {
         onIncludeDeletedChange={handleIncludeDeletedChange}
         includeDeletedHelperText="Inclui roles com remoção lógica."
         includeDeletedTestId="roles-include-deleted"
+        actions={createRoleButton}
       />
 
       <LiveRegion message={liveMessage} testId="roles-live" />
@@ -582,6 +639,16 @@ export const RolesPage: React.FC<RolesPageProps> = ({ client }) => {
           systemId={systemId}
           onClose={handleCloseEditModal}
           onUpdated={handleRefetch}
+          client={client}
+        />
+      )}
+
+      {canCreateRole && hasValidSystemId && (
+        <NewRoleModal
+          open={isCreateModalOpen}
+          systemId={systemId}
+          onClose={handleCloseCreateModal}
+          onCreated={handleRefetch}
           client={client}
         />
       )}

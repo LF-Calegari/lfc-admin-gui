@@ -14,7 +14,7 @@ import {
   type RoleFormState,
   type RoleSubmitErrorCopy,
 } from "./rolesFormShared";
-import { useRoleForm } from "./useRoleForm";
+import { useRoleForm, useRoleFormFieldProps } from "./useRoleForm";
 
 import type { ApiClient, RoleDto } from "../../shared/api";
 
@@ -159,21 +159,18 @@ export const EditRoleModal: React.FC<EditRoleModalProps> = ({
   // Inicialização defensiva: quando `role` é `null` na primeira
   // render, usamos um estado vazio até o pai entregar a role. O
   // `useEffect` abaixo sincroniza sempre que `role` muda.
+  const roleForm = useRoleForm(
+    role ? stateFromRole(role) : EMPTY_INITIAL_STATE,
+  );
   const {
-    formState,
-    fieldErrors,
-    submitError,
     isSubmitting,
     setFormState,
     setFieldErrors,
     setSubmitError,
     setIsSubmitting,
-    handleNameChange,
-    handleCodeChange,
-    handleDescriptionChange,
     prepareSubmit,
     applyBadRequest,
-  } = useRoleForm(role ? stateFromRole(role) : EMPTY_INITIAL_STATE);
+  } = roleForm;
 
   /**
    * Sincroniza o form sempre que: (a) o modal abre, ou (b) a `role`
@@ -273,6 +270,14 @@ export const EditRoleModal: React.FC<EditRoleModalProps> = ({
     conflictField: "code",
   });
 
+  // Props compartilhadas com `NewRoleModal` consolidadas num único
+  // hook (`useRoleFormFieldProps`) para evitar New Code Duplication
+  // ≥10 linhas com o caminho de criação — JSCPD/Sonar tokenizam
+  // blocos de props sequenciais como duplicação. Lição PR #134/#135
+  // reforçada — call-sites dos helpers compartilhados também
+  // precisam ficar deduplicados, não só os helpers em si.
+  const fieldProps = useRoleFormFieldProps(roleForm, handleSubmit, handleClose);
+
   // Não renderiza nada quando não houver `role` selecionada — o
   // pai controla `open` em conjunto com a `role`, mas cobrimos o
   // caso defensivo de `open=true && role=null` para não quebrar o
@@ -291,16 +296,8 @@ export const EditRoleModal: React.FC<EditRoleModalProps> = ({
       closeOnBackdrop={!isSubmitting}
     >
       <RoleFormBody
+        {...fieldProps}
         idPrefix="edit-role"
-        submitError={submitError}
-        values={formState}
-        errors={fieldErrors}
-        onChangeName={handleNameChange}
-        onChangeCode={handleCodeChange}
-        onChangeDescription={handleDescriptionChange}
-        onSubmit={handleSubmit}
-        onCancel={handleClose}
-        isSubmitting={isSubmitting}
         submitLabel="Salvar alterações"
       />
     </Modal>

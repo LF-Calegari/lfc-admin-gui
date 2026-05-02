@@ -1,7 +1,9 @@
-import { useCallback } from "react";
+import { useCallback, useMemo, type FormEvent } from "react";
 
 import {
   useNameCodeDescriptionForm,
+  type NameCodeDescriptionFieldErrors,
+  type NameCodeDescriptionFormState,
   type UseNameCodeDescriptionFormReturn,
 } from "../../shared/forms";
 
@@ -72,4 +74,88 @@ export function useRoleForm(initialState: RoleFormState): UseRoleFormReturn {
     ...inner,
     prepareSubmit,
   };
+}
+
+/**
+ * Tipo do conjunto de props consumido por `<RoleFormBody>` —
+ * compartilhado entre `NewRoleModal` (Issue #67) e `EditRoleModal`
+ * (Issue #68). Centralizar o tipo aqui (em vez de inferir inline em
+ * cada modal) elimina o bloco repetido de ~10 linhas (`onChangeName`/
+ * `onChangeCode`/`onChangeDescription` + props comuns) que JSCPD/Sonar
+ * tokenizam como `New Code Duplication` (lição PR #134/#135 — call-
+ * sites dos helpers também precisam ficar deduplicados, não só os
+ * helpers em si).
+ *
+ * Os tipos `values`/`errors` referenciam diretamente os shapes
+ * genéricos `NameCodeDescriptionFormState`/`...FieldErrors` para
+ * preservar simetria com o tipo aceito pelo `<RoleFormBody>` (ver
+ * `RoleFormFields.tsx`) — `RoleFormState` é alias estrutural, então
+ * as duas formas são intercambiáveis no consumo.
+ */
+export interface RoleFormFieldProps {
+  submitError: string | null;
+  values: NameCodeDescriptionFormState;
+  errors: NameCodeDescriptionFieldErrors;
+  onChangeName: (value: string) => void;
+  onChangeCode: (value: string) => void;
+  onChangeDescription: (value: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onCancel: () => void;
+  isSubmitting: boolean;
+}
+
+/**
+ * Constrói o objeto de props para `<RoleFormBody>` a partir de uma
+ * instância de `useRoleForm` + `handleSubmit` + `handleClose` do
+ * modal. Memoizado em `useMemo` para preservar identidade entre
+ * renders quando nada mudou — útil pra spread `{...fieldProps}` sem
+ * causar re-render desnecessário no body.
+ *
+ * Esse helper transforma o "objeto duplicado de 10+ linhas" em uma
+ * única chamada `useRoleFormFieldProps(roleForm, handleSubmit,
+ * handleClose)` em cada modal — espelha o desenho de
+ * `useUserFormFieldProps` (lição PR #134/#135 reforçada). Pré-
+ * fabricado para evitar a 7ª recorrência de `New Code Duplication` no
+ * Sonar quando o `NewRoleModal` (Issue #67) e o `EditRoleModal` (Issue
+ * #68) compartilharem o mesmo bloco de props sequenciais.
+ */
+export function useRoleFormFieldProps(
+  roleForm: UseRoleFormReturn,
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void,
+  onCancel: () => void,
+): RoleFormFieldProps {
+  const {
+    formState,
+    fieldErrors,
+    submitError,
+    isSubmitting,
+    handleNameChange,
+    handleCodeChange,
+    handleDescriptionChange,
+  } = roleForm;
+
+  return useMemo(
+    () => ({
+      submitError,
+      values: formState,
+      errors: fieldErrors,
+      onChangeName: handleNameChange,
+      onChangeCode: handleCodeChange,
+      onChangeDescription: handleDescriptionChange,
+      onSubmit,
+      onCancel,
+      isSubmitting,
+    }),
+    [
+      submitError,
+      formState,
+      fieldErrors,
+      handleNameChange,
+      handleCodeChange,
+      handleDescriptionChange,
+      onSubmit,
+      onCancel,
+      isSubmitting,
+    ],
+  );
 }
