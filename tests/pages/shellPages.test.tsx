@@ -2,7 +2,6 @@ import { render, screen } from '@testing-library/react';
 import React from 'react';
 import { describe, expect, it } from 'vitest';
 
-import { ClientsListShellPage } from '@/pages/clients';
 import { PermissionsListShellPage } from '@/pages/permissions';
 import { UserDetailShellPage } from '@/pages/users';
 
@@ -18,15 +17,18 @@ import { UserDetailShellPage } from '@/pages/users';
  *
  * À medida que cada shell ganha conteúdo real, ela sai desta tabela e
  * passa a ser coberta por uma suíte dedicada
- * (`tests/pages/<recurso>/<Pagina>.test.tsx`). Issue #77 promoveu a
- * `UsersListShellPage` a listagem real (com tabela/busca/paginação),
- * então a entrada respectiva foi removida — a cobertura migrou para
- * `tests/pages/UsersListShellPage.test.tsx`. Issue #70 promoveu a
- * `UserPermissionsShellPage` a tela funcional (matriz de checkbox por
- * permissão), com cobertura em
- * `tests/pages/users/UserPermissionsPage.test.tsx`. Issue #144 promoveu
- * a `ClientDetailShellPage` a `ClientEditPage` (4 abas), com cobertura
- * em `tests/pages/clients/ClientEditPage.test.tsx`.
+ * (`tests/pages/<recurso>/<Pagina>.test.tsx`):
+ *
+ * - Issue #77 promoveu a `UsersListShellPage` a listagem real (com
+ *   tabela/busca/paginação), com cobertura em
+ *   `tests/pages/UsersListShellPage.test.tsx`.
+ * - Issue #70 promoveu a `UserPermissionsShellPage` a tela funcional
+ *   (matriz de checkbox por permissão), com cobertura em
+ *   `tests/pages/users/UserPermissionsPage.test.tsx`.
+ * - Issue #144 promoveu a `ClientDetailShellPage` a `ClientEditPage`
+ *   (4 abas), com cobertura em `tests/pages/clients/ClientEditPage.test.tsx`.
+ * - Issue #73 promoveu a `ClientsListShellPage` a listagem real, com
+ *   cobertura em `tests/pages/ClientsListShellPage.test.tsx`.
  *
  * As asserts cobrem:
  * - Renderização sem warning/exception (cada shell é um componente
@@ -47,16 +49,6 @@ interface ShellCase {
 
 const SHELL_CASES: ReadonlyArray<ShellCase> = [
   {
-    name: 'ClientsListShellPage',
-    Component: ClientsListShellPage,
-    eyebrow: '05 Clientes',
-    title: 'Clientes',
-  },
-  // Nota: `ClientDetailShellPage` foi promovida pela Issue #144 a
-  // tela funcional `ClientEditPage` com 4 abas. Por isso não aparece
-  // mais nesta tabela — sua cobertura vive em
-  // `tests/pages/clients/ClientEditPage.test.tsx`.
-  {
     name: 'PermissionsListShellPage',
     Component: PermissionsListShellPage,
     eyebrow: '04 Permissões',
@@ -68,10 +60,6 @@ const SHELL_CASES: ReadonlyArray<ShellCase> = [
     eyebrow: '06 Usuários · Detalhe',
     title: 'Detalhe do usuário',
   },
-  // Nota: `UserPermissionsShellPage` foi promovida pela Issue #70 a
-  // tela funcional (deixou de delegar ao `PlaceholderPage`). Por isso
-  // não aparece mais nesta tabela — sua cobertura vive em
-  // `tests/pages/users/UserPermissionsPage.test.tsx`.
 ];
 
 describe('Shell pages — contrato visual mínimo (Issue #145)', () => {

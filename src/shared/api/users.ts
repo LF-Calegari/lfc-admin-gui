@@ -1,3 +1,5 @@
+import { isPagedResponseEnvelope } from './pagedResponse';
+
 import { apiClient } from './index';
 
 import type { PagedResponse } from './systems';
@@ -123,19 +125,7 @@ export function isUserDto(value: unknown): value is UserDto {
  * via mesmo wrapper) reusem.
  */
 export function isPagedUsersResponse(value: unknown): value is PagedResponse<UserDto> {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-  const record = value as Record<string, unknown>;
-  if (
-    typeof record.page !== 'number' ||
-    typeof record.pageSize !== 'number' ||
-    typeof record.total !== 'number' ||
-    !Array.isArray(record.data)
-  ) {
-    return false;
-  }
-  return record.data.every(isUserDto);
+  return isPagedResponseEnvelope(value, isUserDto);
 }
 
 /**

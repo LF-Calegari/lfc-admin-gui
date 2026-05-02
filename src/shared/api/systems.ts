@@ -1,3 +1,5 @@
+import { isPagedResponseEnvelope } from './pagedResponse';
+
 import { apiClient } from './index';
 
 import type { ApiClient, ApiError, BodyRequestOptions, SafeRequestOptions } from './types';
@@ -94,22 +96,12 @@ export function isSystemDto(value: unknown): value is SystemDto {
  * Type guard para `PagedResponse<SystemDto>`. Valida o envelope antes de
  * confiar no payload — protege contra divergência silenciosa de versão
  * entre frontend e backend (proxy intermediário cortando campos, deploy
- * desalinhado).
+ * desalinhado). Reusa `isPagedResponseEnvelope` para evitar duplicação
+ * com os demais recursos (lição PR #134/#135 — JSCPD/Sonar tokenizam
+ * o bloco fixo de checagem de envelope como duplicação entre módulos).
  */
 export function isPagedSystemsResponse(value: unknown): value is PagedResponse<SystemDto> {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-  const record = value as Record<string, unknown>;
-  if (
-    typeof record.page !== 'number' ||
-    typeof record.pageSize !== 'number' ||
-    typeof record.total !== 'number' ||
-    !Array.isArray(record.data)
-  ) {
-    return false;
-  }
-  return record.data.every(isSystemDto);
+  return isPagedResponseEnvelope(value, isSystemDto);
 }
 
 /**

@@ -1,3 +1,5 @@
+import { isPagedResponseEnvelope } from './pagedResponse';
+
 import { apiClient } from './index';
 
 import type { PagedResponse } from './systems';
@@ -94,22 +96,12 @@ export function isRouteDto(value: unknown): value is RouteDto {
  * Type guard para `PagedResponse<RouteDto>`. Valida o envelope antes de
  * confiar no payload — protege contra divergência silenciosa de versão
  * entre frontend e backend (proxy intermediário cortando campos, deploy
- * desalinhado). Espelha `isPagedSystemsResponse` em `systems.ts`.
+ * desalinhado). Reusa `isPagedResponseEnvelope` para evitar duplicação
+ * com os demais recursos (lição PR #134/#135 — JSCPD/Sonar tokenizam
+ * o bloco fixo de checagem de envelope como duplicação entre módulos).
  */
 export function isPagedRoutesResponse(value: unknown): value is PagedResponse<RouteDto> {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-  const record = value as Record<string, unknown>;
-  if (
-    typeof record.page !== 'number' ||
-    typeof record.pageSize !== 'number' ||
-    typeof record.total !== 'number' ||
-    !Array.isArray(record.data)
-  ) {
-    return false;
-  }
-  return record.data.every(isRouteDto);
+  return isPagedResponseEnvelope(value, isRouteDto);
 }
 
 /**

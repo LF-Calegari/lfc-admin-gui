@@ -58,6 +58,17 @@ interface ListingToolbarProps {
   includeDeletedTestId: string;
 
   /**
+   * Slot opcional para filtros adicionais (ex.: `<Select>` de tipo
+   * PF/PJ na listagem de Clientes — Issue #73). Renderizado entre o
+   * `SearchSlot` e o `Switch` "Mostrar inativas", dentro do
+   * `ToolbarActions`. Cada página é responsável por construir o
+   * componente concreto (Select, RadioGroup, etc.) — o toolbar fica
+   * agnóstico ao tipo de filtro, permitindo evolução por recurso sem
+   * duplicar a estrutura visual.
+   */
+  extraFilter?: React.ReactNode;
+
+  /**
    * Slot opcional para CTAs (botão "Novo X", links de ações em massa,
    * etc.). Cada página resolve gating de permissão antes de passar.
    */
@@ -74,6 +85,7 @@ export const ListingToolbar: React.FC<ListingToolbarProps> = ({
   onIncludeDeletedChange,
   includeDeletedHelperText,
   includeDeletedTestId,
+  extraFilter,
   actions,
 }) => (
   <Toolbar>
@@ -90,6 +102,7 @@ export const ListingToolbar: React.FC<ListingToolbarProps> = ({
       />
     </SearchSlot>
     <ToolbarActions>
+      {extraFilter}
       <Switch
         label="Mostrar inativas"
         helperText={includeDeletedHelperText}
