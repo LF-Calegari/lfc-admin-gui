@@ -1,8 +1,22 @@
 import { vi } from 'vitest';
 
 /**
+ * Shape mínimo do `User` consumido por componentes que diferenciam o
+ * usuário corrente (ex.: `UsersListShellPage` na Issue #82, que esconde
+ * a ação "Forçar logout" na própria linha). Espelha o `User` de
+ * `@/shared/auth/types` mas mantemos local para não acoplar testes ao
+ * shape exato (basta `id` para os cenários atuais).
+ */
+export interface MockAuthUser {
+  id: string;
+  name: string;
+  email: string;
+  identity: number;
+}
+
+/**
  * Factory compartilhada do mock de `useAuth` consumido pelas páginas
- * `SystemsPage` (suítes de listagem e criação — Issue #58).
+ * (`SystemsPage`, `UsersListShellPage`, etc.) durante os testes.
  *
  * Como `vi.mock` é içado pelo Vitest **antes** dos imports do módulo de
  * teste, não é possível passar valores mutáveis diretamente para a
@@ -22,12 +36,24 @@ import { vi } from 'vitest';
  * dentro do componente — garantindo que os testes possam alternar
  * permissões dentro da mesma suíte sem reordenar imports.
  *
+ * **Issue #82:** acrescentamos um segundo getter opcional (`getUser`)
+ * para que componentes que diferenciam o usuário corrente (ex.:
+ * gating de "Forçar logout" — Issue #82, esconde a ação na linha do
+ * próprio operador para evitar 400 self-target do backend) possam
+ * exercitar o cenário sem reescrever o mock global. Quando ausente, o
+ * default permanece `user: null` (compatível com os call sites
+ * existentes — sistemas, rotas, roles, clients, e demais suítes de
+ * users que não exercem o gating).
+ *
  * Extraído para evitar duplicação entre suítes (lição PR #123 — Sonar
  * conta blocos de 10+ linhas como duplicação independente da intenção).
  */
-export function buildAuthMock(getPermissions: () => ReadonlyArray<string>): {
+export function buildAuthMock(
+  getPermissions: () => ReadonlyArray<string>,
+  getUser?: () => MockAuthUser | null,
+): {
   useAuth: () => {
-    user: null;
+    user: MockAuthUser | null;
     permissions: ReadonlyArray<string>;
     isAuthenticated: boolean;
     isLoading: boolean;
@@ -39,7 +65,7 @@ export function buildAuthMock(getPermissions: () => ReadonlyArray<string>): {
 } {
   return {
     useAuth: () => ({
-      user: null,
+      user: getUser ? getUser() : null,
       permissions: getPermissions(),
       isAuthenticated: true,
       isLoading: false,

@@ -4,5 +4,6 @@ export { UserPermissionsShellPage } from './UserPermissionsShellPage';
 export { UserRolesShellPage } from './UserRolesShellPage';
 export { NewUserModal } from './NewUserModal';
 export { EditUserModal } from './EditUserModal';
+export { ForceLogoutUserConfirm } from './ForceLogoutUserConfirm';
 export { ResetUserPasswordConfirm } from './ResetUserPasswordConfirm';
 export { ToggleUserActiveConfirm } from './ToggleUserActiveConfirm';
