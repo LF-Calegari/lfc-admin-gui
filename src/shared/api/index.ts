@@ -117,6 +117,7 @@ export {
   isRolePermissionLinkDto,
   listRolePermissions,
   listRoles,
+  MAX_ROLES_PAGE_SIZE,
   removePermissionFromRole,
   updateRole,
 } from './roles';
@@ -157,14 +158,20 @@ export {
 } from './tokenTypes';
 export type { TokenTypeDto } from './tokenTypes';
 export {
+  assignRoleToUser,
   createUser,
   DEFAULT_USERS_INCLUDE_DELETED,
   DEFAULT_USERS_PAGE,
   DEFAULT_USERS_PAGE_SIZE,
+  getUserById,
   isPagedUsersResponse,
   isUserDto,
   listUsers,
+<<<<<<< HEAD
   resetUserPassword,
+=======
+  removeRoleFromUser,
+>>>>>>> 493c844 (feat(users): atribuir roles ao usuário com matriz por sistema (#71))
   updateUser,
 } from './users';
 export type {
@@ -173,6 +180,8 @@ export type {
   ResetUserPasswordPayload,
   UpdateUserPayload,
   UserDto,
+  UserRoleLinkDto,
+  UserRoleSummary,
 } from './users';
 export {
   assignPermissionToUser,

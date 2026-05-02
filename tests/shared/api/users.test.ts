@@ -5,15 +5,19 @@ import type {
   CreateUserPayload,
   UpdateUserPayload,
   UserDto,
+  UserRoleSummary,
 } from '@/shared/api';
 
 import {
+  assignRoleToUser,
   createUser,
   DEFAULT_USERS_PAGE_SIZE,
+  getUserById,
   isPagedUsersResponse,
   isUserDto,
   listUsers,
   resetUserPassword,
+  removeRoleFromUser,
   updateUser,
 } from '@/shared/api';
 
@@ -122,6 +126,37 @@ describe('isUserDto', () => {
     ).toBe(false);
     expect(
       isUserDto(makeUserDto({ clientId: 0 as unknown as string })),
+    ).toBe(false);
+  });
+
+  it('aceita roles ausente (listagem paginada não traz)', () => {
+    expect(isUserDto(makeUserDto())).toBe(true);
+  });
+
+  it('aceita roles populado (GET /users/{id})', () => {
+    expect(
+      isUserDto(
+        makeUserDto({
+          roles: [
+            {
+              id: '99999999-9999-9999-9999-999999999999',
+              name: 'Admin',
+              code: 'admin',
+              systemId: '88888888-8888-8888-8888-888888888888',
+            },
+          ],
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it('rejeita roles com item de shape inválido', () => {
+    expect(
+      isUserDto(
+        makeUserDto({
+          roles: [{ broken: true }] as unknown as UserRoleSummary[],
+        }),
+      ),
     ).toBe(false);
   });
 });
@@ -846,6 +881,35 @@ describe('resetUserPassword — body e path', () => {
     await resetUserPassword(
       USER_ID,
       '  senha-com-espacos  ',
+/**
+ * Suíte do `getUserById` (Issue #71). Cobre a chamada do endpoint
+ * `GET /users/{id}`, a propagação do array `roles`
+ * (lfc-authenticator#167) e os erros típicos (404 quando o usuário
+ * não existe, parse quando o shape diverge).
+ */
+describe('getUserById', () => {
+  const ROLE_ID = '99999999-9999-9999-9999-999999999999';
+  const SYSTEM_ID_FOR_ROLE = '88888888-8888-8888-8888-888888888888';
+
+  function makeUserRoleSummary(
+    overrides: Partial<UserRoleSummary> = {},
+  ): UserRoleSummary {
+    return {
+      id: ROLE_ID,
+      name: 'Administrator',
+      code: 'admin',
+      systemId: SYSTEM_ID_FOR_ROLE,
+      ...overrides,
+    };
+  }
+
+  it('emite GET /users/{id} e devolve UserDto com roles preenchidas', async () => {
+    const client = createStub();
+    const userWithRoles = makeUserDto({ roles: [makeUserRoleSummary()] });
+    client.get.mockResolvedValueOnce(userWithRoles);
+
+    const result = await getUserById(
+      USER_ID,
       undefined,
       client as unknown as ApiClient,
     );
@@ -869,6 +933,33 @@ describe('resetUserPassword — body e path', () => {
     await resetUserPassword(
       USER_ID,
       'nova-senha',
+    expect(client.get).toHaveBeenCalledTimes(1);
+    expect(client.get.mock.calls[0][0]).toBe(`/users/${USER_ID}`);
+    expect(result).toEqual(userWithRoles);
+    expect(result.roles).toHaveLength(1);
+    expect(result.roles?.[0].id).toBe(ROLE_ID);
+  });
+
+  it('aceita UserDto sem array roles (payload legado)', async () => {
+    const client = createStub();
+    client.get.mockResolvedValueOnce(makeUserDto());
+
+    const result = await getUserById(
+      USER_ID,
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(result.roles).toBeUndefined();
+  });
+
+  it('passa signal/options adiante para o cliente', async () => {
+    const client = createStub();
+    client.get.mockResolvedValueOnce(makeUserDto());
+    const controller = new AbortController();
+
+    await getUserById(
+      USER_ID,
       { signal: controller.signal },
       client as unknown as ApiClient,
     );
@@ -937,6 +1028,35 @@ describe('resetUserPassword — response e erros', () => {
   });
 
   it('propaga 404 do backend (usuário removido) sem traduzir', async () => {
+    expect(client.get.mock.calls[0][1]).toEqual({ signal: controller.signal });
+  });
+
+  it('lança ApiError(parse) quando o backend devolve payload inválido', async () => {
+    const client = createStub();
+    client.get.mockResolvedValueOnce({ malformed: true });
+
+    await expect(
+      getUserById(USER_ID, undefined, client as unknown as ApiClient),
+    ).rejects.toMatchObject({
+      kind: 'parse',
+      message: 'Resposta inválida do servidor.',
+    });
+  });
+
+  it('lança ApiError(parse) quando algum item de roles não é UserRoleSummary', async () => {
+    const client = createStub();
+    client.get.mockResolvedValueOnce(
+      makeUserDto({
+        roles: [{ broken: true }] as unknown as UserRoleSummary[],
+      }),
+    );
+
+    await expect(
+      getUserById(USER_ID, undefined, client as unknown as ApiClient),
+    ).rejects.toMatchObject({ kind: 'parse' });
+  });
+
+  it('propaga 404 do backend (usuário não encontrado) sem traduzir', async () => {
     const client = createStub();
     const apiError = {
       kind: 'http',
@@ -947,12 +1067,17 @@ describe('resetUserPassword — response e erros', () => {
 
     await expect(
       resetUserPassword(USER_ID, 'nova-senha', undefined, client as unknown as ApiClient),
+    client.get.mockRejectedValueOnce(apiError);
+
+    await expect(
+      getUserById(USER_ID, undefined, client as unknown as ApiClient),
     ).rejects.toEqual(apiError);
   });
 
   it('propaga 401/403 sem traduzir', async () => {
     const client = createStub();
     client.put.mockRejectedValueOnce({
+    client.get.mockRejectedValueOnce({
       kind: 'http',
       status: 403,
       message: 'Sem permissão.',
@@ -960,6 +1085,209 @@ describe('resetUserPassword — response e erros', () => {
 
     await expect(
       resetUserPassword(USER_ID, 'nova-senha', undefined, client as unknown as ApiClient),
+      getUserById(USER_ID, undefined, client as unknown as ApiClient),
+    ).rejects.toMatchObject({ kind: 'http', status: 403 });
+  });
+});
+
+/**
+ * Suíte do `assignRoleToUser` (Issue #71). Cobre a chamada do
+ * endpoint `POST /users/{userId}/roles` com body `{ roleId }`,
+ * validação do response (`UserRoleLinkDto`) e propagação de erros
+ * tipados (`ApiError`). Espelha `assignPermissionToUser` (lição
+ * PR #128 — mesmo shape de wrapper para o segundo recurso de
+ * assignment do mesmo controller).
+ */
+describe('assignRoleToUser', () => {
+  const ROLE_ID = '99999999-9999-9999-9999-999999999999';
+  const LINK_ID = '00000000-1111-2222-3333-444444444444';
+
+  function makeLink() {
+    return {
+      id: LINK_ID,
+      userId: USER_ID,
+      roleId: ROLE_ID,
+      createdAt: '2026-05-01T10:00:00Z',
+      updatedAt: '2026-05-01T10:00:00Z',
+      deletedAt: null,
+    };
+  }
+
+  it('emite POST /users/{userId}/roles com body { roleId }', async () => {
+    const client = createStub();
+    client.post.mockResolvedValueOnce(makeLink());
+
+    await assignRoleToUser(
+      USER_ID,
+      ROLE_ID,
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.post).toHaveBeenCalledTimes(1);
+    expect(client.post.mock.calls[0][0]).toBe(`/users/${USER_ID}/roles`);
+    expect(client.post.mock.calls[0][1]).toEqual({ roleId: ROLE_ID });
+  });
+
+  it('devolve UserRoleLinkDto válido', async () => {
+    const client = createStub();
+    const link = makeLink();
+    client.post.mockResolvedValueOnce(link);
+
+    const result = await assignRoleToUser(
+      USER_ID,
+      ROLE_ID,
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(result).toEqual(link);
+  });
+
+  it('lança ApiError(parse) quando o response não é UserRoleLinkDto', async () => {
+    const client = createStub();
+    client.post.mockResolvedValueOnce({ malformed: true });
+
+    await expect(
+      assignRoleToUser(
+        USER_ID,
+        ROLE_ID,
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toMatchObject({ kind: 'parse' });
+  });
+
+  it('propaga 400 (roleId inválido) sem traduzir', async () => {
+    const client = createStub();
+    const apiError = {
+      kind: 'http',
+      status: 400,
+      message: 'RoleId inválido.',
+    };
+    client.post.mockRejectedValueOnce(apiError);
+
+    await expect(
+      assignRoleToUser(
+        USER_ID,
+        ROLE_ID,
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toEqual(apiError);
+  });
+
+  it('propaga 404 (usuário não encontrado) sem traduzir', async () => {
+    const client = createStub();
+    const apiError = {
+      kind: 'http',
+      status: 404,
+      message: 'Usuário não encontrado.',
+    };
+    client.post.mockRejectedValueOnce(apiError);
+
+    await expect(
+      assignRoleToUser(
+        USER_ID,
+        ROLE_ID,
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toEqual(apiError);
+  });
+});
+
+/**
+ * Suíte do `removeRoleFromUser` (Issue #71). Cobre a chamada do
+ * endpoint `DELETE /users/{userId}/roles/{roleId}`, ausência de
+ * corpo no retorno (`204 No Content`) e propagação de erros tipados.
+ * Espelha `removePermissionFromUser`.
+ */
+describe('removeRoleFromUser', () => {
+  const ROLE_ID = '99999999-9999-9999-9999-999999999999';
+
+  it('emite DELETE /users/{userId}/roles/{roleId}', async () => {
+    const client = createStub();
+    client.delete.mockResolvedValueOnce(undefined);
+
+    await removeRoleFromUser(
+      USER_ID,
+      ROLE_ID,
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.delete).toHaveBeenCalledTimes(1);
+    expect(client.delete.mock.calls[0][0]).toBe(
+      `/users/${USER_ID}/roles/${ROLE_ID}`,
+    );
+  });
+
+  it('passa signal/options adiante para o cliente', async () => {
+    const client = createStub();
+    client.delete.mockResolvedValueOnce(undefined);
+    const controller = new AbortController();
+
+    await removeRoleFromUser(
+      USER_ID,
+      ROLE_ID,
+      { signal: controller.signal },
+      client as unknown as ApiClient,
+    );
+
+    expect(client.delete.mock.calls[0][1]).toEqual({
+      signal: controller.signal,
+    });
+  });
+
+  it('resolve void em sucesso (204 No Content)', async () => {
+    const client = createStub();
+    client.delete.mockResolvedValueOnce(undefined);
+
+    const result = await removeRoleFromUser(
+      USER_ID,
+      ROLE_ID,
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(result).toBeUndefined();
+  });
+
+  it('propaga 404 (vínculo não encontrado) sem traduzir', async () => {
+    const client = createStub();
+    const apiError = {
+      kind: 'http',
+      status: 404,
+      message: 'Vínculo não encontrado.',
+    };
+    client.delete.mockRejectedValueOnce(apiError);
+
+    await expect(
+      removeRoleFromUser(
+        USER_ID,
+        ROLE_ID,
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toEqual(apiError);
+  });
+
+  it('propaga 401/403 sem traduzir', async () => {
+    const client = createStub();
+    client.delete.mockRejectedValueOnce({
+      kind: 'http',
+      status: 403,
+      message: 'Sem permissão.',
+    });
+
+    await expect(
+      removeRoleFromUser(
+        USER_ID,
+        ROLE_ID,
+        undefined,
+        client as unknown as ApiClient,
+      ),
     ).rejects.toMatchObject({ kind: 'http', status: 403 });
   });
 });

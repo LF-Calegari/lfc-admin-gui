@@ -178,21 +178,33 @@ export const DEFAULT_ROLES_PAGE_SIZE = 20;
 export const DEFAULT_ROLES_INCLUDE_DELETED = false;
 
 /**
+ * Limite superior usado para carregar **todas** as roles ativas em uma
+ * única requisição — usado pela Issue #71 (atribuição de roles ao
+ * usuário, matriz de checkboxes agrupada por sistema). Espelha
+ * `MAX_PERMISSIONS_PAGE_SIZE` em `permissions.ts`. Quando o catálogo
+ * crescer além de 100, a issue pede revisitar (paginação real ou
+ * agrupar/colapsar por sistema com fetch lazy — mesmo TODO da #70).
+ */
+export const MAX_ROLES_PAGE_SIZE = 100;
+
+/**
  * Parâmetros aceitos por `listRoles`.
  *
- * `systemId` é declarado como obrigatório no contrato porque a UI
- * (Issue #66) sempre invoca a partir de `/systems/:systemId/roles`.
- * **Hoje** o valor é apenas propagado na querystring (e ignorado
- * silenciosamente pelo backend, que não conhece `systemId`); quando
- * o backend evoluir para `GET /systems/roles?systemId=...` (paridade
- * com Routes), o filtro passa a funcionar de fato sem mudar a UI.
+ * `systemId` é **opcional**. Quando informado, filtra roles cuja
+ * `Role.SystemId` coincide. Quando omitido, devolve roles de
+ * **todos** os sistemas — caso usado pela Issue #71 (atribuição de
+ * roles ao usuário, agrupando por sistema na UI).
  *
  * Os demais parâmetros (`q`, `page`, `pageSize`, `includeDeleted`)
- * são aplicados client-side pelo adapter em `listRoles`.
+ * são aplicados client-side pelo adapter em `listRoles` enquanto o
+ * backend não pagina `/roles` nativamente.
  */
 export interface ListRolesParams {
-  /** UUID do sistema dono das roles. Obrigatório nesta listagem. */
-  systemId: string;
+  /**
+   * UUID do sistema dono das roles. Opcional — quando ausente, o
+   * adapter devolve roles de todos os sistemas (caso da Issue #71).
+   */
+  systemId?: string;
   /** Termo de busca (case-insensitive em `Name` e `Code`). */
   q?: string;
   /** Página 1-based. Default: 1. */
@@ -295,9 +307,18 @@ function adaptRolesListResponse(
   const q = params.q?.trim().toLowerCase();
   const page = params.page ?? DEFAULT_ROLES_PAGE;
   const pageSize = params.pageSize ?? DEFAULT_ROLES_PAGE_SIZE;
+  const systemId = params.systemId;
 
   const filtered = rows
     .filter((role) => includeDeleted || role.deletedAt === null)
+    .filter((role) => {
+      // `systemId` opcional: quando ausente, devolve roles de todos os
+      // sistemas (Issue #71). Quando informado, filtra por `Role.SystemId`
+      // exato. Roles legadas com `systemId === null` são excluídas
+      // quando o caller pede um `systemId` específico.
+      if (!systemId || systemId.length === 0) return true;
+      return role.systemId === systemId;
+    })
     .filter((role) => {
       if (!q || q.length === 0) return true;
       return (

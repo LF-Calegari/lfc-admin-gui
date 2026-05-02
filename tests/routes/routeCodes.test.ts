@@ -46,6 +46,10 @@ const POSITIVE_CASES: ReadonlyArray<ResolveCase> = [
   { pathname: '/usuarios', expected: 'AUTH_V1_USERS_LIST' },
   { pathname: '/usuarios/42', expected: 'AUTH_V1_USERS_GET_BY_ID' },
   { pathname: '/usuarios/42/permissoes', expected: 'AUTH_V1_USERS_PERMISSIONS_ASSIGN' },
+  // Issue #71: tela de atribuição de roles ao usuário. Sub-rota mais
+  // específica vence `/usuarios/:id` no `matchPath` — backend exige
+  // policy `UsersUpdate`, code `AUTH_V1_USERS_ROLES_ASSIGN`.
+  { pathname: '/usuarios/42/roles', expected: 'AUTH_V1_USERS_ROLES_ASSIGN' },
   { pathname: '/tokens', expected: 'AUTH_V1_TOKEN_TYPES_LIST' },
 ];
 

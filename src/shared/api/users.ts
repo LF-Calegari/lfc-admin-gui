@@ -86,6 +86,70 @@ export interface UserDto {
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
+  /**
+   * Roles vinculadas ao usuário. **Hoje** o backend só preenche este
+   * array no `GET /users/{id}` (após PR lfc-authenticator#167); a
+   * listagem paginada `GET /users` devolve `UserResponse` sem o array
+   * (`ToResponse(u)` é chamado sem `roles`/`permissions` no caminho
+   * paged). Por isso o campo é opcional — testes/listagens que não
+   * consumem o vínculo continuam válidos.
+   *
+   * A Issue #71 (atribuição de roles ao usuário) consome este array
+   * para inicializar o set de roles atualmente vinculadas no salvar
+   * com diff. Cada item é um `UserRoleSummary` enxuto (id + code +
+   * name + systemId) — sem `permissionsCount`/`usersCount` para evitar
+   * payload pesado.
+   */
+  roles?: ReadonlyArray<UserRoleSummary>;
+}
+
+/**
+ * Resumo das roles vinculadas a um usuário, devolvido pelo
+ * `GET /users/{id}` no array `roles` (lfc-authenticator#167). Não
+ * confundir com `RoleDto` — este shape é enxuto (sem
+ * `permissionsCount`/`usersCount`/timestamps) porque o backend
+ * projeta apenas o suficiente para o frontend agrupar/exibir.
+ *
+ * O campo `systemId` viabiliza o agrupamento por sistema na Issue #71
+ * (lfc-authenticator#163 — Role agora tem `SystemId` no model).
+ *
+ * `description` é opcional/`null` no model (`AppRole.Description` é
+ * TODO no backend); mantemos no shape para consistência futura.
+ */
+export interface UserRoleSummary {
+  id: string;
+  name: string;
+  code: string;
+  systemId: string;
+  description?: string | null;
+}
+
+/**
+ * Type guard para `UserRoleSummary`. Tolera `description` ausente
+ * (estado atual do backend). Privado ao módulo — exposto via
+ * `isUserDto` apenas indiretamente (validação do array `roles`).
+ *
+ * Usa destructuring + ramos curtos ao invés do `if`/`return`
+ * tradicional para evitar que o JSCPD tokenize esta função idêntica
+ * ao `isSystemDto` (lição PR #134/#135).
+ */
+function isUserRoleSummary(value: unknown): value is UserRoleSummary {
+  if (typeof value !== 'object' || value === null) return false;
+  const { id, name, code, systemId, description } = value as Record<
+    string,
+    unknown
+  >;
+  const requiredStringsValid =
+    typeof id === 'string' &&
+    typeof name === 'string' &&
+    typeof code === 'string' &&
+    typeof systemId === 'string';
+  if (!requiredStringsValid) return false;
+  return (
+    description === null ||
+    description === undefined ||
+    typeof description === 'string'
+  );
 }
 
 /**
@@ -102,6 +166,11 @@ export function isUserDto(value: unknown): value is UserDto {
     return false;
   }
   const record = value as Record<string, unknown>;
+  // `roles` é opcional. Quando presente, exige `Array<UserRoleSummary>`.
+  // Ausente/`undefined` é válido (listagem paginada não traz o array).
+  const rolesValid =
+    record.roles === undefined ||
+    (Array.isArray(record.roles) && record.roles.every(isUserRoleSummary));
   return (
     typeof record.id === 'string' &&
     typeof record.name === 'string' &&
@@ -115,7 +184,8 @@ export function isUserDto(value: unknown): value is UserDto {
       typeof record.clientId === 'string') &&
     (record.deletedAt === null ||
       record.deletedAt === undefined ||
-      typeof record.deletedAt === 'string')
+      typeof record.deletedAt === 'string') &&
+    rolesValid
   );
 }
 
@@ -561,4 +631,143 @@ export async function resetUserPassword(
     throw makeParseError();
   }
   return data;
+}
+
+/**
+ * Carrega o `UserResponse` completo de um usuário via `GET /users/{id}`
+ * (lfc-authenticator#167). Diferente da listagem paginada (`listUsers`),
+ * este endpoint preenche o array `roles` com os vínculos atuais
+ * (`UserRoleSummary[]`), o que permite a Issue #71 (atribuição de roles)
+ * inicializar a matriz de checkboxes sem precisar de uma request
+ * separada.
+ *
+ * Retorna o `UserDto` completo. Lança `ApiError`:
+ *
+ * - 404 → usuário não encontrado/soft-deletado (UI exibe Alert "Usuário
+ *   não encontrado." e oferece voltar para listagem).
+ * - 401/403 → cliente HTTP já lidou; UI exibe toast.
+ *
+ * O parâmetro `client` é injetável para isolar testes (passa-se um stub
+ * tipado como `ApiClient`); em produção usa-se o singleton `apiClient`.
+ *
+ * Cancelamento via `signal` em `options` é propagado para o cliente —
+ * em navegações rápidas (ex.: trocar de usuário rapidamente), o caller
+ * cancela a request anterior antes de disparar a nova, evitando race
+ * em `setState`.
+ */
+export async function getUserById(
+  id: string,
+  options?: SafeRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<UserDto> {
+  const data = await client.get<unknown>(`/users/${id}`, options);
+  if (!isUserDto(data)) {
+    throw makeParseError();
+  }
+  return data;
+}
+
+/**
+ * Espelho do `UserRoleResponse` do `lfc-authenticator`
+ * (`UsersController.UserRoleResponse`) — devolvido pelo backend em
+ * `POST /users/{id}/roles`. A UI da Issue #71 não consome os campos
+ * individualmente (refetch de `getUserById` sincroniza o estado pós-
+ * mutação), mas tipamos o retorno para preservar contrato — qualquer
+ * evolução do backend é capturada pelo type guard.
+ *
+ * Espelha `UserPermissionLinkDto` em `permissions.ts` (mesmo shape
+ * mínimo de vínculo: `id`/`userId`/`roleId`/timestamps).
+ */
+export interface UserRoleLinkDto {
+  id: string;
+  userId: string;
+  roleId: string;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+function isUserRoleLinkDto(value: unknown): value is UserRoleLinkDto {
+  if (typeof value !== 'object' || value === null) return false;
+  const { id, userId, roleId, createdAt, updatedAt, deletedAt } = value as Record<
+    string,
+    unknown
+  >;
+  const requiredStringsValid =
+    typeof id === 'string' &&
+    typeof userId === 'string' &&
+    typeof roleId === 'string' &&
+    typeof createdAt === 'string' &&
+    typeof updatedAt === 'string';
+  if (!requiredStringsValid) return false;
+  return (
+    deletedAt === null || deletedAt === undefined || typeof deletedAt === 'string'
+  );
+}
+
+/**
+ * Vincula uma role ao usuário via `POST /users/{userId}/roles`
+ * (lfc-authenticator — `UsersController.AssignRole`).
+ *
+ * Backend é idempotente:
+ *
+ * - Vínculo inexistente → cria novo `UserRole` (`201 Created`).
+ * - Vínculo soft-deletado → reativa (`DeletedAt = null`, `200 OK`).
+ * - Vínculo já ativo → devolve o existente (`200 OK`).
+ *
+ * A UI trata todos como sucesso. Lança `ApiError`:
+ *
+ * - 400 → `roleId` inválido/inexistente (toast + reverter o checkbox).
+ * - 404 → usuário não encontrado (fechar a tela e voltar).
+ * - 401/403 → cliente HTTP já lidou com `onUnauthorized`/falta de
+ *   permissão; UI exibe toast.
+ *
+ * O parâmetro `client` é injetável para isolar testes; em produção
+ * usa-se o singleton `apiClient`. Espelha `assignPermissionToUser`
+ * (lição PR #128 — mesmo shape de wrapper para o segundo recurso de
+ * assignment do mesmo controller).
+ */
+export async function assignRoleToUser(
+  userId: string,
+  roleId: string,
+  options?: BodyRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<UserRoleLinkDto> {
+  const data = await client.post<unknown>(
+    `/users/${userId}/roles`,
+    { roleId },
+    options,
+  );
+  if (!isUserRoleLinkDto(data)) {
+    throw makeParseError();
+  }
+  return data;
+}
+
+/**
+ * Remove o vínculo de uma role com o usuário via
+ * `DELETE /users/{userId}/roles/{roleId}` (lfc-authenticator —
+ * `UsersController.RemoveRole`).
+ *
+ * Backend faz soft-delete do vínculo (`DeletedAt = UtcNow`, `204 No
+ * Content`). Permissões herdadas via essa role deixam de aparecer em
+ * `effective-permissions`, mas vínculos diretos do usuário não são
+ * afetados.
+ *
+ * Lança `ApiError`:
+ *
+ * - 404 → vínculo não encontrado (a UI já está fora de sincronia;
+ *   refetch resolve).
+ * - 401/403 → cliente HTTP já lidou; UI exibe toast.
+ *
+ * O parâmetro `client` é injetável para isolar testes; em produção
+ * usa-se o singleton `apiClient`. Espelha `removePermissionFromUser`.
+ */
+export async function removeRoleFromUser(
+  userId: string,
+  roleId: string,
+  options?: SafeRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<void> {
+  await client.delete<void>(`/users/${userId}/roles/${roleId}`, options);
 }
