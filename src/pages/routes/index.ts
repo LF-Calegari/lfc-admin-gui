@@ -1,0 +1,1 @@
+export { RoutesGlobalListShellPage } from './RoutesGlobalListShellPage';

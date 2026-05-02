@@ -8,10 +8,10 @@ import { InternalErrorPage } from '../pages/InternalErrorPage';
 import { LoginPage } from '../pages/LoginPage';
 import { NotFoundPage } from '../pages/NotFoundPage';
 import { PermissionsListShellPage } from '../pages/permissions';
-import { PlaceholderPage } from '../pages/PlaceholderPage';
 import { RolePermissionsShellPage } from '../pages/roles/RolePermissionsShellPage';
 import { RolesGlobalListShellPage } from '../pages/roles/RolesGlobalListShellPage';
 import { RolesPage } from '../pages/RolesPage';
+import { RoutesGlobalListShellPage } from '../pages/routes';
 import { RoutesPage } from '../pages/RoutesPage';
 import { SettingsPage } from '../pages/SettingsPage';
 import { ShowcasePage } from '../pages/ShowcasePage';
@@ -153,11 +153,7 @@ export const AppRoutes: React.FC = () => (
         path="/routes"
         element={
           <RequirePermission code="AUTH_V1_SYSTEMS_ROUTES_LIST">
-            <PlaceholderPage
-              eyebrow="02 Rotas"
-              title="Rotas registradas"
-              desc="Endpoints registrados por sistema. Cada rota possui método, path e permissões associadas. Para listar as rotas de um sistema específico, abra o sistema correspondente."
-            />
+            <RoutesGlobalListShellPage />
           </RequirePermission>
         }
       />

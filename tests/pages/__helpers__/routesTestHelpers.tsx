@@ -14,10 +14,12 @@ import type {
   ApiError,
   PagedResponse,
   RouteDto,
+  SystemDto,
   TokenTypeDto,
 } from "@/shared/api";
 
 import { ToastProvider } from "@/components/ui";
+import { RoutesGlobalListShellPage } from "@/pages/routes";
 import { RoutesPage } from "@/pages/RoutesPage";
 
 /**
@@ -695,4 +697,177 @@ export function buildSharedRouteMutationErrorCases(
       expectedText: `Não foi possível ${verb} a rota. Tente novamente.`,
     },
   ];
+}
+
+/* ─── Helpers para a listagem global (Issue #172) ──────────────── */
+
+/** UUID adicional do segundo sistema usado na suíte da listagem global. */
+export const ID_SYS_KURTTO = "22222222-2222-2222-2222-222222222222";
+
+/**
+ * Constrói um `SystemDto` com defaults — testes só sobrescrevem o que
+ * importa para o cenário sem repetir todos os campos. Espelha
+ * `makeSystem` em `systemsTestHelpers.tsx` mas declarado aqui para
+ * preservar a coesão dos helpers de rotas (a suíte da listagem global
+ * mocka o catálogo de sistemas e o de rotas no mesmo cliente, e
+ * importar `makeSystem` de outro helper acoplaria as duas suítes).
+ *
+ * Lição PR #128 — projetar shared helpers desde o primeiro PR do
+ * recurso, não esperar a duplicação aparecer e refatorar.
+ */
+export function makeSystem(overrides: Partial<SystemDto> = {}): SystemDto {
+  return {
+    id: ID_SYS_AUTH,
+    name: "lfc-authenticator",
+    code: "AUTH",
+    description: null,
+    createdAt: "2026-01-10T12:00:00Z",
+    updatedAt: "2026-01-10T12:00:00Z",
+    deletedAt: null,
+    ...overrides,
+  };
+}
+
+/**
+ * Constrói o envelope paginado mockado pelo backend para sistemas.
+ * Espelha `makePagedRoutes` mas para o catálogo de sistemas — usado
+ * pela suíte da listagem global para popular o `<Select>` de filtro
+ * e o lookup de nome do sistema na coluna Sistema.
+ */
+export function makePagedSystems(
+  data: ReadonlyArray<SystemDto>,
+  overrides: Partial<PagedResponse<SystemDto>> = {},
+): PagedResponse<SystemDto> {
+  return {
+    data,
+    page: 1,
+    pageSize: 100,
+    total: data.length,
+    ...overrides,
+  };
+}
+
+/**
+ * Stub default usado pela suíte da listagem global. Reusa
+ * `createRoutesClientStub` para preservar a mesma fábrica entre as
+ * duas suítes (drill-down e global) — mantemos um alias dedicado
+ * para que os imports da nova suíte fiquem com nome auto-explicativo
+ * (lição PR #128 — projetar shared helpers desde o primeiro PR do
+ * recurso).
+ */
+export function createRoutesGlobalClientStub(): ApiClientStub {
+  return createRoutesClientStub();
+}
+
+/**
+ * Mocka as duas requests iniciais da `RoutesGlobalListShellPage`
+ * (listagem global de rotas + catálogo de sistemas para filtro/lookup)
+ * via `mockImplementation` no `client.get`. Cada chamada é roteada
+ * pelo prefixo do path:
+ *
+ * - `/systems/routes...` → `makePagedRoutes(routes, ...)`
+ * - `/systems...` → `makePagedSystems(systems)`
+ *
+ * Centralizar evita duplicar a fila de mocks em cada teste (lição PR
+ * #127 — trechos de 5+ linhas em 2+ testes são `New Code Duplication`).
+ *
+ * **Por que `mockImplementation` e não `mockResolvedValueOnce` em
+ * sequência?** Os dois GETs disparam em paralelo no mount (rotas via
+ * `usePaginatedFetch`, sistemas via `useSingleFetchWithAbort`), então
+ * a ordem relativa não é determinística. Roteamento por `path`
+ * elimina a fragilidade de ordem.
+ */
+export function mockGlobalRoutesInitialResponses(
+  client: ApiClientStub,
+  options: {
+    /** Linhas devolvidas pelo GET de rotas. Default: 1 rota fake. */
+    routes?: ReadonlyArray<RouteDto>;
+    /** Sistemas devolvidos pelo GET de sistemas. Default: `[lfc-authenticator]`. */
+    systems?: ReadonlyArray<SystemDto>;
+    /** Overrides do envelope paginado de rotas. */
+    routesPagedOverrides?: Partial<PagedResponse<RouteDto>>;
+  } = {},
+): void {
+  const routes = options.routes ?? [makeRoute()];
+  const systems = options.systems ?? [makeSystem()];
+  client.get.mockImplementation((path: string) => {
+    if (path.startsWith("/systems/routes")) {
+      return Promise.resolve(
+        makePagedRoutes(routes, options.routesPagedOverrides),
+      );
+    }
+    if (path.startsWith("/systems")) {
+      return Promise.resolve(makePagedSystems(systems));
+    }
+    return Promise.reject(
+      new Error(`mockGlobalRoutesInitialResponses: path inesperado ${path}`),
+    );
+  });
+}
+
+/**
+ * Renderiza a `RoutesGlobalListShellPage` envolvendo num
+ * `MemoryRouter` (a página tem `<Link>`s para `/systems/:id/routes`,
+ * que sem o roteador lançariam) + `ToastProvider` (paridade com
+ * `renderRoutesPage` para suportar futuras evoluções com `useToast`).
+ * Centraliza para que cada teste não repita o boilerplate.
+ */
+export function renderRoutesGlobalListPage(client: ApiClientStub): void {
+  render(
+    <ToastProvider>
+      <MemoryRouter initialEntries={["/routes"]}>
+        <Routes>
+          <Route
+            path="/routes"
+            element={<RoutesGlobalListShellPage client={client} />}
+          />
+        </Routes>
+      </MemoryRouter>
+    </ToastProvider>,
+  );
+}
+
+/**
+ * Aguarda a primeira renderização da listagem global. A página dispara
+ * 2 GETs em paralelo no mount (`/systems/routes` + `/systems`), então
+ * esperamos que ambos tenham sido chamados pelo menos uma vez antes de
+ * verificar que o spinner sumiu.
+ */
+export async function waitForInitialGlobalList(
+  client: ApiClientStub,
+): Promise<void> {
+  await waitFor(() =>
+    expect(client.get.mock.calls.length).toBeGreaterThanOrEqual(2),
+  );
+  await waitFor(() => {
+    expect(
+      screen.queryByTestId("routes-global-loading"),
+    ).not.toBeInTheDocument();
+  });
+}
+
+/**
+ * Helper para extrair os paths de `/systems/routes` (apenas as
+ * chamadas de listagem de rotas, ignorando o GET do catálogo de
+ * sistemas). Usado em asserts da suíte de listagem global para
+ * verificar a serialização da querystring sem ruído da lookup.
+ */
+export function lastRoutesListPath(client: ApiClientStub): string {
+  const routesCalls = client.get.mock.calls.filter(
+    (call: unknown[]) =>
+      typeof call[0] === "string" &&
+      (call[0] as string).startsWith("/systems/routes"),
+  );
+  if (routesCalls.length === 0) return "";
+  const path = routesCalls[routesCalls.length - 1][0];
+  return typeof path === "string" ? path : "";
+}
+
+/** Total de chamadas a `/systems/routes` no stub do cliente. */
+export function countRoutesListCalls(client: ApiClientStub): number {
+  return client.get.mock.calls.filter(
+    (call: unknown[]) =>
+      typeof call[0] === "string" &&
+      (call[0] as string).startsWith("/systems/routes"),
+  ).length;
 }
