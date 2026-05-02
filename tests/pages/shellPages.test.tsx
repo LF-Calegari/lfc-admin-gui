@@ -7,7 +7,6 @@ import { PermissionsListShellPage } from '@/pages/permissions';
 import {
   UserDetailShellPage,
   UserPermissionsShellPage,
-  UsersListShellPage,
 } from '@/pages/users';
 
 /**
@@ -16,9 +15,16 @@ import {
  * Cada shell delega ao `PlaceholderPage` (catálogo de eyebrow/título/desc),
  * então testá-las isoladamente seria duplicação direta. Aqui usamos
  * `it.each` para validar contrato visual mínimo (header presente,
- * eyebrow esperado, aviso "Em desenvolvimento.") em todas as 6 shells
- * em uma única tabela — mantém o Sonar limpo de blocos repetidos e
- * facilita ampliar a tabela quando novas shells aparecerem.
+ * eyebrow esperado, aviso "Em desenvolvimento.") em todas as shells
+ * remanescentes em uma única tabela — mantém o Sonar limpo de blocos
+ * repetidos e facilita ampliar a tabela quando novas shells aparecerem.
+ *
+ * À medida que cada shell ganha conteúdo real, ela sai desta tabela e
+ * passa a ser coberta por uma suíte dedicada
+ * (`tests/pages/<recurso>/<Pagina>.test.tsx`). Issue #77 promoveu a
+ * `UsersListShellPage` a listagem real (com tabela/busca/paginação),
+ * então a entrada respectiva foi removida — a cobertura migrou para
+ * `tests/pages/UsersListShellPage.test.tsx`.
  *
  * As asserts cobrem:
  * - Renderização sem warning/exception (cada shell é um componente
@@ -55,12 +61,6 @@ const SHELL_CASES: ReadonlyArray<ShellCase> = [
     Component: PermissionsListShellPage,
     eyebrow: '04 Permissões',
     title: 'Permissões',
-  },
-  {
-    name: 'UsersListShellPage',
-    Component: UsersListShellPage,
-    eyebrow: '06 Usuários',
-    title: 'Usuários',
   },
   {
     name: 'UserDetailShellPage',
