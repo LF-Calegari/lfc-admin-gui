@@ -147,14 +147,10 @@ export function isRoleDto(value: unknown): value is RoleDto {
  * campos, deploy desalinhado). Espelha `isPagedRoutesResponse` em
  * `routes.ts`.
  *
- * **Hoje** o backend `/roles` ainda devolve um array cru (não o
- * envelope paginado). `listRoles` adapta client-side: faz o GET cru,
- * valida cada item com `isRoleDto`, aplica filtros/paginação em
- * memória e devolve um `PagedResponse<RoleDto>` ao caller. O type
- * guard fica pronto para o dia em que o backend implementar
- * `GET /systems/roles?systemId=...&page=&pageSize=...&q=&includeDeleted=`
- * (espelhando `RoutesController`); aí `listRoles` valida o envelope
- * direto e aposenta a adaptação client-side.
+ * Após `lfc-authenticator#163`/`#164`, o backend `/roles` devolve o
+ * envelope paginado nativo (`PagedResponse<RoleResponse>` com
+ * `systemId`, `description`, `permissionsCount`, `usersCount`).
+ * `listRoles` valida o envelope direto via este guard.
  */
 export function isPagedRolesResponse(
   value: unknown,
@@ -191,25 +187,28 @@ export const MAX_ROLES_PAGE_SIZE = 100;
  * Parâmetros aceitos por `listRoles`.
  *
  * `systemId` é **opcional**. Quando informado, filtra roles cuja
- * `Role.SystemId` coincide. Quando omitido, devolve roles de
- * **todos** os sistemas — caso usado pela Issue #71 (atribuição de
- * roles ao usuário, agrupando por sistema na UI).
+ * `Role.SystemId` coincide (server-side, via querystring). Quando
+ * omitido, devolve roles de **todos** os sistemas — caso usado pela
+ * Issue #71 (atribuição de roles ao usuário, agrupando por sistema
+ * na UI) e pela Issue #173 (`/roles` global cross-system).
  *
- * Os demais parâmetros (`q`, `page`, `pageSize`, `includeDeleted`)
- * são aplicados client-side pelo adapter em `listRoles` enquanto o
- * backend não pagina `/roles` nativamente.
+ * Após `lfc-authenticator#163`/`#164`, todos os parâmetros (`systemId`,
+ * `q`, `page`, `pageSize`, `includeDeleted`) são aplicados pelo
+ * controller `RolesController.GetAll` no backend — não há mais
+ * adapter client-side.
  */
 export interface ListRolesParams {
   /**
    * UUID do sistema dono das roles. Opcional — quando ausente, o
-   * adapter devolve roles de todos os sistemas (caso da Issue #71).
+   * backend devolve roles de todos os sistemas (caso da Issue #71/
+   * #173).
    */
   systemId?: string;
   /** Termo de busca (case-insensitive em `Name` e `Code`). */
   q?: string;
   /** Página 1-based. Default: 1. */
   page?: number;
-  /** Itens por página. Default: 20. */
+  /** Itens por página. Default: 20. Backend rejeita `> 100`. */
   pageSize?: number;
   /** Quando `true`, inclui roles com `deletedAt != null`. */
   includeDeleted?: boolean;
@@ -217,38 +216,61 @@ export interface ListRolesParams {
 
 /**
  * Endpoint atual do backend para listagem de roles.
- *
- * Quando o backend evoluir para o padrão por-sistema (espelhando
- * `Routes`), trocar para `'/systems/roles'` em uma única linha — o
- * resto do adapter já está pronto.
  */
 const ROLES_LIST_PATH = "/roles";
 
 /**
- * Lista roles de um sistema com busca, paginação e filtro de
- * soft-deleted aplicados **client-side** enquanto o backend não
- * suporta os parâmetros nativamente.
+ * Constrói a querystring omitindo parâmetros default — mantém a URL
+ * canônica para o caminho mais comum e simplifica logs/cache de
+ * proxy. Espelha `buildQueryString` de `systems.ts`.
  *
- * **Adapter temporário (TODO no backend):** `RolesController.GetAll`
- * hoje devolve `List<RoleResponse>` cru, sem `systemId`/`q`/`page`/
- * `pageSize`/`includeDeleted`. Para preservar a UI consistente com
- * `RoutesPage` e desacoplar a camada de página, este wrapper:
+ * `q` é trimado e omitido quando vazio para evitar `?q=` literal
+ * (que o backend trataria como busca por string vazia).
+ */
+function buildRolesQueryString(params: ListRolesParams): string {
+  const search = new URLSearchParams();
+
+  if (params.systemId && params.systemId.length > 0) {
+    search.set("systemId", params.systemId);
+  }
+
+  const q = params.q?.trim();
+  if (q && q.length > 0) {
+    search.set("q", q);
+  }
+
+  if (typeof params.page === "number" && params.page !== DEFAULT_ROLES_PAGE) {
+    search.set("page", String(params.page));
+  }
+
+  if (
+    typeof params.pageSize === "number" &&
+    params.pageSize !== DEFAULT_ROLES_PAGE_SIZE
+  ) {
+    search.set("pageSize", String(params.pageSize));
+  }
+
+  if (
+    typeof params.includeDeleted === "boolean" &&
+    params.includeDeleted !== DEFAULT_ROLES_INCLUDE_DELETED
+  ) {
+    search.set("includeDeleted", String(params.includeDeleted));
+  }
+
+  const serialized = search.toString();
+  return serialized.length > 0 ? `?${serialized}` : "";
+}
+
+/**
+ * Lista roles via `GET /roles` com busca, paginação e filtro de
+ * soft-deleted **aplicados pelo backend**.
  *
- *  1. Faz o `GET /roles` cru e valida cada item com `isRoleDto`.
- *  2. Filtra `deletedAt` quando `includeDeleted=false`.
- *  3. Filtra `Name`/`Code` (case-insensitive) quando `q` está presente.
- *  4. Ordena por `Code` para estabilidade visual entre refetches.
- *  5. Aplica `page`/`pageSize` em memória e devolve o envelope.
- *
- * Quando o backend implementar o endpoint paginado, substituir o
- * corpo desta função por:
- *
- * ```ts
- * const path = `/systems/roles${buildQueryString(params)}`;
- * const data = await client.get<unknown>(path, options);
- * if (!isPagedRolesResponse(data)) throw makeParseError();
- * return data;
- * ```
+ * Após `lfc-authenticator#163`/`#164`, o backend `/roles` devolve o
+ * envelope paginado nativo (`PagedResponse<RoleResponse>` com
+ * `systemId`, `description`, `permissionsCount`, `usersCount`). A
+ * função simplesmente monta a querystring, faz o GET, valida o
+ * envelope e devolve. O adapter client-side (filtragem/paginação em
+ * memória) foi removido.
  *
  * Lança `ApiError` em qualquer falha (rede, parse, HTTP) — o caller
  * trata com try/catch. Cancelamento via `signal` em `options` é
@@ -257,84 +279,18 @@ const ROLES_LIST_PATH = "/roles";
  * O parâmetro `client` é injetável para isolar testes (passa-se um
  * stub tipado como `ApiClient`); o default usa o singleton
  * `apiClient` configurado com `baseUrl` + `systemId` reais.
- *
- * Issue #66 — primeira sub-issue da EPIC #47 (CRUD de Roles por
- * Sistema). As próximas issues (#67 criar, #68 editar, #69 associar
- * permissões) reutilizam o mesmo módulo (`createRole`/`updateRole`/
- * `deleteRole`) seguindo o padrão estabelecido pela EPIC #46 em
- * `routes.ts`. Mantemos os hooks de extensão prontos para evitar
- * refatorações destrutivas no segundo PR (lição PR #128 — projetar
- * shared helpers desde o primeiro PR do recurso).
  */
 export async function listRoles(
   params: ListRolesParams,
   options?: SafeRequestOptions,
   client: ApiClient = apiClient,
 ): Promise<PagedResponse<RoleDto>> {
-  const data = await client.get<unknown>(ROLES_LIST_PATH, options);
-  if (!Array.isArray(data) || !data.every(isRoleDto)) {
+  const path = `${ROLES_LIST_PATH}${buildRolesQueryString(params)}`;
+  const data = await client.get<unknown>(path, options);
+  if (!isPagedRolesResponse(data)) {
     throw makeParseError();
   }
-  return adaptRolesListResponse(data, params);
-}
-
-/**
- * Aplica filtros/ordem/paginação client-side sobre o array cru
- * devolvido pelo backend, normalizando para `PagedResponse<RoleDto>`.
- *
- * Mantida em função separada para que os testes possam exercer o
- * adapter sem um `ApiClient` stub — e para isolar o ponto único de
- * remoção quando o backend ganhar paginação real.
- *
- * **Decisões importantes:**
- *
- * - `params.systemId` é aceito mas hoje **não filtra** o conjunto:
- *   `AppRole` ainda não tem `SystemId` no model. Aceitar o param
- *   garante compatibilidade visual entre a UI já escopada por
- *   sistema (`/systems/:systemId/roles`) e a futura evolução do
- *   backend, sem precisar de breaking change na assinatura.
- * - O ordenamento por `Code` espelha o adotado por
- *   `RoutesController.GetAll` — manter o mesmo critério reduz
- *   surpresa para o admin que alterna entre as listas.
- * - `total` reflete o conjunto **após filtros** e **antes** de
- *   `Skip`/`Take`, casando com o contrato de `PagedResponse`.
- */
-function adaptRolesListResponse(
-  rows: ReadonlyArray<RoleDto>,
-  params: ListRolesParams,
-): PagedResponse<RoleDto> {
-  const includeDeleted = params.includeDeleted ?? DEFAULT_ROLES_INCLUDE_DELETED;
-  const q = params.q?.trim().toLowerCase();
-  const page = params.page ?? DEFAULT_ROLES_PAGE;
-  const pageSize = params.pageSize ?? DEFAULT_ROLES_PAGE_SIZE;
-  const systemId = params.systemId;
-
-  const filtered = rows
-    .filter((role) => includeDeleted || role.deletedAt === null)
-    .filter((role) => {
-      // `systemId` opcional: quando ausente, devolve roles de todos os
-      // sistemas (Issue #71). Quando informado, filtra por `Role.SystemId`
-      // exato. Roles legadas com `systemId === null` são excluídas
-      // quando o caller pede um `systemId` específico.
-      if (!systemId || systemId.length === 0) return true;
-      return role.systemId === systemId;
-    })
-    .filter((role) => {
-      if (!q || q.length === 0) return true;
-      return (
-        role.name.toLowerCase().includes(q) ||
-        role.code.toLowerCase().includes(q)
-      );
-    })
-    .slice()
-    .sort((a, b) => a.code.localeCompare(b.code));
-
-  const total = filtered.length;
-  const start = (page - 1) * pageSize;
-  const end = start + pageSize;
-  const data = filtered.slice(start, end);
-
-  return { data, page, pageSize, total };
+  return data;
 }
 
 /**

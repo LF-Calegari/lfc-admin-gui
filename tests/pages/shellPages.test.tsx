@@ -2,7 +2,6 @@ import { render, screen } from '@testing-library/react';
 import React from 'react';
 import { describe, expect, it } from 'vitest';
 
-import { PermissionsListShellPage } from '@/pages/permissions';
 import { UserDetailShellPage } from '@/pages/users';
 
 /**
@@ -29,6 +28,9 @@ import { UserDetailShellPage } from '@/pages/users';
  *   (4 abas), com cobertura em `tests/pages/clients/ClientEditPage.test.tsx`.
  * - Issue #73 promoveu a `ClientsListShellPage` a listagem real, com
  *   cobertura em `tests/pages/ClientsListShellPage.test.tsx`.
+ * - Issue #174 promoveu a `PermissionsListShellPage` a listagem real
+ *   (catálogo global filtrável), com cobertura em
+ *   `tests/pages/PermissionsListShellPage.test.tsx`.
  *
  * As asserts cobrem:
  * - Renderização sem warning/exception (cada shell é um componente
@@ -48,12 +50,6 @@ interface ShellCase {
 }
 
 const SHELL_CASES: ReadonlyArray<ShellCase> = [
-  {
-    name: 'PermissionsListShellPage',
-    Component: PermissionsListShellPage,
-    eyebrow: '04 Permissões',
-    title: 'Permissões',
-  },
   {
     name: 'UserDetailShellPage',
     Component: UserDetailShellPage,

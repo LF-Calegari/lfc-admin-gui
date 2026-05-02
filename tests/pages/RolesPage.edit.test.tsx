@@ -9,6 +9,7 @@ import {
   fillEditRoleForm,
   ID_ROLE_ROOT,
   ID_SYS_AUTH,
+  makePagedRolesResponse,
   makeRole,
   openEditRoleModal,
   renderRolesPage,
@@ -71,7 +72,7 @@ describe("RolesPage — edição (Issue #68)", () => {
     it('não exibe botões "Editar" quando o usuário não possui AUTH_V1_ROLES_UPDATE', async () => {
       permissionsMock = [];
       const client = createRolesClientStub();
-      client.get.mockResolvedValueOnce([makeRole()]);
+      client.get.mockResolvedValueOnce(makePagedRolesResponse([makeRole()]));
 
       // Renderização explícita aqui (sem helper de open) porque o
       // teste valida apenas a ausência do botão antes de abrir
@@ -87,7 +88,7 @@ describe("RolesPage — edição (Issue #68)", () => {
     it('exibe botão "Editar" para linhas ativas quando o usuário possui AUTH_V1_ROLES_UPDATE', async () => {
       permissionsMock = [ROLES_UPDATE_PERMISSION];
       const client = createRolesClientStub();
-      client.get.mockResolvedValueOnce([makeRole()]);
+      client.get.mockResolvedValueOnce(makePagedRolesResponse([makeRole()]));
 
       renderRolesPage(client);
       await waitForInitialList(client);
@@ -100,18 +101,17 @@ describe("RolesPage — edição (Issue #68)", () => {
     it('não exibe botão "Editar" em linhas soft-deletadas mesmo com permissão', async () => {
       permissionsMock = [ROLES_UPDATE_PERMISSION];
       const client = createRolesClientStub();
-      // O `listRoles` adapter filtra `deletedAt !== null` quando
+      // O backend filtra `deletedAt !== null` quando
       // `includeDeleted=false` (default). Para que a role
       // soft-deletada apareça na tabela e possamos verificar a
       // ausência do botão "Editar", ligamos o toggle "Mostrar
       // inativas" — assim o gating exercitado é o `row.deletedAt`
-      // dentro da render da coluna "Ações", não o filtro do
-      // adapter. Backend devolve a mesma role nas duas requests
-      // (toggle só muda o filtro client-side).
+      // dentro da render da coluna "Ações", não o filtro
+      // server-side.
       const deletedRole = makeRole({ deletedAt: "2026-02-01T00:00:00Z" });
       client.get
-        .mockResolvedValueOnce([deletedRole])
-        .mockResolvedValueOnce([deletedRole]);
+        .mockResolvedValueOnce(makePagedRolesResponse([deletedRole]))
+        .mockResolvedValueOnce(makePagedRolesResponse([deletedRole]));
 
       renderRolesPage(client);
       await waitForInitialList(client);
@@ -253,8 +253,8 @@ describe("RolesPage — edição (Issue #68)", () => {
       const client = createRolesClientStub();
       // Fila: GET inicial → GET refetch → PUT.
       client.get
-        .mockResolvedValueOnce([original])
-        .mockResolvedValueOnce([updated]);
+        .mockResolvedValueOnce(makePagedRolesResponse([original]))
+        .mockResolvedValueOnce(makePagedRolesResponse([updated]));
       client.put.mockResolvedValueOnce(updated);
 
       await openEditRoleModal(client, { role: original });
@@ -379,7 +379,9 @@ describe("RolesPage — edição (Issue #68)", () => {
     it("404 dispara refetch (onUpdated chamado mesmo em erro)", async () => {
       const client = createRolesClientStub();
       // Fila: GET inicial → PUT (404) → GET refetch.
-      client.get.mockResolvedValueOnce([makeRole()]).mockResolvedValueOnce([]);
+      client.get
+        .mockResolvedValueOnce(makePagedRolesResponse([makeRole()]))
+        .mockResolvedValueOnce(makePagedRolesResponse([]));
       client.put.mockRejectedValueOnce({
         kind: "http",
         status: 404,

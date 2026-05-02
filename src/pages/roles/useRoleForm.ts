@@ -2,6 +2,8 @@ import { useCallback } from "react";
 
 import {
   useNameCodeDescriptionForm,
+  useNameCodeDescriptionFormFieldProps,
+  type NameCodeDescriptionFormFieldProps,
   type UseNameCodeDescriptionFormReturn,
 } from "../../shared/forms";
 
@@ -73,3 +75,34 @@ export function useRoleForm(initialState: RoleFormState): UseRoleFormReturn {
     prepareSubmit,
   };
 }
+
+/**
+ * Tipo do conjunto de props consumido por `<RoleFormBody>` — alias
+ * estrutural de `NameCodeDescriptionFormFieldProps` (helper genérico
+ * em `src/shared/forms/`).
+ *
+ * **Lição PR #134/#135 reforçada (Issue #175):** antes deste alias,
+ * cada `use<Recurso>Form.ts` declarava sua própria interface idêntica
+ * em estrutura (~10 linhas). JSCPD detectou a duplicação entre
+ * `useRoleForm.ts` e `useTokenTypeForm.ts`. Centralizar a declaração
+ * em `src/shared/forms/useNameCodeDescriptionFormFieldProps.ts`
+ * eliminou a duplicação na raiz; o alias aqui preserva a API local
+ * (`RoleFormFieldProps`) sem duplicar implementação.
+ */
+export type RoleFormFieldProps = NameCodeDescriptionFormFieldProps;
+
+/**
+ * Constrói o objeto de props para `<RoleFormBody>` a partir de uma
+ * instância de `useRoleForm` + handlers do modal pai. Delegação
+ * direta para `useNameCodeDescriptionFormFieldProps` (helper genérico
+ * em `src/shared/forms/`) — mantém o nome de domínio
+ * (`useRoleFormFieldProps`) por simetria com hooks de outros recursos
+ * (call-sites importam por recurso).
+ *
+ * **Lição PR #134/#135 reforçada (Issue #175):** o corpo do hook
+ * (`useMemo` retornando `{ submitError, values, errors, ... }` com a
+ * mesma deps array) era idêntico ao de `useTokenTypeFormFieldProps`
+ * (~27 linhas). Extrair para o helper genérico colapsou ambos os
+ * call sites para `export const ... = useNameCodeDescriptionFormFieldProps`.
+ */
+export const useRoleFormFieldProps = useNameCodeDescriptionFormFieldProps;

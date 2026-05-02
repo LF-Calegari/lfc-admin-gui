@@ -78,6 +78,7 @@ export {
   extractNameCodeDescriptionValidationErrors,
   validateNameCodeDescriptionForm,
   type NameCodeDescriptionFieldErrors,
+  type NameCodeDescriptionFormBodyProps,
   type NameCodeDescriptionFormCopy,
   type NameCodeDescriptionFormState,
   type NameCodeDescriptionSubmitDecision,
@@ -86,3 +87,7 @@ export {
   useNameCodeDescriptionForm,
   type UseNameCodeDescriptionFormReturn,
 } from "./useNameCodeDescriptionForm";
+export {
+  useNameCodeDescriptionFormFieldProps,
+  type NameCodeDescriptionFormFieldProps,
+} from "./useNameCodeDescriptionFormFieldProps";

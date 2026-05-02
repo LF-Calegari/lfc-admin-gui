@@ -10,13 +10,11 @@ import { useParams } from "react-router-dom";
 import { PageHeader } from "../components/layout/PageHeader";
 import {
   Alert,
-  Badge,
   Button,
   Table,
 } from "../components/ui";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { usePaginatedFetch } from "../hooks/usePaginatedFetch";
-import { usePaginationControls } from "../hooks/usePaginationControls";
 import {
   DEFAULT_ROUTES_INCLUDE_DELETED,
   DEFAULT_ROUTES_PAGE,
@@ -26,18 +24,10 @@ import {
 import { useAuth } from "../shared/auth";
 import {
   BackLink,
-  CardCode,
-  CardDescription,
-  CardHeader,
   CardListForMobile,
   CardMeta,
   CardMetaTerm,
   CardMetaValue,
-  CardName,
-  DescriptionCell,
-  EmptyHint,
-  EmptyMessage,
-  EmptyTitle,
   EntityCard,
   ErrorRetryBlock,
   InitialLoadingSpinner,
@@ -46,7 +36,6 @@ import {
   LiveRegion,
   Mono,
   PaginationFooter,
-  Placeholder,
   RefetchOverlay,
   RowActions,
   StatusBadge,
@@ -58,6 +47,12 @@ import {
 import { DeleteRouteConfirm } from "./routes/DeleteRouteConfirm";
 import { EditRouteModal } from "./routes/EditRouteModal";
 import { NewRouteModal } from "./routes/NewRouteModal";
+import {
+  RouteCardTopSection,
+  renderRouteDescription,
+  renderTokenPolicy,
+  useRoutesListShellState,
+} from "./routes/routeRenderHelpers";
 
 import type { TableColumn } from "../components/ui";
 import type { ApiClient, RouteDto, SafeRequestOptions } from "../shared/api";
@@ -153,44 +148,6 @@ interface RoutesPageProps {
  */
 function isProbablyValidSystemId(value: string | undefined): value is string {
   return typeof value === "string" && value.trim().length > 0;
-}
-
-/**
- * Renderiza a célula da política JWT alvo. O backend devolve string
- * vazia em `systemTokenTypeCode`/`systemTokenTypeName` quando o
- * SystemTokenType referenciado foi soft-deletado pós-criação (LEFT JOIN
- * intencional no controller — a rota fica órfã até o admin restaurar o
- * token type ou alterar a referência). A UI sinaliza isso com "—".
- *
- * Reusado tanto pela tabela desktop quanto pelos cards mobile —
- * centralizar evita duplicação visual (lição PR #127/#128).
- */
-function renderTokenPolicy(row: RouteDto): React.ReactNode {
-  if (row.systemTokenTypeCode.length === 0) {
-    return <Placeholder>—</Placeholder>;
-  }
-  return (
-    <Badge variant="info" dot>
-      {row.systemTokenTypeName.length > 0
-        ? row.systemTokenTypeName
-        : row.systemTokenTypeCode}
-    </Badge>
-  );
-}
-
-/**
- * Renderiza a célula de descrição truncando textos longos via
- * `text-overflow: ellipsis`. Quando o backend devolve `description: null`
- * (campo opcional), exibimos "—" em itálico — espelha o tratamento de
- * `systemTokenTypeCode` vazio para manter consistência visual.
- */
-function renderDescription(row: RouteDto): React.ReactNode {
-  if (row.description === null || row.description.trim().length === 0) {
-    return <Placeholder>—</Placeholder>;
-  }
-  return (
-    <DescriptionCell title={row.description}>{row.description}</DescriptionCell>
-  );
 }
 
 /* ─── Component ──────────────────────────────────────────── */
@@ -332,64 +289,30 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
     skip: !hasValidSystemId,
   });
 
-  // Controles de paginação centralizados em `usePaginationControls`
-  // (lição PR #134 — bloco de 28 linhas duplicado com `SystemsPage`
-  // reprovou o SonarCloud Quality Gate). Mesma semântica do bloco
-  // inline original, com a única cópia agora em `src/hooks/`.
+  // Controles de paginação + estado derivado de busca/empty
+  // consolidados em `useRoutesListShellState` — lição PR #134/#135,
+  // JSCPD tokenizou os ~22 linhas de inicialização como duplicadas
+  // entre `RoutesPage`/`RoutesGlobalListShellPage`.
   const {
     totalPages,
     isFirstPage,
     isLastPage,
     handlePrevPage,
     handleNextPage,
-  } = usePaginationControls({
+    trimmedSearch,
+    hasActiveSearch,
+    emptyContent,
+  } = useRoutesListShellState({
     total,
     appliedPageSize,
-    defaultPageSize: DEFAULT_ROUTES_PAGE_SIZE,
     page,
     setPage,
+    debouncedSearch,
+    includeDeleted,
+    onClearSearch: handleClearSearch,
+    singleSystemScope: true,
+    clearTestId: "routes-empty-clear",
   });
-
-  const trimmedSearch = debouncedSearch.trim();
-  const hasActiveSearch = trimmedSearch.length > 0;
-
-  /**
-   * Decide qual mensagem renderizar quando `rows` está vazio:
-   *
-   * - Vazio com busca ativa → cita o termo + sugere limpar.
-   * - Vazio sem busca → "nenhuma rota cadastrada" + dica sobre o toggle
-   *   "Mostrar inativos" caso esteja desligado.
-   */
-  const emptyContent = useMemo<React.ReactNode>(() => {
-    if (hasActiveSearch) {
-      return (
-        <EmptyMessage>
-          <EmptyTitle>
-            Nenhuma rota encontrada para <Mono>{trimmedSearch}</Mono>.
-          </EmptyTitle>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleClearSearch}
-            data-testid="routes-empty-clear"
-          >
-            Limpar busca
-          </Button>
-        </EmptyMessage>
-      );
-    }
-    return (
-      <EmptyMessage>
-        <EmptyTitle>Nenhuma rota cadastrada para este sistema.</EmptyTitle>
-        {!includeDeleted && (
-          <EmptyHint>
-            Rotas removidas podem ser visualizadas ativando &quot;Mostrar
-            inativas&quot;.
-          </EmptyHint>
-        )}
-      </EmptyMessage>
-    );
-  }, [handleClearSearch, hasActiveSearch, includeDeleted, trimmedSearch]);
 
   const columns = useMemo<ReadonlyArray<TableColumn<RouteDto>>>(() => {
     const base: Array<TableColumn<RouteDto>> = [
@@ -401,7 +324,7 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
       {
         key: "description",
         label: "Descrição",
-        render: renderDescription,
+        render: renderRouteDescription,
       },
       {
         key: "tokenPolicy",
@@ -598,15 +521,7 @@ export const RoutesPage: React.FC<RoutesPageProps> = ({ client }) => {
                 tabIndex={0}
                 data-testid={`routes-card-${row.id}`}
               >
-                <CardHeader>
-                  <CardCode>{row.code}</CardCode>
-                  <StatusBadge deletedAt={row.deletedAt} />
-                </CardHeader>
-                <CardName>{row.name}</CardName>
-                {row.description !== null &&
-                  row.description.trim().length > 0 && (
-                    <CardDescription>{row.description}</CardDescription>
-                  )}
+                <RouteCardTopSection row={row} />
                 <CardMeta>
                   <CardMetaTerm>JWT</CardMetaTerm>
                   <CardMetaValue>{renderTokenPolicy(row)}</CardMetaValue>

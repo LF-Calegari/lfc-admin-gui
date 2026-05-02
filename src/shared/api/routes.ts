@@ -1,3 +1,4 @@
+import { isNameCodeDescriptionDto } from './nameCodeDescriptionDto';
 import { isPagedResponseEnvelope } from './pagedResponse';
 
 import { apiClient } from './index';
@@ -69,26 +70,21 @@ export interface RouteDto {
  * diferentes precisam de helper compartilhado").
  */
 export function isRouteDto(value: unknown): value is RouteDto {
-  if (!value || typeof value !== 'object') {
+  // Delega ao helper genérico a checagem dos campos compartilhados
+  // com `SystemDto`/`TokenTypeDto` (id, name, code, description,
+  // createdAt, updatedAt, deletedAt) — `RouteDto` adiciona `systemId`
+  // e a tripla `systemTokenType*` que validamos abaixo. Lição PR
+  // #134/#135 reforçada (Issue #175): centralizar elimina ~11 linhas
+  // de duplicação entre wrappers de DTO.
+  if (!isNameCodeDescriptionDto(value)) {
     return false;
   }
   const record = value as Record<string, unknown>;
   return (
-    typeof record.id === 'string' &&
     typeof record.systemId === 'string' &&
-    typeof record.name === 'string' &&
-    typeof record.code === 'string' &&
     typeof record.systemTokenTypeId === 'string' &&
     typeof record.systemTokenTypeCode === 'string' &&
-    typeof record.systemTokenTypeName === 'string' &&
-    typeof record.createdAt === 'string' &&
-    typeof record.updatedAt === 'string' &&
-    (record.description === null ||
-      record.description === undefined ||
-      typeof record.description === 'string') &&
-    (record.deletedAt === null ||
-      record.deletedAt === undefined ||
-      typeof record.deletedAt === 'string')
+    typeof record.systemTokenTypeName === 'string'
   );
 }
 
@@ -122,21 +118,24 @@ export const DEFAULT_ROUTES_PAGE_SIZE = 20;
 export const DEFAULT_ROUTES_INCLUDE_DELETED = false;
 
 /**
- * Parâmetros aceitos por `listRoutes`. Apenas `systemId` é semanticamente
- * obrigatório nesta primeira sub-issue (#62 — listagem **por sistema**).
- * Os demais são opcionais — quando omitidos (ou iguais aos defaults),
- * são removidos da querystring.
+ * Parâmetros aceitos por `listRoutes`. Todos opcionais — quando omitidos
+ * (ou iguais aos defaults), são removidos da querystring.
  *
- * `systemId` é tipado como `string` (UUID v4 esperado pelo backend) e
- * obrigatório no contrato dessa função: a `RoutesPage` lê o `:id` da URL
- * e nunca chama sem ele. O backend aceita `systemId` opcional em
- * `GET /systems/routes` e devolve todas as rotas quando ausente, mas
- * essa rota global ("listar tudo") é objeto da sub-issue #63 (criar)
- * via dropdown de sistema — não desta listagem.
+ * `systemId` era obrigatório na sub-issue #62 (listagem **por sistema**)
+ * porque a `RoutesPage` sempre lê `:systemId` da URL. A Issue #172
+ * (listagem global cross-system em `/routes`) introduziu o caminho onde
+ * a página opcionalmente filtra por sistema via dropdown — quando
+ * `systemId` é omitido, o backend devolve rotas de todos os sistemas
+ * (`RoutesController.GetAll` aceita `systemId: Guid? = null`). Manter
+ * o tipo opcional preserva o comportamento legado (`RoutesPage` sempre
+ * passa `systemId`) e desbloqueia o novo caso de uso.
  */
 export interface ListRoutesParams {
-  /** UUID do sistema dono das rotas. Obrigatório nesta listagem. */
-  systemId: string;
+  /**
+   * UUID do sistema dono das rotas. Quando omitido, lista rotas de
+   * todos os sistemas (caminho global da Issue #172).
+   */
+  systemId?: string;
   /** Termo de busca (case-insensitive em `Name` e `Code`). */
   q?: string;
   /** Página 1-based. Default: 1. */
@@ -154,14 +153,17 @@ export interface ListRoutesParams {
  * `q` é trimado e omitido quando vazio para evitar `?q=` literal (que o
  * backend trataria como busca por string vazia, mas a UI sinalizaria
  * estado de "busca ativa" no `q`). Espelha `buildQueryString` de
- * `systems.ts`, mas adiciona `systemId` sempre — é o eixo do recurso
- * desta issue.
+ * `systems.ts`. Após Issue #172, `systemId` deixou de ser sempre
+ * presente (listagem global cross-system) — só é serializado quando
+ * o caller fornece o filtro via dropdown.
  */
 function buildQueryString(params: ListRoutesParams): string {
   const search = new URLSearchParams();
 
-  // `systemId` sempre presente — é o eixo da listagem por sistema.
-  search.set('systemId', params.systemId);
+  const systemId = params.systemId?.trim();
+  if (systemId && systemId.length > 0) {
+    search.set('systemId', systemId);
+  }
 
   const q = params.q?.trim();
   if (q && q.length > 0) {
@@ -183,7 +185,8 @@ function buildQueryString(params: ListRoutesParams): string {
     search.set('includeDeleted', String(params.includeDeleted));
   }
 
-  return `?${search.toString()}`;
+  const serialized = search.toString();
+  return serialized.length > 0 ? `?${serialized}` : '';
 }
 
 /**

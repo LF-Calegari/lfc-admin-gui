@@ -200,7 +200,7 @@ const NameCodeDescriptionFields: React.FC<NameCodeDescriptionFieldsProps> = ({
 
 /* ─── Componente: form body completo (shell + Alert + footer) ─── */
 
-interface NameCodeDescriptionFormBodyProps {
+export interface NameCodeDescriptionFormBodyProps {
   /** Prefixo dos `data-testid` do form e dos campos. */
   idPrefix: string;
   /** Erro genérico de submissão exibido em `Alert` no topo do form. */

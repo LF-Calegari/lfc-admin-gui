@@ -8,13 +8,15 @@ import { InternalErrorPage } from '../pages/InternalErrorPage';
 import { LoginPage } from '../pages/LoginPage';
 import { NotFoundPage } from '../pages/NotFoundPage';
 import { PermissionsListShellPage } from '../pages/permissions';
-import { PlaceholderPage } from '../pages/PlaceholderPage';
 import { RolePermissionsShellPage } from '../pages/roles/RolePermissionsShellPage';
+import { RolesGlobalListShellPage } from '../pages/roles/RolesGlobalListShellPage';
 import { RolesPage } from '../pages/RolesPage';
+import { RoutesGlobalListShellPage } from '../pages/routes';
 import { RoutesPage } from '../pages/RoutesPage';
 import { SettingsPage } from '../pages/SettingsPage';
 import { ShowcasePage } from '../pages/ShowcasePage';
 import { SystemsPage } from '../pages/SystemsPage';
+import { TokensListShellPage } from '../pages/tokens';
 import { UnauthorizedPage } from '../pages/UnauthorizedPage';
 import {
   UserDetailShellPage,
@@ -151,11 +153,7 @@ export const AppRoutes: React.FC = () => (
         path="/routes"
         element={
           <RequirePermission code="AUTH_V1_SYSTEMS_ROUTES_LIST">
-            <PlaceholderPage
-              eyebrow="02 Rotas"
-              title="Rotas registradas"
-              desc="Endpoints registrados por sistema. Cada rota possui método, path e permissões associadas. Para listar as rotas de um sistema específico, abra o sistema correspondente."
-            />
+            <RoutesGlobalListShellPage />
           </RequirePermission>
         }
       />
@@ -163,11 +161,7 @@ export const AppRoutes: React.FC = () => (
         path="/roles"
         element={
           <RequirePermission code="AUTH_V1_ROLES_LIST">
-            <PlaceholderPage
-              eyebrow="03 Roles"
-              title="Gerenciamento de Roles"
-              desc="Roles agrupam permissões e podem ser atribuídas a usuários do sistema. Para listar as roles de um sistema específico, abra o sistema correspondente."
-            />
+            <RolesGlobalListShellPage />
           </RequirePermission>
         }
       />
@@ -272,12 +266,14 @@ export const AppRoutes: React.FC = () => (
       <Route
         path="/tokens"
         element={
+          // Issue #175: substitui o `<PlaceholderPage>` mockado por
+          // CRUD funcional de tipos de token JWT. O título da página
+          // ("Tipos de token JWT") é renderizado pelo
+          // `TokensListShellPage` via `<PageHeader>` — o label
+          // "Tokens" da Sidebar permanece inalterado por economia de
+          // espaço (decisão da Issue #175).
           <RequirePermission code="AUTH_V1_TOKEN_TYPES_LIST">
-            <PlaceholderPage
-              eyebrow="08 Tokens"
-              title="Tokens JWT"
-              desc="Tokens emitidos por sistema. tokenVersion atual: 12. Revogar um token invalida a sessão do usuário imediatamente."
-            />
+            <TokensListShellPage />
           </RequirePermission>
         }
       />

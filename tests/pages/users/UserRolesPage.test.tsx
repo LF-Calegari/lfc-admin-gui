@@ -109,8 +109,9 @@ describe('UserRolesShellPage — loading e erro inicial', () => {
     const client = createUserRolesClientStub();
     client.get.mockImplementation((path: string) => {
       if (path.startsWith('/roles')) {
-        // Backend devolve array cru (não envelope) — listRoles adapta.
-        return Promise.resolve([makeRole()]);
+        // Backend devolve `PagedResponse<RoleDto>` nativo após
+        // `lfc-authenticator#163`.
+        return Promise.resolve(makePagedRoles([makeRole()]));
       }
       if (path.startsWith('/systems')) {
         return Promise.resolve(makePagedSystems([makeSystem()]));
@@ -144,8 +145,9 @@ describe('UserRolesShellPage — loading e erro inicial', () => {
             message: 'Falha de conexão.',
           });
         }
-        // Backend devolve array cru (não envelope) — listRoles adapta.
-        return Promise.resolve([makeRole()]);
+        // Backend devolve `PagedResponse<RoleDto>` nativo após
+        // `lfc-authenticator#163`.
+        return Promise.resolve(makePagedRoles([makeRole()]));
       }
       if (path.startsWith('/systems')) {
         return Promise.resolve(makePagedSystems([makeSystem()]));
