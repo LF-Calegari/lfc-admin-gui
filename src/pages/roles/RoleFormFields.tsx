@@ -2,9 +2,8 @@ import React from "react";
 
 import {
   NameCodeDescriptionFormBody,
-  type NameCodeDescriptionFieldErrors,
+  type NameCodeDescriptionFormBodyProps,
   type NameCodeDescriptionFormCopy,
-  type NameCodeDescriptionFormState,
 } from "../../shared/forms";
 
 /**
@@ -26,6 +25,12 @@ import {
  * em vez de vazar o nome genérico no callsite — o `EditRoleModal`
  * (e o futuro `NewRoleModal`) consomem o tipo do recurso, não o
  * tipo genérico.
+ *
+ * **Lição PR #134/#135 reforçada (Issue #175):** as props internas
+ * (`RoleFormBodyProps`) duplicavam ~13 linhas com
+ * `NameCodeDescriptionFormBodyProps`. Substituídas por
+ * `Omit<NameCodeDescriptionFormBodyProps, 'copy'>` para deduplicar a
+ * declaração — o `copy` é injetado pelo wrapper e não é prop pública.
  */
 
 /* ─── Cópia textual (placeholders) específica de roles ─── */
@@ -38,31 +43,14 @@ const ROLE_FORM_COPY: NameCodeDescriptionFormCopy = {
 
 /* ─── Form body ──────────────────────────────────────────── */
 
-interface RoleFormBodyProps {
-  /**
-   * Prefixo dos `data-testid` do form e dos campos. Em produção,
-   * `new-role` ou `edit-role`; preserva os testIds estáveis das
-   * suítes (`RolesPage.edit.test.tsx`, futura `.create.test.tsx`).
-   */
-  idPrefix: string;
-  /** Erro genérico de submissão exibido em `Alert` no topo do form. */
-  submitError: string | null;
-  /** Estado controlado dos campos. Tipos vêm do `rolesFormShared.ts`. */
-  values: NameCodeDescriptionFormState;
-  /** Erros inline por campo. */
-  errors: NameCodeDescriptionFieldErrors;
-  onChangeName: (value: string) => void;
-  onChangeCode: (value: string) => void;
-  onChangeDescription: (value: string) => void;
-  /** Handler do submit do form. */
-  onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
-  /** Handler do botão Cancelar (bloqueado durante submit). */
-  onCancel: () => void;
-  /** Flag de submissão em andamento. */
-  isSubmitting: boolean;
-  /** Texto do botão de envio (ex.: "Criar role", "Salvar alterações"). */
-  submitLabel: string;
-}
+/**
+ * Props do `<RoleFormBody>` — alias estrutural das props do
+ * `NameCodeDescriptionFormBody` excluindo `copy` (injetado
+ * internamente). Centralizar via `Omit<...Props, 'copy'>` elimina a
+ * duplicação que o JSCPD detectaria entre `RoleFormFields` e
+ * `TokenTypeFormFields` (lição PR #134/#135).
+ */
+type RoleFormBodyProps = Omit<NameCodeDescriptionFormBodyProps, "copy">;
 
 export const RoleFormBody: React.FC<RoleFormBodyProps> = (props) => (
   <NameCodeDescriptionFormBody {...props} copy={ROLE_FORM_COPY} />

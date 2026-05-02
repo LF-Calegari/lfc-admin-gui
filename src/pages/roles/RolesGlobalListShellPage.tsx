@@ -36,6 +36,11 @@ import {
   useListingLiveMessage,
 } from '../../shared/listing';
 
+import {
+  renderRoleDescription as renderDescription,
+  renderRoleCount as renderCount,
+} from './rolesRenderHelpers';
+
 import type { TableColumn } from '../../components/ui';
 import type {
   ApiClient,
@@ -80,14 +85,6 @@ interface RolesGlobalListShellPageProps {
    */
   client?: ApiClient;
 }
-
-// `renderDescription`/`renderCount` extraídos para
-// `./rolesRenderHelpers` — compartilhados com `RolesPage` para evitar
-// duplicação Sonar (lição PR #134/#135).
-import {
-  renderRoleDescription as renderDescription,
-  renderRoleCount as renderCount,
-} from './rolesRenderHelpers';
 
 /**
  * Constrói um lookup `systemId -> SystemDto` para denormalizar a

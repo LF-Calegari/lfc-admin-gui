@@ -173,11 +173,19 @@ export type {
   UpdateClientPayload,
 } from './clients';
 export {
+  createTokenType,
+  deleteTokenType,
   isTokenTypeArray,
   isTokenTypeDto,
   listTokenTypes,
+  restoreTokenType,
+  updateTokenType,
 } from './tokenTypes';
-export type { TokenTypeDto } from './tokenTypes';
+export type {
+  CreateTokenTypePayload,
+  TokenTypeDto,
+  UpdateTokenTypePayload,
+} from './tokenTypes';
 export {
   assignRoleToUser,
   createUser,

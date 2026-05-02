@@ -92,6 +92,7 @@ export { LiveRegion } from './LiveRegion';
 export { PaginationFooter } from './PaginationFooter';
 export { RefetchOverlay } from './RefetchOverlay';
 export { RoleCardHeader, type RoleCardHeaderProps } from './RoleCardHeader';
+export { SoftDeleteRestoreButtons } from './SoftDeleteRestoreButtons';
 export { StatusBadge } from './StatusBadge';
 export {
   useListingEmptyContent,
