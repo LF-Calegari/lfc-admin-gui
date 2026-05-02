@@ -1,25 +1,40 @@
-import { Mail, Plus, Trash2 } from 'lucide-react';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+// Issue #146 — aba "Emails extras" do `ClientEditPage`. Espelha o
+// pattern de `ClientPhonesTab` (#147) reusando os componentes/hooks
+// compartilhados em `clientCollection*` para deduplicar a estrutura.
+import { Mail, Plus } from 'lucide-react';
+import React, { useCallback, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
-import styled from 'styled-components';
 
 import {
   Alert,
   Button,
   Icon,
-  Input,
-  Modal,
   useToast,
 } from '../../components/ui';
 import {
   addClientExtraEmail,
-  getClientById,
   MAX_CLIENT_EXTRA_EMAILS,
   removeClientExtraEmail,
 } from '../../shared/api';
 import { useAuth } from '../../shared/auth';
 import { ErrorRetryBlock, InitialLoadingSpinner } from '../../shared/listing';
 
+// Componentes shared das abas de coleção (extraídos em #147 para
+// reuso entre #146 e #147 — lição PR #128/#134/#135).
+import { ClientCollectionAddInputModal } from './ClientCollectionAddInputModal';
+import { ClientCollectionListRow } from './ClientCollectionListRow';
+import { ClientCollectionRemoveConfirmModal } from './ClientCollectionRemoveConfirmModal';
+import {
+  Counter,
+  EmptyHint,
+  EmptyShell,
+  EmptyTitle,
+  ListContainer,
+  ListHeader,
+  TabHeading,
+  TabIntro,
+  TabSection,
+} from './clientCollectionTabStyles';
 import {
   classifyAddExtraEmailError,
   classifyRemoveExtraEmailError,
@@ -27,8 +42,13 @@ import {
   validateExtraEmailInput,
   type ExtraEmailErrorCopy,
 } from './clientExtraEmailsHelpers';
+import { useClientAddCollectionModal } from './useClientAddCollectionModal';
+import { useClientByIdFetch } from './useClientByIdFetch';
+import { useClientCollectionAddSubmit } from './useClientCollectionAddSubmit';
+import { useClientCollectionRemoveSubmit } from './useClientCollectionRemoveSubmit';
+import { useClientRemoveCollectionConfirm } from './useClientRemoveCollectionConfirm';
 
-import type { ApiClient, ClientDto, ClientEmailDto } from '../../shared/api';
+import type { ApiClient, ClientEmailDto } from '../../shared/api';
 
 /**
  * Code de permissão exigido para mutações no tab (Issue #146).
@@ -70,178 +90,13 @@ const REMOVE_ERROR_COPY: ExtraEmailErrorCopy = {
 const FETCH_ERROR_MESSAGE = 'Não foi possível carregar os dados do cliente.';
 
 /**
- * Container externo do conteúdo da aba — preserva o ar e o
- * espaçamento das outras abas (`ClientDataTab`).
+ * Estilos da aba são compartilhados em `clientCollectionTabStyles.ts`
+ * com `ClientPhonesTab` (Issue #147 — paridade com #146). Linha
+ * (`ListRow`/`ListContainer`/`ListRowLeft`/`ListRowValue`) e shell de
+ * empty state (`EmptyShell`/`EmptyTitle`/`EmptyHint`) ganham
+ * paridade visual entre as duas abas, e a confirmação de remoção
+ * usa o `ClientCollectionRemoveConfirmModal` compartilhado.
  */
-const TabSection = styled.section`
-  background: var(--bg-surface);
-  border: var(--border-thin) solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  padding: var(--space-6);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-`;
-
-const TabHeading = styled.h3`
-  font-family: var(--font-display);
-  font-size: var(--text-md);
-  font-weight: var(--weight-semibold);
-  color: var(--fg1);
-  margin: 0;
-  letter-spacing: var(--tracking-tight);
-`;
-
-const TabIntro = styled.p`
-  margin: 0;
-  color: var(--fg2);
-  font-size: var(--text-sm);
-  line-height: var(--leading-base);
-  max-width: 60ch;
-`;
-
-/**
- * Cabeçalho do bloco que combina contagem corrente + botão de ação.
- * Em viewports estreitas, empilha o botão sob o contador para
- * preservar o toque (touch target de 44px+).
- */
-const ListHeader = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-`;
-
-const Counter = styled.div`
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  letter-spacing: var(--tracking-wide);
-  text-transform: uppercase;
-  color: var(--fg3);
-`;
-
-/**
- * Lista visual dos emails extras. Cada `<EmailRow>` é uma linha com
- * o email à esquerda e o botão "Remover" à direita.
- */
-const EmailList = styled.ul`
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-`;
-
-const EmailRow = styled.li`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  background: var(--bg-elevated);
-  border: var(--border-thin) solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  transition:
-    border-color var(--duration-fast) var(--ease-default),
-    background var(--duration-fast) var(--ease-default);
-
-  &:hover {
-    border-color: var(--border-medium-forest);
-  }
-`;
-
-const EmailLeft = styled.div`
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  min-width: 0;
-  flex: 1;
-`;
-
-const EmailValue = styled.span`
-  font-family: var(--font-sans);
-  font-size: var(--text-sm);
-  color: var(--fg1);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-`;
-
-/**
- * Bloco de empty state com tom suave — espelha o padrão visual de
- * `AssignmentMatrixShell.AssignmentEmptyShell` (centralizado, com
- * ícone informativo e dica de próximo passo). Mantém-se inline (em
- * vez de reutilizar o shell) porque o shell de matrizes carrega
- * estrutura adicional que não se encaixa aqui.
- */
-const EmptyShell = styled.div`
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
-  padding: var(--space-8) var(--space-4);
-  background: var(--bg-elevated);
-  border: var(--border-thin) dashed var(--border-subtle);
-  border-radius: var(--radius-lg);
-  color: var(--fg3);
-`;
-
-const EmptyTitle = styled.span`
-  font-family: var(--font-sans);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-medium);
-  color: var(--fg2);
-`;
-
-const EmptyHint = styled.span`
-  font-family: var(--font-sans);
-  font-size: var(--text-xs);
-  color: var(--fg3);
-  text-align: center;
-  max-width: 40ch;
-`;
-
-/**
- * Form do modal de adicionar — `<form>` para que `Enter` no input
- * dispare o submit e que leitores de tela identifiquem o agrupamento
- * de campos.
- */
-const ModalForm = styled.form`
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-`;
-
-const ModalActions = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-3);
-`;
-
-const ConfirmBody = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-`;
-
-const ConfirmText = styled.p`
-  font-size: var(--text-sm);
-  color: var(--fg2);
-  line-height: var(--leading-snug);
-`;
-
-const Mono = styled.span`
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--fg1);
-  background: var(--bg-elevated);
-  padding: 0 var(--space-1);
-  border-radius: var(--radius-sm);
-`;
 
 interface ClientExtraEmailsTabProps {
   /**
@@ -251,40 +106,6 @@ interface ClientExtraEmailsTabProps {
    */
   client?: ApiClient;
 }
-
-/**
- * Estado do modal de adicionar email — mantém form controlado
- * (input value + erro inline) e flag `isSubmitting` independente
- * para que o spinner do botão não recicle a cada keystroke.
- */
-interface AddModalState {
-  open: boolean;
-  email: string;
-  inputError: string | null;
-  isSubmitting: boolean;
-}
-
-const INITIAL_ADD_MODAL_STATE: AddModalState = {
-  open: false,
-  email: '',
-  inputError: null,
-  isSubmitting: false,
-};
-
-/**
- * Estado do modal de confirmação de remoção. `target` é `null`
- * quando o modal está fechado — caller controla `open` via
- * `target !== null`.
- */
-interface RemoveConfirmState {
-  target: ClientEmailDto | null;
-  isSubmitting: boolean;
-}
-
-const INITIAL_REMOVE_CONFIRM_STATE: RemoveConfirmState = {
-  target: null,
-  isSubmitting: false,
-};
 
 /**
  * Aba "Emails extras" do `ClientEditPage` (Issue #146).
@@ -345,71 +166,25 @@ export const ClientExtraEmailsTab: React.FC<ClientExtraEmailsTabProps> = ({
   const canUpdate = hasPermission(CLIENTS_UPDATE_PERMISSION);
 
   /**
-   * Estados do fetch inicial. Espelha o padrão do `ClientDataTab` —
-   * `loaded` guarda o cliente (para que o submit/remove leiam
-   * `extraEmails` direto do estado em vez de prop), `error` cai no
-   * `ErrorRetryBlock`.
+   * Fetch inicial encapsulado em hook compartilhado — o
+   * `useClientByIdFetch` cuida do `useEffect` + `AbortController` +
+   * `reloadCounter` que, em #146, vivia inline e foi promovido em
+   * #147 para reuso pelas duas abas (lição PR #128/#134/#135 —
+   * extrair quando o segundo consumidor real aparece).
    */
-  const [fetchState, setFetchState] = useState<'loading' | 'loaded' | 'error'>(
-    'loading',
+  const { fetchState, loadedClient, triggerRefetch } = useClientByIdFetch(
+    id,
+    client,
   );
-  const [loadedClient, setLoadedClient] = useState<ClientDto | null>(null);
 
   /**
-   * Reload key — incrementar dispara refetch do `useEffect`. Usado
-   * pelo `ErrorRetryBlock` (botão "Tentar novamente"), por sucesso
-   * de mutação (sincroniza lista) e por erros que indicam que o
-   * estado do servidor divergiu (404, "Limite atingido").
+   * Hooks compartilhados encapsulam o `useState` + handlers do modal
+   * de adicionar e do confirm de remoção. Lição PR #128/#134/#135 —
+   * extraído quando o segundo consumidor (#146 + #147) apareceu para
+   * evitar duplicação no JSCPD/Sonar.
    */
-  const [reloadCounter, setReloadCounter] = useState<number>(0);
-
-  const [addModal, setAddModal] = useState<AddModalState>(
-    INITIAL_ADD_MODAL_STATE,
-  );
-  const [removeConfirm, setRemoveConfirm] = useState<RemoveConfirmState>(
-    INITIAL_REMOVE_CONFIRM_STATE,
-  );
-
-  useEffect(() => {
-    if (id === undefined || id.length === 0) {
-      setFetchState('error');
-      return;
-    }
-
-    const controller = new AbortController();
-    let isCancelled = false;
-
-    setFetchState('loading');
-
-    getClientById(id, { signal: controller.signal }, client)
-      .then((dto) => {
-        if (isCancelled) return;
-        setLoadedClient(dto);
-        setFetchState('loaded');
-      })
-      .catch((error: unknown) => {
-        if (isCancelled) return;
-        // Cancelamento explícito (unmount/route change) não vira
-        // erro de UI — silencia para que o próximo render comece
-        // limpo.
-        if (
-          error instanceof DOMException &&
-          error.name === 'AbortError'
-        ) {
-          return;
-        }
-        setFetchState('error');
-      });
-
-    return () => {
-      isCancelled = true;
-      controller.abort();
-    };
-  }, [id, client, reloadCounter]);
-
-  const triggerRefetch = useCallback(() => {
-    setReloadCounter((prev) => prev + 1);
-  }, []);
+  const addModal = useClientAddCollectionModal();
+  const removeConfirm = useClientRemoveCollectionConfirm<ClientEmailDto>();
 
   const handleRetry = useCallback(() => {
     triggerRefetch();
@@ -423,200 +198,73 @@ export const ClientExtraEmailsTab: React.FC<ClientExtraEmailsTabProps> = ({
 
   /* ─── Add modal handlers ──────────────────────────────── */
 
-  const handleOpenAddModal = useCallback(() => {
-    if (isLimitReached) return;
-    setAddModal({
-      open: true,
-      email: '',
-      inputError: null,
-      isSubmitting: false,
+  const { handleOpen: handleOpenAddModal, handleSubmit: handleSubmitAdd } =
+    addModal.buildHandlers({
+      isLimitReached,
+      isReady: loadedClient !== null,
+      validate: validateExtraEmailInput,
     });
-  }, [isLimitReached]);
-
-  const handleCloseAddModal = useCallback(() => {
-    setAddModal((prev) =>
-      prev.isSubmitting ? prev : INITIAL_ADD_MODAL_STATE,
-    );
-  }, []);
-
-  const handleEmailChange = useCallback((value: string) => {
-    setAddModal((prev) => ({
-      ...prev,
-      email: value,
-      // Limpa o erro no primeiro keystroke após erro — feedback
-      // mais leve que "permanecer marcado vermelho até resubmit".
-      inputError: null,
-    }));
-  }, []);
-
-  const handleSubmitAdd = useCallback(
-    async (event?: React.FormEvent<HTMLFormElement>) => {
-      event?.preventDefault();
-      setAddModal((prev) => {
-        if (prev.isSubmitting || loadedClient === null) return prev;
-        const trimmed = prev.email.trim();
-        const inputError = validateExtraEmailInput(trimmed);
-        if (inputError !== null) {
-          return { ...prev, inputError };
-        }
-        return { ...prev, inputError: null, isSubmitting: true };
-      });
-    },
-    [loadedClient],
-  );
 
   /**
-   * Effect que dispara a chamada HTTP quando `isSubmitting` vira
-   * `true` no estado do modal. Separamos o gate (validação +
-   * `setIsSubmitting`) do effect para que o `setState` não fique
-   * preso a uma mesma referência de `prev.email` com closure stale
-   * — o effect lê o valor mais recente via dependency em
-   * `addModal.isSubmitting`.
+   * Effect que dispara a chamada HTTP quando o modal sinaliza
+   * `isSubmitting=true`. Encapsulado em `useClientCollectionAddSubmit`
+   * compartilhado com `ClientPhonesTab` (#147) — lição PR
+   * #128/#134/#135.
    */
-  useEffect(() => {
-    if (!addModal.isSubmitting || loadedClient === null) return;
-    let isCancelled = false;
-    const controller = new AbortController();
-
-    addClientExtraEmail(
-      loadedClient.id,
-      addModal.email.trim(),
-      { signal: controller.signal },
-      client,
-    )
-      .then(() => {
-        if (isCancelled) return;
-        show('Email extra adicionado.', { variant: 'success' });
-        setAddModal(INITIAL_ADD_MODAL_STATE);
-        triggerRefetch();
-      })
-      .catch((error: unknown) => {
-        if (isCancelled) return;
-        if (
-          error instanceof DOMException &&
-          error.name === 'AbortError'
-        ) {
-          return;
-        }
-        const action = classifyAddExtraEmailError(error, ADD_ERROR_COPY);
-        switch (action.kind) {
-          case 'inline':
-            setAddModal((prev) => ({
-              ...prev,
-              inputError: action.message,
-              isSubmitting: false,
-            }));
-            break;
-          case 'limit-reached':
-            setAddModal((prev) => ({
-              ...prev,
-              inputError: action.message,
-              isSubmitting: false,
-            }));
-            triggerRefetch();
-            break;
-          case 'not-found':
-            show(action.message, {
-              variant: 'danger',
-              title: action.title,
-            });
-            setAddModal(INITIAL_ADD_MODAL_STATE);
-            triggerRefetch();
-            break;
-          case 'toast':
-            show(action.message, {
-              variant: 'danger',
-              title: action.title,
-            });
-            setAddModal((prev) => ({ ...prev, isSubmitting: false }));
-            break;
-          case 'unhandled':
-            show(action.message, {
-              variant: 'danger',
-              title: action.title,
-            });
-            setAddModal((prev) => ({ ...prev, isSubmitting: false }));
-            break;
-        }
-      });
-
-    return () => {
-      isCancelled = true;
-      controller.abort();
-    };
-    // `addModal.email` capturado no instante em que `isSubmitting`
-    // virou `true`; subsequentes keystrokes não disparam novo
-    // submit (`isSubmitting=true` só vira `false` ao terminar).
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addModal.isSubmitting, loadedClient, client, show, triggerRefetch]);
+  useClientCollectionAddSubmit({
+    isSubmitting: addModal.state.isSubmitting,
+    value: addModal.state.value,
+    clientId: loadedClient?.id ?? null,
+    client,
+    addFn: addClientExtraEmail,
+    classifyError: classifyAddExtraEmailError,
+    copy: ADD_ERROR_COPY,
+    successToast: 'Email extra adicionado.',
+    modal: addModal,
+    show,
+    triggerRefetch,
+  });
 
   /* ─── Remove confirm handlers ─────────────────────────── */
 
-  const handleOpenRemoveConfirm = useCallback((emailDto: ClientEmailDto) => {
-    setRemoveConfirm({ target: emailDto, isSubmitting: false });
-  }, []);
-
-  const handleCloseRemoveConfirm = useCallback(() => {
-    setRemoveConfirm((prev) =>
-      prev.isSubmitting ? prev : INITIAL_REMOVE_CONFIRM_STATE,
-    );
-  }, []);
+  const { submit: submitRemove } = useClientCollectionRemoveSubmit({
+    client,
+    removeFn: removeClientExtraEmail,
+    classifyError: classifyRemoveExtraEmailError,
+    copy: REMOVE_ERROR_COPY,
+    successToast: 'Email extra removido.',
+    confirm: removeConfirm,
+    show,
+    triggerRefetch,
+  });
 
   const handleConfirmRemove = useCallback(async () => {
     if (
-      removeConfirm.isSubmitting ||
-      removeConfirm.target === null ||
+      removeConfirm.state.isSubmitting ||
+      removeConfirm.state.target === null ||
       loadedClient === null
     ) {
       return;
     }
-    const target = removeConfirm.target;
-    setRemoveConfirm((prev) => ({ ...prev, isSubmitting: true }));
-    try {
-      await removeClientExtraEmail(
-        loadedClient.id,
-        target.id,
-        undefined,
-        client,
-      );
-      show('Email extra removido.', { variant: 'success' });
-      setRemoveConfirm(INITIAL_REMOVE_CONFIRM_STATE);
-      triggerRefetch();
-    } catch (error: unknown) {
-      const action = classifyRemoveExtraEmailError(error, REMOVE_ERROR_COPY);
-      switch (action.kind) {
-        case 'username':
+    // O classifier do email tem um caso `username` (400 orientadora)
+    // que não existe no de phones — interceptamos aqui para que o
+    // hook compartilhado trate apenas o subset comum.
+    await submitRemove(
+      loadedClient.id,
+      removeConfirm.state.target.id,
+      (action) => {
+        if (action.kind === 'username') {
           show(action.message, {
             variant: 'danger',
             title: action.title,
           });
-          setRemoveConfirm((prev) => ({ ...prev, isSubmitting: false }));
-          break;
-        case 'not-found':
-          show(action.message, {
-            variant: 'danger',
-            title: action.title,
-          });
-          setRemoveConfirm(INITIAL_REMOVE_CONFIRM_STATE);
-          triggerRefetch();
-          break;
-        case 'toast':
-          show(action.message, {
-            variant: 'danger',
-            title: action.title,
-          });
-          setRemoveConfirm((prev) => ({ ...prev, isSubmitting: false }));
-          break;
-        case 'unhandled':
-          show(action.message, {
-            variant: 'danger',
-            title: action.title,
-          });
-          setRemoveConfirm((prev) => ({ ...prev, isSubmitting: false }));
-          break;
-      }
-    }
-  }, [client, loadedClient, removeConfirm, show, triggerRefetch]);
+          removeConfirm.stopSubmitting();
+          return true;
+        }
+        return false;
+      },
+    );
+  }, [loadedClient, removeConfirm, show, submitRemove]);
 
   /* ─── Render ──────────────────────────────────────────── */
 
@@ -685,122 +333,51 @@ export const ClientExtraEmailsTab: React.FC<ClientExtraEmailsTabProps> = ({
             </EmptyHint>
           </EmptyShell>
         ) : (
-          <EmailList aria-label="Emails extras do cliente">
+          <ListContainer aria-label="Emails extras do cliente">
             {extraEmails.map((emailDto) => (
-              <EmailRow
+              <ClientCollectionListRow
                 key={emailDto.id}
-                data-testid={`client-extra-emails-row-${emailDto.id}`}
-              >
-                <EmailLeft>
-                  <Icon icon={Mail} size="sm" tone="muted" />
-                  <EmailValue title={emailDto.email}>{emailDto.email}</EmailValue>
-                </EmailLeft>
-                {canUpdate && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    icon={<Trash2 size={14} strokeWidth={1.75} aria-hidden="true" />}
-                    onClick={() => handleOpenRemoveConfirm(emailDto)}
-                    aria-label={`Remover email ${emailDto.email}`}
-                    data-testid={`client-extra-emails-remove-${emailDto.id}`}
-                  >
-                    Remover
-                  </Button>
-                )}
-              </EmailRow>
+                id={emailDto.id}
+                value={emailDto.email}
+                icon={Mail}
+                canRemove={canUpdate}
+                onRemove={() => removeConfirm.open(emailDto)}
+                removeAriaLabel={`Remover email ${emailDto.email}`}
+                testIdPrefix="client-extra-emails"
+              />
             ))}
-          </EmailList>
+          </ListContainer>
         )}
       </TabSection>
 
-      <Modal
-        open={addModal.open}
-        onClose={handleCloseAddModal}
+      <ClientCollectionAddInputModal
+        open={addModal.state.open}
+        onClose={addModal.close}
         title="Adicionar email extra"
         description="Informe o novo email a ser cadastrado para este cliente."
-        closeOnEsc={!addModal.isSubmitting}
-        closeOnBackdrop={!addModal.isSubmitting}
-      >
-        <ModalForm
-          onSubmit={handleSubmitAdd}
-          data-testid="client-extra-emails-add-form"
-        >
-          <Input
-            id="client-extra-emails-add-input"
-            label="Email"
-            type="email"
-            placeholder="ana@exemplo.com"
-            value={addModal.email}
-            onChange={handleEmailChange}
-            error={addModal.inputError ?? undefined}
-            disabled={addModal.isSubmitting}
-            maxLength={EXTRA_EMAIL_MAX}
-            autoComplete="email"
-            data-testid="client-extra-emails-add-email"
-          />
-          <ModalActions>
-            <Button
-              variant="ghost"
-              size="md"
-              type="button"
-              onClick={handleCloseAddModal}
-              disabled={addModal.isSubmitting}
-              data-testid="client-extra-emails-add-cancel"
-            >
-              Cancelar
-            </Button>
-            <Button
-              variant="primary"
-              size="md"
-              type="submit"
-              loading={addModal.isSubmitting}
-              data-testid="client-extra-emails-add-submit"
-            >
-              Adicionar
-            </Button>
-          </ModalActions>
-        </ModalForm>
-      </Modal>
+        inputLabel="Email"
+        placeholder="ana@exemplo.com"
+        inputType="email"
+        autoComplete="email"
+        maxLength={EXTRA_EMAIL_MAX}
+        value={addModal.state.value}
+        inputError={addModal.state.inputError}
+        isSubmitting={addModal.state.isSubmitting}
+        onChange={addModal.setValue}
+        onSubmit={handleSubmitAdd}
+        testIdPrefix="client-extra-emails"
+      />
 
-      <Modal
-        open={removeConfirm.target !== null}
-        onClose={handleCloseRemoveConfirm}
+      <ClientCollectionRemoveConfirmModal
         title="Remover email extra?"
-        closeOnEsc={!removeConfirm.isSubmitting}
-        closeOnBackdrop={!removeConfirm.isSubmitting}
-      >
-        {removeConfirm.target !== null && (
-          <ConfirmBody>
-            <ConfirmText data-testid="client-extra-emails-remove-description">
-              O email <Mono>{removeConfirm.target.email}</Mono> será
-              removido da lista de emails extras deste cliente. Essa
-              ação é imediata.
-            </ConfirmText>
-            <ModalActions>
-              <Button
-                variant="ghost"
-                size="md"
-                type="button"
-                onClick={handleCloseRemoveConfirm}
-                disabled={removeConfirm.isSubmitting}
-                data-testid="client-extra-emails-remove-cancel"
-              >
-                Cancelar
-              </Button>
-              <Button
-                variant="danger"
-                size="md"
-                type="button"
-                onClick={handleConfirmRemove}
-                loading={removeConfirm.isSubmitting}
-                data-testid="client-extra-emails-remove-confirm"
-              >
-                Remover
-              </Button>
-            </ModalActions>
-          </ConfirmBody>
-        )}
-      </Modal>
+        prefix="O email"
+        descriptionSuffix="será removido da lista de emails extras deste cliente. Essa ação é imediata."
+        target={removeConfirm.state.target?.email ?? null}
+        isSubmitting={removeConfirm.state.isSubmitting}
+        onClose={removeConfirm.close}
+        onConfirm={handleConfirmRemove}
+        testIdPrefix="client-extra-emails"
+      />
     </>
   );
 };

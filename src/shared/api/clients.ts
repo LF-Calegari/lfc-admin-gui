@@ -837,6 +837,169 @@ export async function addClientExtraEmail(
 }
 
 /**
+ * Limite máximo de telefones (celular **ou** fixo) por cliente —
+ * espelha a regra `if (count >= 3)` do
+ * `ClientsController.AddPhoneInternal` no `lfc-authenticator`. O backend
+ * valida a regra **por tipo** (3 celulares + 3 fixos por cliente),
+ * então este teto é compartilhado pelas duas abas (mobiles/landlines)
+ * — `ClientPhonesTab` injeta o tipo e o limite vale isoladamente em
+ * cada lista. Centralizar evita literais mágicos e mantém a UI alinhada
+ * com a fonte da verdade do backend (lição PR #128 — projetar shared
+ * helpers desde o primeiro PR do recurso).
+ */
+export const MAX_CLIENT_PHONES_PER_TYPE = 3;
+
+/**
+ * Adiciona um celular ao cliente via `POST /clients/{id}/mobiles`
+ * (Issue #147).
+ *
+ * Retorna o `ClientPhoneDto` recém-criado (`200 OK` com
+ * `ClientPhoneResponse` no corpo). Lança `ApiError` em qualquer
+ * falha — caller tipicamente trata:
+ *
+ * - `kind: 'http'` com `status === 400` →
+ *   - `"Telefone inválido. Use o formato internacional com DDI e
+ *     DDD, ex.: +5518981789845."` quando o backend rejeita o formato
+ *     E.164. A UI já valida client-side com a mesma regex, então
+ *     este caso é defensivo.
+ *   - `"Limite de 3 celulares por cliente."` quando o cliente já tem
+ *     o teto. UI desabilita o botão "Adicionar" preventivamente
+ *     (`MAX_CLIENT_PHONES_PER_TYPE`); o branch fica defensivo para
+ *     race entre abertura do form e submit por outra sessão.
+ * - `kind: 'http'` com `status === 409` →
+ *   `"Contato já cadastrado para este cliente."` quando o número já
+ *   existe na lista deste cliente para o mesmo tipo. Mensagem inline.
+ * - `kind: 'http'` com `status === 404` → cliente não encontrado
+ *   (soft-deletado entre carregamento da página e submit). UI dispara
+ *   toast vermelho e força refetch.
+ * - `kind: 'http'` com `status === 401`/`403` → toast vermelho com
+ *   mensagem do backend (cliente HTTP cuida do redirect 401).
+ * - Demais → toast vermelho com mensagem genérica.
+ *
+ * O backend **trima** o número no servidor (`Number.Trim()`); a UI
+ * envia já trimado para que asserts em testes consumam o literal sem
+ * espaços e o feedback visual coincida com o que o servidor persistiu.
+ *
+ * O parâmetro `client` é injetável para isolar testes (passa-se um
+ * stub tipado como `ApiClient`); em produção usa-se o singleton
+ * `apiClient`.
+ */
+export async function addClientMobilePhone(
+  clientId: string,
+  number: string,
+  options?: BodyRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<ClientPhoneDto> {
+  const data = await client.post<unknown>(
+    `/clients/${clientId}/mobiles`,
+    { number },
+    options,
+  );
+  if (!isClientPhoneDto(data)) {
+    throw makeParseError();
+  }
+  return data;
+}
+
+/**
+ * Remove um celular do cliente via
+ * `DELETE /clients/{id}/mobiles/{phoneId}` (Issue #147).
+ *
+ * Retorna `void` (`204 No Content`). Lança `ApiError` em qualquer
+ * falha — caller tipicamente trata:
+ *
+ * - `kind: 'http'` com `status === 404` → contato não pertence ao
+ *   cliente (id já removido por outra sessão entre abertura e submit,
+ *   ou tipo divergente). UI dispara toast vermelho e força refetch
+ *   para sincronizar a lista.
+ * - `kind: 'http'` com `status === 401`/`403` → toast vermelho com
+ *   mensagem do backend.
+ * - Demais → toast vermelho com mensagem genérica.
+ *
+ * O parâmetro `client` é injetável para isolar testes (passa-se um
+ * stub tipado como `ApiClient`); em produção usa-se o singleton
+ * `apiClient`.
+ */
+export async function removeClientMobilePhone(
+  clientId: string,
+  phoneId: string,
+  options?: SafeRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<void> {
+  await client.delete<void>(
+    `/clients/${clientId}/mobiles/${phoneId}`,
+    options,
+  );
+}
+
+/**
+ * Adiciona um telefone fixo ao cliente via `POST /clients/{id}/phones`
+ * (Issue #147).
+ *
+ * Espelha exatamente o contrato de `addClientMobilePhone` — o backend
+ * usa o mesmo `AddPhoneRequest` (`{ number }`) e dispara o mesmo
+ * `AddPhoneInternal`, divergindo apenas no `Type` (mobile vs landline)
+ * registrado no banco e na mensagem de limite (`"Limite de 3 telefones
+ * por cliente."` em vez de `celulares`). Manter wrappers separados em
+ * vez de parametrizar pelo tipo torna o call site mais legível
+ * (`addClientLandlinePhone` deixa explícito o que está sendo feito) e
+ * evita acoplar todos os call sites a uma string literal "mobile" /
+ * "phone" que poderia variar com o backend.
+ *
+ * Tratamento de erros idêntico ao `addClientMobilePhone`. Ver doc
+ * naquele helper para detalhes; aqui resumimos:
+ *
+ * - 400 `"Telefone inválido..."` ou `"Limite de 3 telefones por
+ *   cliente."` (defensivo).
+ * - 409 `"Contato já cadastrado para este cliente."`.
+ * - 404 cliente removido.
+ * - 401/403 sessão/permissão.
+ *
+ * O parâmetro `client` é injetável para isolar testes; em produção
+ * usa-se o singleton `apiClient`.
+ */
+export async function addClientLandlinePhone(
+  clientId: string,
+  number: string,
+  options?: BodyRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<ClientPhoneDto> {
+  const data = await client.post<unknown>(
+    `/clients/${clientId}/phones`,
+    { number },
+    options,
+  );
+  if (!isClientPhoneDto(data)) {
+    throw makeParseError();
+  }
+  return data;
+}
+
+/**
+ * Remove um telefone fixo do cliente via
+ * `DELETE /clients/{id}/phones/{phoneId}` (Issue #147).
+ *
+ * Espelha exatamente o contrato de `removeClientMobilePhone` — o
+ * backend usa o mesmo `RemovePhoneInternal`, divergindo apenas no
+ * filtro `Type` aplicado ao buscar o registro. Tratamento de erros
+ * idêntico.
+ *
+ * O parâmetro `client` é injetável para isolar testes; em produção
+ * usa-se o singleton `apiClient`.
+ */
+export async function removeClientLandlinePhone(
+  clientId: string,
+  phoneId: string,
+  options?: SafeRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<void> {
+  await client.delete<void>(
+    `/clients/${clientId}/phones/${phoneId}`,
+    options,
+  );
+}
+
+/**
  * Remove um email extra de um cliente via
  * `DELETE /clients/{id}/emails/{emailId}` (Issue #146).
  *

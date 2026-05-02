@@ -7,6 +7,7 @@ import type {
   ApiError,
   ClientDto,
   ClientEmailDto,
+  ClientPhoneDto,
   PagedResponse,
 } from '@/shared/api';
 
@@ -657,6 +658,52 @@ export async function submitAddExtraEmailForm(
 ): Promise<void> {
   await act(async () => {
     fireEvent.submit(screen.getByTestId('client-extra-emails-add-form'));
+    await Promise.resolve();
+  });
+  await waitFor(() => expect(client.post).toHaveBeenCalledTimes(expectedPostCalls));
+}
+
+/* ─── Helpers de fluxo do `ClientPhonesTab` (Issue #147) ── */
+
+/**
+ * Constrói um `ClientPhoneDto` com defaults — testes só sobrescrevem o
+ * que importa para o cenário sem repetir todos os campos do contrato.
+ *
+ * O `id` default é um UUID sintético claramente identificável; cenários
+ * que precisem de ids estáveis para asserts reusam essa fixture
+ * passando o `id` próprio. O `number` default é E.164 válido brasileiro
+ * (espelha o exemplo da mensagem do backend `+5518981789845`) para
+ * evitar test data que casualmente inválida a regex E.164 e mascararia
+ * cenários reais.
+ */
+export function makeClientPhone(overrides: Partial<ClientPhoneDto> = {}): ClientPhoneDto {
+  return {
+    id: 'p0000000-0000-0000-0000-000000000001',
+    number: '+5518981789845',
+    createdAt: '2026-02-15T12:00:00Z',
+    ...overrides,
+  };
+}
+
+/**
+ * Submete o form do modal de adicionar telefone (mobile ou landline)
+ * no `ClientPhonesTab` e aguarda o `client.post` ser chamado pelo menos
+ * `expectedPostCalls` vezes (default `1`). Faz `act(async)` para
+ * flushar a microtask do submit antes do `waitFor`. Espelha
+ * `submitAddExtraEmailForm` para o caminho do modal de adicionar
+ * telefone.
+ *
+ * O `testIdPrefix` (`client-mobile-phones` ou `client-landline-phones`)
+ * é injetado pelo caller para evitar que a suíte tenha que duplicar a
+ * lógica de submit por aba — um único helper cobre as duas variantes.
+ */
+export async function submitAddPhoneForm(
+  client: ApiClientStub,
+  testIdPrefix: string,
+  expectedPostCalls = 1,
+): Promise<void> {
+  await act(async () => {
+    fireEvent.submit(screen.getByTestId(`${testIdPrefix}-add-form`));
     await Promise.resolve();
   });
   await waitFor(() => expect(client.post).toHaveBeenCalledTimes(expectedPostCalls));

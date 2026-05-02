@@ -4,6 +4,8 @@ import type { ApiClient, ClientDto, PagedResponse } from '@/shared/api';
 
 import {
   addClientExtraEmail,
+  addClientLandlinePhone,
+  addClientMobilePhone,
   clientDisplayName,
   createClient,
   DEFAULT_CLIENTS_PAGE_SIZE,
@@ -14,6 +16,8 @@ import {
   isPagedClientsResponse,
   listClients,
   removeClientExtraEmail,
+  removeClientLandlinePhone,
+  removeClientMobilePhone,
   restoreClient,
   updateClient,
 } from '@/shared/api';
@@ -1318,3 +1322,283 @@ describe('removeClientExtraEmail (Issue #146)', () => {
     ).rejects.toBe(forbidden);
   });
 });
+
+/* ─── add(Mobile|Landline)Phone — Issue #147 ─────────────── */
+
+/**
+ * Helper interno parametrizado por endpoint para colapsar a suíte
+ * idêntica entre `addClientMobilePhone` e `addClientLandlinePhone`.
+ *
+ * As duas funções compartilham 100% do contrato (mesmo body, mesmo
+ * type guard, mesmos `ApiError` propagados) — o backend dispara
+ * `AddPhoneInternal` único, divergindo apenas no `Type` registrado e
+ * na string da mensagem de limite. Manter um único helper de teste
+ * parametrizado evita duplicação Sonar (lição PR #128/#134/#135).
+ */
+function buildAddPhoneTests(
+  label: string,
+  fn: typeof addClientMobilePhone | typeof addClientLandlinePhone,
+  endpoint: string,
+  limitMessage: string,
+): void {
+  describe(`${label} (Issue #147)`, () => {
+    const PHONE_ID = 'p0000000-0000-0000-0000-000000000001';
+
+    function makeRawPhone(
+      overrides: Partial<{ id: string; number: string; createdAt: string }> = {},
+    ): { id: string; number: string; createdAt: string } {
+      return {
+        id: PHONE_ID,
+        number: '+5518981789845',
+        createdAt: '2026-02-15T12:00:00Z',
+        ...overrides,
+      };
+    }
+
+    it(`faz POST ${endpoint} com body { number } e devolve ClientPhoneDto`, async () => {
+      const client = makeClientStub();
+      const created = makeRawPhone();
+      client.post.mockResolvedValueOnce(created);
+
+      const result = await fn(
+        CLIENT_PF_ID,
+        '+5518981789845',
+        undefined,
+        client as unknown as ApiClient,
+      );
+
+      expect(client.post).toHaveBeenCalledTimes(1);
+      expect(client.post.mock.calls[0][0]).toBe(endpoint);
+      expect(client.post.mock.calls[0][1]).toEqual({
+        number: '+5518981789845',
+      });
+      expect(result).toEqual(created);
+    });
+
+    it('propaga signal via options', async () => {
+      const client = makeClientStub();
+      client.post.mockResolvedValueOnce(makeRawPhone());
+      const controller = new AbortController();
+
+      await fn(
+        CLIENT_PF_ID,
+        '+5518981789845',
+        { signal: controller.signal },
+        client as unknown as ApiClient,
+      );
+
+      expect(client.post.mock.calls[0][2]).toEqual({
+        signal: controller.signal,
+      });
+    });
+
+    it('lança ApiError(parse) quando o backend devolve payload inválido', async () => {
+      const client = makeClientStub();
+      client.post.mockResolvedValueOnce({ malformed: true });
+
+      await expect(
+        fn(
+          CLIENT_PF_ID,
+          '+5518981789845',
+          undefined,
+          client as unknown as ApiClient,
+        ),
+      ).rejects.toMatchObject({
+        kind: 'parse',
+        message: 'Resposta inválida do servidor.',
+      });
+    });
+
+    it('propaga ApiError 400 do backend (limite atingido)', async () => {
+      const client = makeClientStub();
+      const limit = {
+        kind: 'http' as const,
+        status: 400,
+        message: limitMessage,
+      };
+      client.post.mockRejectedValueOnce(limit);
+
+      await expect(
+        fn(
+          CLIENT_PF_ID,
+          '+5518981789845',
+          undefined,
+          client as unknown as ApiClient,
+        ),
+      ).rejects.toBe(limit);
+    });
+
+    it('propaga ApiError 400 do backend (telefone inválido)', async () => {
+      const client = makeClientStub();
+      const invalid = {
+        kind: 'http' as const,
+        status: 400,
+        message:
+          'Telefone inválido. Use o formato internacional com DDI e DDD, ex.: +5518981789845.',
+      };
+      client.post.mockRejectedValueOnce(invalid);
+
+      await expect(
+        fn(
+          CLIENT_PF_ID,
+          '+5518981789845',
+          undefined,
+          client as unknown as ApiClient,
+        ),
+      ).rejects.toBe(invalid);
+    });
+
+    it('propaga ApiError 409 do backend (telefone duplicado)', async () => {
+      const client = makeClientStub();
+      const conflict = {
+        kind: 'http' as const,
+        status: 409,
+        message: 'Contato já cadastrado para este cliente.',
+      };
+      client.post.mockRejectedValueOnce(conflict);
+
+      await expect(
+        fn(
+          CLIENT_PF_ID,
+          '+5518981789845',
+          undefined,
+          client as unknown as ApiClient,
+        ),
+      ).rejects.toBe(conflict);
+    });
+
+    it('propaga ApiError 404 do backend (cliente removido)', async () => {
+      const client = makeClientStub();
+      const notFound = {
+        kind: 'http' as const,
+        status: 404,
+        message: 'Cliente não encontrado.',
+      };
+      client.post.mockRejectedValueOnce(notFound);
+
+      await expect(
+        fn(
+          CLIENT_PF_ID,
+          '+5518981789845',
+          undefined,
+          client as unknown as ApiClient,
+        ),
+      ).rejects.toBe(notFound);
+    });
+  });
+}
+
+buildAddPhoneTests(
+  'addClientMobilePhone',
+  addClientMobilePhone,
+  `/clients/${CLIENT_PF_ID}/mobiles`,
+  'Limite de 3 celulares por cliente.',
+);
+
+buildAddPhoneTests(
+  'addClientLandlinePhone',
+  addClientLandlinePhone,
+  `/clients/${CLIENT_PF_ID}/phones`,
+  'Limite de 3 telefones por cliente.',
+);
+
+/* ─── remove(Mobile|Landline)Phone — Issue #147 ──────────── */
+
+/**
+ * Helper interno parametrizado por endpoint para colapsar a suíte
+ * idêntica entre `removeClientMobilePhone` e `removeClientLandlinePhone`.
+ * Mesma motivação de `buildAddPhoneTests` — o backend reusa
+ * `RemovePhoneInternal`.
+ */
+function buildRemovePhoneTests(
+  label: string,
+  fn: typeof removeClientMobilePhone | typeof removeClientLandlinePhone,
+  endpoint: string,
+): void {
+  describe(`${label} (Issue #147)`, () => {
+    const PHONE_ID = 'p0000000-0000-0000-0000-000000000001';
+
+    it(`faz DELETE ${endpoint} sem corpo e resolve void`, async () => {
+      const client = makeClientStub();
+      client.delete.mockResolvedValueOnce(undefined);
+
+      const result = await fn(
+        CLIENT_PF_ID,
+        PHONE_ID,
+        undefined,
+        client as unknown as ApiClient,
+      );
+
+      expect(client.delete).toHaveBeenCalledTimes(1);
+      expect(client.delete.mock.calls[0][0]).toBe(endpoint);
+      expect(result).toBeUndefined();
+    });
+
+    it('propaga signal via options', async () => {
+      const client = makeClientStub();
+      client.delete.mockResolvedValueOnce(undefined);
+      const controller = new AbortController();
+
+      await fn(
+        CLIENT_PF_ID,
+        PHONE_ID,
+        { signal: controller.signal },
+        client as unknown as ApiClient,
+      );
+
+      expect(client.delete.mock.calls[0][1]).toEqual({
+        signal: controller.signal,
+      });
+    });
+
+    it('propaga ApiError 404 do backend (telefone não pertence ao cliente)', async () => {
+      const client = makeClientStub();
+      const notFound = {
+        kind: 'http' as const,
+        status: 404,
+        message: 'Contato não encontrado para este cliente.',
+      };
+      client.delete.mockRejectedValueOnce(notFound);
+
+      await expect(
+        fn(
+          CLIENT_PF_ID,
+          PHONE_ID,
+          undefined,
+          client as unknown as ApiClient,
+        ),
+      ).rejects.toBe(notFound);
+    });
+
+    it('propaga ApiError 401/403 do backend (sessão/permissão)', async () => {
+      const client = makeClientStub();
+      const forbidden = {
+        kind: 'http' as const,
+        status: 403,
+        message: 'Você não tem permissão para esta ação.',
+      };
+      client.delete.mockRejectedValueOnce(forbidden);
+
+      await expect(
+        fn(
+          CLIENT_PF_ID,
+          PHONE_ID,
+          undefined,
+          client as unknown as ApiClient,
+        ),
+      ).rejects.toBe(forbidden);
+    });
+  });
+}
+
+buildRemovePhoneTests(
+  'removeClientMobilePhone',
+  removeClientMobilePhone,
+  `/clients/${CLIENT_PF_ID}/mobiles/p0000000-0000-0000-0000-000000000001`,
+);
+
+buildRemovePhoneTests(
+  'removeClientLandlinePhone',
+  removeClientLandlinePhone,
+  `/clients/${CLIENT_PF_ID}/phones/p0000000-0000-0000-0000-000000000001`,
+);

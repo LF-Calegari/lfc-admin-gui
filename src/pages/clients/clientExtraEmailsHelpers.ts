@@ -1,5 +1,12 @@
 import { isApiError } from '../../shared/api';
-import { isValidEmailSyntax } from '../../shared/forms';
+import {
+  classifyAddCollectionApiError,
+  classifySharedHttpError,
+  isValidEmailSyntax,
+  unhandledHttpAction,
+  type AddCollectionApiAction,
+  type SharedHttpErrorCopy,
+} from '../../shared/forms';
 
 /**
  * Helpers compartilhados pelo `ClientExtraEmailsTab` (Issue #146).
@@ -66,27 +73,19 @@ export function validateExtraEmailInput(raw: string): string | null {
 }
 
 /**
- * Cópia textual injetada nos `classify*` desta camada. Mantém os
- * literais em pt-BR centralizados num único objeto — qualquer
- * ajuste de copy acontece em uma referência só.
+ * Cópia textual injetada nos `classify*` desta camada. Alias do
+ * `SharedHttpErrorCopy` em `src/shared/forms/` — manter o nome
+ * `ExtraEmailErrorCopy` no domínio de emails extras torna o call-site
+ * mais legível, mas o shape é idêntico para que o classifier
+ * compartilhado `classifySharedHttpError` consuma diretamente sem cast.
+ *
+ * Refator antecipatório (Issue #147 — paridade com #146): unificar o
+ * shape da copy entre as duas camadas (#146 e #147) abre caminho para
+ * um terceiro consumidor (futuras coleções de Cliente) reusar
+ * `classifySharedHttpError` sem refator destrutivo. Lição PR
+ * #128/#134/#135.
  */
-export interface ExtraEmailErrorCopy {
-  /**
-   * Mensagem genérica usada quando o erro não é classificável
-   * (`network`/`parse`/5xx). Exibida em toast vermelho.
-   */
-  genericFallback: string;
-  /**
-   * Título do toast vermelho exibido para 401/403/network/parse —
-   * dá hierarquia visual ao operador identificar o tipo do erro.
-   */
-  forbiddenTitle: string;
-  /**
-   * Mensagem específica para o 404 (recurso já removido entre
-   * abertura e submit). Exibida em toast vermelho + força refetch.
-   */
-  notFoundMessage: string;
-}
+export type ExtraEmailErrorCopy = SharedHttpErrorCopy;
 
 /**
  * Ação discriminada decorrente da classificação de erro do `add`.
@@ -103,81 +102,8 @@ export interface ExtraEmailErrorCopy {
  * - `unhandled` → fallback (network/parse/5xx). Toast vermelho com
  *   `genericFallback`.
  */
-export type AddExtraEmailErrorAction =
-  | { kind: 'inline'; message: string }
-  | { kind: 'limit-reached'; message: string }
-  | { kind: 'not-found'; message: string; title: string }
-  | { kind: 'toast'; message: string; title: string }
-  | { kind: 'unhandled'; message: string; title: string };
+export type AddExtraEmailErrorAction = AddCollectionApiAction;
 
-/**
- * Branch comum entre `classifyAddExtraEmailError` e
- * `classifyRemoveExtraEmailError` — encapsula os casos compartilhados
- * (não-HTTP, 404, 401/403, fallback) num único helper para que o
- * Sonar/JSCPD não tokenize ~15 linhas idênticas como duplicação
- * (lição PR #128/#134/#135 — bloco ≥10 linhas em 2+ funções vira
- * `New Code Duplication`).
- *
- * Retorna a ação compartilhada quando o caso é coberto, ou `null`
- * quando o status precisa de tratamento específico do call site (400/
- * 409 no `add`; 400 no `remove`). O caller decide o que fazer com o
- * `null` — tipicamente ramifica em casos próprios e cai no fallback
- * `unhandled` se nenhum bater.
- *
- * Mantemos retorno tipado como união ampla (`SharedExtraEmailAction`)
- * para que o caller faça `narrowing` no kind sem precisar
- * re-classificar — TypeScript infere o subset depois do `if`.
- */
-type SharedExtraEmailAction =
-  | { kind: 'not-found'; message: string; title: string }
-  | { kind: 'toast'; message: string; title: string }
-  | { kind: 'unhandled'; message: string; title: string };
-
-function classifySharedExtraEmailError(
-  error: unknown,
-  copy: ExtraEmailErrorCopy,
-): SharedExtraEmailAction | null {
-  if (!isApiError(error) || error.kind !== 'http') {
-    return {
-      kind: 'unhandled',
-      message: copy.genericFallback,
-      title: copy.forbiddenTitle,
-    };
-  }
-  if (error.status === 404) {
-    return {
-      kind: 'not-found',
-      message: copy.notFoundMessage,
-      title: copy.forbiddenTitle,
-    };
-  }
-  if (error.status === 401 || error.status === 403) {
-    return {
-      kind: 'toast',
-      message: error.message || copy.genericFallback,
-      title: copy.forbiddenTitle,
-    };
-  }
-  // 400/409 são specific-by-endpoint — caller resolve antes de cair
-  // no fallback comum.
-  return null;
-}
-
-/**
- * Fallback `unhandled` reusado pelo `add` e `remove` quando nenhum
- * caso específico cobre o erro. Centralizar evita que a estrutura
- * `{ kind: 'unhandled', message, title }` apareça duas vezes em cada
- * função e dispare detecção de duplicação no Sonar/JSCPD.
- */
-function unhandledExtraEmailAction(
-  copy: ExtraEmailErrorCopy,
-): SharedExtraEmailAction {
-  return {
-    kind: 'unhandled',
-    message: copy.genericFallback,
-    title: copy.forbiddenTitle,
-  };
-}
 
 /**
  * Classifica o erro do `addClientExtraEmail` em uma ação
@@ -207,31 +133,11 @@ export function classifyAddExtraEmailError(
   error: unknown,
   copy: ExtraEmailErrorCopy,
 ): AddExtraEmailErrorAction {
-  const shared = classifySharedExtraEmailError(error, copy);
-  if (shared !== null) {
-    return shared;
-  }
-  // `shared === null` significa que `error` é HTTP com `status` que
-  // exige decisão específica do `add` (400/409). Reabrimos o type
-  // guard para que TS saiba que `isApiError(error) === true` aqui
-  // (refinamento perdido no retorno do helper).
-  if (!isApiError(error) || error.kind !== 'http') {
-    return unhandledExtraEmailAction(copy);
-  }
-  if (error.status === 400) {
-    // Distinção pela mensagem do backend — `limit-reached` precisa
-    // disparar refetch (cliente foi tocado por outra sessão).
-    const message = error.message || copy.genericFallback;
-    if (message.toLowerCase().includes('limite')) {
-      return { kind: 'limit-reached', message };
-    }
-    return { kind: 'inline', message };
-  }
-  if (error.status === 409) {
-    const message = error.message || copy.genericFallback;
-    return { kind: 'inline', message };
-  }
-  return unhandledExtraEmailAction(copy);
+  // Delega para o helper genérico — branching 400/409/404/401-403 é
+  // idêntico ao de `classifyAddPhoneError` (#147). O backend sinaliza
+  // limite com mensagem `"Limite de 3 emails extras..."` — o
+  // `includes('limite')` cobre o caso sem depender da string completa.
+  return classifyAddCollectionApiError(error, copy);
 }
 
 /**
@@ -273,12 +179,12 @@ export function classifyRemoveExtraEmailError(
   error: unknown,
   copy: ExtraEmailErrorCopy,
 ): RemoveExtraEmailErrorAction {
-  const shared = classifySharedExtraEmailError(error, copy);
+  const shared = classifySharedHttpError(error, copy);
   if (shared !== null) {
     return shared;
   }
   if (!isApiError(error) || error.kind !== 'http') {
-    return unhandledExtraEmailAction(copy);
+    return unhandledHttpAction(copy);
   }
   if (error.status === 400) {
     return {
@@ -287,5 +193,5 @@ export function classifyRemoveExtraEmailError(
       title: copy.forbiddenTitle,
     };
   }
-  return unhandledExtraEmailAction(copy);
+  return unhandledHttpAction(copy);
 }
