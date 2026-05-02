@@ -123,16 +123,29 @@ export const INITIAL_USER_FORM_STATE: UserFormState = {
 };
 
 /**
- * Regex simples de validação de e-mail. Não é "regex perfeita" (essa
+ * Validação simples de e-mail sem regex. Não é "regex perfeita" (essa
  * não existe — a RFC 5322 é gigantesca), mas captura erros de digitação
  * óbvios (sem `@`, sem TLD, espaços) sem rejeitar e-mails válidos
  * legítimos. O backend (`[EmailAddress]` do ASP.NET) faz a validação
  * autoritativa; o client-side é só feedback imediato.
  *
- * Padrão coerente com `<input type="email">` HTML5 spec — qualquer
- * navegador moderno aceita o mesmo subset.
+ * Implementação manual (em vez de regex `/^[^\s@]+@[^\s@]+\.[^\s@]+$/`)
+ * para evitar `typescript:S5852` — Sonar marca a regex tripla `[^\s@]+`
+ * como vulnerável a backtracking super-linear (DoS hotspot). A versão
+ * sem regex é equivalente em intenção e linear no comprimento da
+ * string.
  */
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function isValidEmailSyntax(value: string): boolean {
+  if (!value || value.length === 0) return false;
+  if (/\s/.test(value)) return false;
+  const at = value.indexOf('@');
+  if (at < 1) return false;
+  if (at !== value.lastIndexOf('@')) return false;
+  const domain = value.slice(at + 1);
+  if (domain.length === 0) return false;
+  const dot = domain.lastIndexOf('.');
+  return dot > 0 && dot < domain.length - 1;
+}
 
 /**
  * Confere se a string parseia para um inteiro finito (positivo ou
@@ -163,7 +176,7 @@ function isIntegerString(raw: string): boolean {
  * Regras:
  *
  * - `name`: `Required` + `MaxLength(80)`.
- * - `email`: `Required` + `MaxLength(320)` + formato (`EMAIL_REGEX`).
+ * - `email`: `Required` + `MaxLength(320)` + formato (`isValidEmailSyntax`).
  * - `password`: `Required` + `MinLength(8)` + `MaxLength(60)`. O
  *   mínimo de 8 chars é client-side only (backend não declara mínimo)
  *   — UX defensiva para senhas iniciais administrativas.
@@ -200,7 +213,7 @@ export function validateUserForm(state: UserFormState): UserFieldErrors | null {
     errors.email = 'E-mail é obrigatório.';
   } else if (email.length > EMAIL_MAX) {
     errors.email = `E-mail deve ter no máximo ${EMAIL_MAX} caracteres.`;
-  } else if (!EMAIL_REGEX.test(email)) {
+  } else if (!isValidEmailSyntax(email)) {
     errors.email = 'Informe um e-mail válido.';
   }
 
