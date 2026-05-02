@@ -426,6 +426,139 @@ export async function submitClientDataForm(
   await waitFor(() => expect(client.put).toHaveBeenCalledTimes(expectedPutCalls));
 }
 
+/* ─── Helpers de fluxo de delete/restore (Issue #76) ───── */
+
+/**
+ * Mocka o GET inicial com uma página contendo o `clientItem` informado
+ * e abre o `DeleteClientConfirm` clicando no botão "Desativar" da
+ * linha (Issue #76). O cliente default vem ativo (sem `deletedAt`) —
+ * desativar só faz sentido em linhas ativas, e o gating no
+ * `ClientsListShellPage` esconde o botão em linhas soft-deletadas.
+ *
+ * Espelha `openDeleteConfirm` em `systemsTestHelpers.tsx` — manter o
+ * mesmo formato facilita leitura side-by-side e evita BLOCKER de
+ * duplicação Sonar (lição PR #127). Quem precisar de mocks diferentes
+ * pode chamar `client.get.mockXxx` antes para sobrescrever a fila — a
+ * detecção de mocks pré-existentes preserva o caso "fila customizada
+ * de respostas" (ex.: cenários de erro 404 com refetch).
+ */
+export async function openDeleteClientConfirm(
+  client: ApiClientStub,
+  clientItem: ClientDto = makeClient(),
+): Promise<void> {
+  if (client.get.mock.calls.length === 0 && client.get.mock.results.length === 0) {
+    client.get.mockResolvedValueOnce(makePagedClientsResponse([clientItem]));
+  }
+  renderClientsListPage(client);
+  await waitForInitialList(client);
+  fireEvent.click(screen.getByTestId(`clients-delete-${clientItem.id}`));
+}
+
+/**
+ * Confirma a desativação clicando em "Desativar" no
+ * `DeleteClientConfirm` e aguarda o `client.delete` ser chamado pelo
+ * menos `expectedDeleteCalls` vezes (default `1`). Espelha
+ * `confirmDelete` em `systemsTestHelpers.tsx`. Faz `act(async)` para
+ * flushar a microtask do click handler antes do `waitFor`.
+ */
+export async function confirmDeleteClient(
+  client: ApiClientStub,
+  expectedDeleteCalls = 1,
+): Promise<void> {
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('delete-client-confirm'));
+    await Promise.resolve();
+  });
+  await waitFor(() => expect(client.delete).toHaveBeenCalledTimes(expectedDeleteCalls));
+}
+
+/**
+ * Mocka o GET inicial com uma página contendo o `clientItem` informado
+ * (default soft-deletado) e abre o `RestoreClientConfirm` clicando no
+ * botão "Restaurar" da linha (Issue #76). Diferente de
+ * `openDeleteClientConfirm`, o cliente default já vem com `deletedAt`
+ * preenchido — restaurar só faz sentido em linhas soft-deletadas, e o
+ * gating no `ClientsListShellPage` esconde o botão em linhas ativas.
+ *
+ * Espelha `openRestoreConfirm` em `systemsTestHelpers.tsx`.
+ */
+export async function openRestoreClientConfirm(
+  client: ApiClientStub,
+  clientItem: ClientDto = makeClient({ deletedAt: '2026-02-01T00:00:00Z' }),
+): Promise<void> {
+  if (client.get.mock.calls.length === 0 && client.get.mock.results.length === 0) {
+    client.get.mockResolvedValueOnce(makePagedClientsResponse([clientItem]));
+  }
+  renderClientsListPage(client);
+  await waitForInitialList(client);
+  fireEvent.click(screen.getByTestId(`clients-restore-${clientItem.id}`));
+}
+
+/**
+ * Confirma a restauração clicando em "Restaurar" no
+ * `RestoreClientConfirm` e aguarda o `client.post` ser chamado pelo
+ * menos `expectedPostCalls` vezes (default `1`). Espelha
+ * `confirmRestore` em `systemsTestHelpers.tsx` mas com POST (em
+ * `/clients/{id}/restore`) em vez de DELETE.
+ */
+export async function confirmRestoreClient(
+  client: ApiClientStub,
+  expectedPostCalls = 1,
+): Promise<void> {
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('restore-client-confirm'));
+    await Promise.resolve();
+  });
+  await waitFor(() => expect(client.post).toHaveBeenCalledTimes(expectedPostCalls));
+}
+
+/**
+ * Constrói os cenários comuns de erro de mutação simples
+ * (delete/restore) para a suíte da Issue #76. Centraliza os 3 casos
+ * compartilhados (401, 403, network) entre desativar e restaurar — o
+ * texto genérico no fallback diverge ("desativar"/"restaurar") e por
+ * isso parametrizamos via `verb`.
+ *
+ * Casos específicos por sub-fluxo (404 fecha modal, 409 conflito) ficam
+ * inline na suíte de teste (`it.each([...específicos, ...buildClients
+ * MutationErrorCases('desativar')])`) — espelha
+ * `buildSharedMutationErrorCases` em `systemsTestHelpers.tsx` para
+ * preservar a mesma estratégia de declaração e evitar duplicação
+ * Sonar (lição PR #128).
+ */
+export function buildClientsMutationErrorCases(
+  verb: 'desativar' | 'restaurar',
+): ReadonlyArray<ClientsErrorCase> {
+  return [
+    {
+      name: '401 dispara toast vermelho com mensagem do backend',
+      error: {
+        kind: 'http',
+        status: 401,
+        message: 'Sessão expirada. Faça login novamente.',
+      },
+      expectedText: 'Sessão expirada. Faça login novamente.',
+    },
+    {
+      name: '403 dispara toast vermelho com mensagem do backend',
+      error: {
+        kind: 'http',
+        status: 403,
+        message: 'Você não tem permissão para esta ação.',
+      },
+      expectedText: 'Você não tem permissão para esta ação.',
+    },
+    {
+      name: 'erro genérico de rede dispara toast vermelho genérico',
+      error: {
+        kind: 'network',
+        message: 'Falha de conexão com o servidor.',
+      },
+      expectedText: `Não foi possível ${verb} o cliente. Tente novamente.`,
+    },
+  ];
+}
+
 /**
  * Constrói os cenários comuns de erro de submit para a suíte de
  * edição de clientes (Issue #75). A mensagem genérica diverge da

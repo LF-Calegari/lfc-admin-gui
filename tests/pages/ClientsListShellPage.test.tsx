@@ -93,9 +93,14 @@ describe('ClientsListShellPage — render inicial', () => {
       expect(screen.queryByTestId('clients-loading')).not.toBeInTheDocument();
     });
 
-    expect(screen.getByText('Ana Cliente')).toBeInTheDocument();
-    expect(screen.getByText('Bruno Souza')).toBeInTheDocument();
-    expect(screen.getByText('Acme Indústria S/A')).toBeInTheDocument();
+    // `getAllByText` porque a página renderiza tabela desktop +
+    // cards mobile (Issue #76 — paridade com `UsersListShellPage`).
+    // O texto aparece duas vezes na DOM (RTL ignora CSS).
+    expect(screen.getAllByText('Ana Cliente').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Bruno Souza').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Acme Indústria S/A').length).toBeGreaterThan(
+      0,
+    );
   });
 
   it('renderiza header da página com título "Clientes cadastrados"', async () => {
@@ -128,10 +133,12 @@ describe('ClientsListShellPage — render inicial', () => {
     renderClientsListPage(client);
     await waitForInitialList(client);
 
-    // CPF "12345678901" -> "123.456.789-01"
-    expect(screen.getByText('123.456.789-01')).toBeInTheDocument();
-    // CNPJ "12345678000190" -> "12.345.678/0001-90"
-    expect(screen.getByText('12.345.678/0001-90')).toBeInTheDocument();
+    // CPF "12345678901" -> "123.456.789-01" (table + cards = 2x)
+    expect(screen.getAllByText('123.456.789-01').length).toBeGreaterThan(0);
+    // CNPJ "12345678000190" -> "12.345.678/0001-90" (table + cards = 2x)
+    expect(screen.getAllByText('12.345.678/0001-90').length).toBeGreaterThan(
+      0,
+    );
   });
 
   it('renderiza badge "Inativo" para clientes soft-deletados quando includeDeleted=true', async () => {
@@ -152,7 +159,8 @@ describe('ClientsListShellPage — render inicial', () => {
     fireEvent.click(screen.getByTestId('clients-include-deleted'));
 
     await waitFor(() => {
-      expect(screen.getByText('Inativo')).toBeInTheDocument();
+      // `getAllByText` por causa da renderização desktop + mobile.
+      expect(screen.getAllByText('Inativo').length).toBeGreaterThan(0);
     });
   });
 
@@ -387,7 +395,11 @@ describe('ClientsListShellPage — estados vazios', () => {
     // contrato sem se acoplar ao detalhe (espelha o padrão usado nos
     // testes da RolesPage).
     expect(screen.getAllByText(/Nenhum cliente encontrado para/i).length).toBeGreaterThan(0);
-    expect(screen.getByTestId('clients-empty-clear')).toBeInTheDocument();
+    // O `EmptyMessage` agora aparece em duplicidade (table desktop +
+    // cards mobile) após Issue #76 — paridade com `UsersListShellPage`.
+    expect(
+      screen.getAllByTestId('clients-empty-clear').length,
+    ).toBeGreaterThan(0);
   });
 
   it('vazio sem busca: mensagem dedicada + dica sobre toggle', async () => {
@@ -398,11 +410,15 @@ describe('ClientsListShellPage — estados vazios', () => {
     await waitForInitialList(client);
 
     // Texto duplicado no `LiveRegion` + `EmptyMessage` — usar
-    // `getAllByText` evita o erro "Found multiple elements".
+    // `getAllByText` evita o erro "Found multiple elements". A
+    // mensagem do `EmptyMessage` agora aparece em duplicidade (table
+    // desktop + cards mobile) após Issue #76 — paridade com
+    // `UsersListShellPage`.
     expect(screen.getAllByText(/Nenhum cliente cadastrado\./i).length).toBeGreaterThan(0);
     expect(
-      screen.getByText(/Clientes removidos podem ser visualizados/i),
-    ).toBeInTheDocument();
+      screen.getAllByText(/Clientes removidos podem ser visualizados/i)
+        .length,
+    ).toBeGreaterThan(0);
   });
 
   it('clicar em "limpar busca" reseta termo e re-popula a lista', async () => {
@@ -426,7 +442,10 @@ describe('ClientsListShellPage — estados vazios', () => {
       expect(screen.getAllByText(/Nenhum cliente encontrado para/i).length).toBeGreaterThan(0);
     });
 
-    fireEvent.click(screen.getByTestId('clients-empty-clear'));
+    // `getAllByTestId` porque `clients-empty-clear` aparece tanto no
+    // emptyState da tabela desktop quanto no rodapé dos cards mobile.
+    // Clicar no primeiro fecha ambos pelo estado compartilhado.
+    fireEvent.click(screen.getAllByTestId('clients-empty-clear')[0]);
 
     await act(async () => {
       vi.advanceTimersByTime(SEARCH_DEBOUNCE_MS);
@@ -434,7 +453,8 @@ describe('ClientsListShellPage — estados vazios', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('Ana Cliente')).toBeInTheDocument();
+      // Tabela desktop + cards mobile renderizam o nome em duplicidade.
+      expect(screen.getAllByText('Ana Cliente').length).toBeGreaterThan(0);
     });
   });
 });
@@ -462,7 +482,8 @@ describe('ClientsListShellPage — erro de rede', () => {
     await waitFor(() => {
       expect(screen.queryByText(/Falha de conexão/i)).not.toBeInTheDocument();
     });
-    expect(screen.getByText('Ana Cliente')).toBeInTheDocument();
+    // Tabela desktop + cards mobile renderizam o nome em duplicidade.
+    expect(screen.getAllByText('Ana Cliente').length).toBeGreaterThan(0);
   });
 
   it('erro desconhecido exibe mensagem genérica', async () => {

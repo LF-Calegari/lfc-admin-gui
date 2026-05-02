@@ -133,11 +133,13 @@ export {
   DEFAULT_CLIENTS_INCLUDE_DELETED,
   DEFAULT_CLIENTS_PAGE,
   DEFAULT_CLIENTS_PAGE_SIZE,
+  deleteClient,
   getClientById,
   getClientsByIds,
   isClientDto,
   isPagedClientsResponse,
   listClients,
+  restoreClient,
   updateClient,
 } from './clients';
 export type {

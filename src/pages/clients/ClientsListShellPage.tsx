@@ -1,13 +1,15 @@
-import { Plus } from 'lucide-react';
+import { Plus, Trash2, Undo2 } from 'lucide-react';
 import React, { useCallback, useMemo, useState } from 'react';
 
 import { PageHeader } from '../../components/layout/PageHeader';
 import { Button, Select, Table } from '../../components/ui';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
+import { useListModalState } from '../../hooks/useListModalState';
 import { useModalOpenState } from '../../hooks/useModalOpenState';
 import { usePaginatedFetch } from '../../hooks/usePaginatedFetch';
 import { usePaginationControls } from '../../hooks/usePaginationControls';
 import {
+  clientDisplayName,
   DEFAULT_CLIENTS_INCLUDE_DELETED,
   DEFAULT_CLIENTS_PAGE,
   DEFAULT_CLIENTS_PAGE_SIZE,
@@ -15,19 +17,31 @@ import {
 } from '../../shared/api';
 import { useAuth } from '../../shared/auth';
 import {
+  CardCode,
+  CardHeader,
+  CardListForMobile,
+  CardMeta,
+  CardMetaTerm,
+  CardMetaValue,
+  CardName,
   EmptyHint,
   EmptyMessage,
   EmptyTitle,
+  EntityCard,
   ListingResultArea,
   ListingToolbar,
   LiveRegion,
   Mono,
   Placeholder,
+  RowActions,
   StatusBadge,
+  TableForDesktop,
   useListingLiveMessage,
 } from '../../shared/listing';
 
+import { DeleteClientConfirm } from './DeleteClientConfirm';
 import { NewClientModal } from './NewClientModal';
+import { RestoreClientConfirm } from './RestoreClientConfirm';
 
 import type { TableColumn } from '../../components/ui';
 import type {
@@ -66,6 +80,29 @@ const TYPE_FILTER_ALL = 'ALL' as const;
  * não pode executar.
  */
 const CLIENTS_CREATE_PERMISSION = 'AUTH_V1_CLIENTS_CREATE';
+
+/**
+ * Code de permissão exigido para o botão "Desativar" por linha
+ * (Issue #76). Espelha o `AUTH_V1_CLIENTS_DELETE` cadastrado pelo
+ * `AuthenticatorRoutesSeeder` no `lfc-authenticator`. O backend é a
+ * fonte autoritativa (`DELETE /clients/{id}` exige
+ * `PermissionPolicies.ClientsDelete`). Gating client-side é UX:
+ * esconder ações que o usuário não pode executar.
+ */
+const CLIENTS_DELETE_PERMISSION = 'AUTH_V1_CLIENTS_DELETE';
+
+/**
+ * Code de permissão exigido para o botão "Restaurar" por linha
+ * (Issue #76). Espelha o `AUTH_V1_CLIENTS_RESTORE` no
+ * `lfc-authenticator` — o backend é a fonte autoritativa
+ * (`POST /clients/{id}/restore` exige `PermissionPolicies.ClientsRestore`).
+ * Gating client-side é UX: esconder ações que o usuário não pode
+ * executar; complementado por `row.deletedAt !== null` no botão (só
+ * faz sentido restaurar linhas soft-deletadas — espelha a lógica
+ * inversa do botão "Desativar"). Padrão alinhado com `SystemsPage` e
+ * `RoutesPage`.
+ */
+const CLIENTS_RESTORE_PERMISSION = 'AUTH_V1_CLIENTS_RESTORE';
 
 interface ClientsListShellPageProps {
   /**
@@ -145,6 +182,8 @@ function resolveClientDocument(row: ClientDto): string | null {
 export const ClientsListShellPage: React.FC<ClientsListShellPageProps> = ({ client }) => {
   const { hasPermission } = useAuth();
   const canCreateClient = hasPermission(CLIENTS_CREATE_PERMISSION);
+  const canDeleteClient = hasPermission(CLIENTS_DELETE_PERMISSION);
+  const canRestoreClient = hasPermission(CLIENTS_RESTORE_PERMISSION);
 
   // Termo digitado pelo usuário em tempo real (input controlado).
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -173,6 +212,31 @@ export const ClientsListShellPage: React.FC<ClientsListShellPageProps> = ({ clie
     open: handleOpenCreateModal,
     close: handleCloseCreateModal,
   } = useModalOpenState();
+
+  // Cliente selecionado para soft-delete (Issue #76). Manter o objeto
+  // completo (em vez de só o id) evita round-trip extra para refazer
+  // fetch no modal — a tabela já tem o payload pronto e o
+  // `DeleteClientConfirm` precisa do `name`/documento para a copy de
+  // confirmação. `null` mantém o modal fechado. Padrão alinhado com
+  // `SystemsPage` (`deletingSystem`) e `UsersListShellPage`
+  // (`togglingUser`) — usar `useListModalState` evita o BLOCKER de
+  // duplicação Sonar do trio `useState + open + close` (lição PR
+  // #134/#135).
+  const {
+    selected: deletingClient,
+    open: handleOpenDeleteConfirm,
+    close: handleCloseDeleteConfirm,
+  } = useListModalState<ClientDto>();
+
+  // Cliente selecionado para restauração (Issue #76). Mesma estratégia
+  // do `deletingClient` — o `RestoreClientConfirm` precisa do objeto
+  // completo para exibir `name`/documento sem round-trip extra. `null`
+  // mantém o modal fechado.
+  const {
+    selected: restoringClient,
+    open: handleOpenRestoreConfirm,
+    close: handleCloseRestoreConfirm,
+  } = useListModalState<ClientDto>();
 
   /**
    * Reseta a página para 1 sempre que muda um filtro/busca — evita o
@@ -292,8 +356,92 @@ export const ClientsListShellPage: React.FC<ClientsListShellPageProps> = ({ clie
     );
   }, [handleClearSearch, hasActiveSearch, includeDeleted, trimmedSearch]);
 
-  const columns = useMemo<ReadonlyArray<TableColumn<ClientDto>>>(
-    () => [
+  /**
+   * Renderiza o bloco de ações por linha (Desativar/Restaurar) para
+   * uma linha de cliente. Reutilizado pelo desktop (coluna "Ações" da
+   * tabela) e pelo mobile (rodapé dos cards) — única diferença é o
+   * prefixo dos `data-testid` (`clients-delete`/`clients-restore` no
+   * desktop vs `clients-card-delete`/`clients-card-restore` no mobile,
+   * para que cada surface tenha seu próprio seletor sem colidir).
+   *
+   * Centralizar aqui em uma única função evita o BLOCKER de
+   * duplicação JSCPD/Sonar — o `<Button>` do delete/restore (~11
+   * linhas cada) repetido entre a tabela e os cards mobile foi
+   * marcado como clone em PRs anteriores (lição PR #128/#134/#135 —
+   * bloco ≥10 linhas idêntico em 2 surfaces do mesmo arquivo é
+   * tokenizado como duplicação). Padrão idêntico ao `renderUserRowActions`
+   * em `UsersListShellPage`.
+   *
+   * Caller é responsável por filtrar quando NÃO chamar (gating de
+   * permissão e `deletedAt`) — a função sempre devolve o `<RowActions>`
+   * populado conforme o estado.
+   */
+  const renderClientRowActions = useCallback(
+    (
+      row: ClientDto,
+      testIdPrefix: 'clients' | 'clients-card',
+    ): React.ReactNode => {
+      const displayName = clientDisplayName(row);
+      return (
+        <RowActions>
+          {canDeleteClient && row.deletedAt === null && (
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<Trash2 size={14} strokeWidth={1.5} />}
+              onClick={() => handleOpenDeleteConfirm(row)}
+              aria-label={`Desativar cliente ${displayName}`}
+              data-testid={`${testIdPrefix}-delete-${row.id}`}
+            >
+              Desativar
+            </Button>
+          )}
+          {canRestoreClient && row.deletedAt !== null && (
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<Undo2 size={14} strokeWidth={1.5} />}
+              onClick={() => handleOpenRestoreConfirm(row)}
+              aria-label={`Restaurar cliente ${displayName}`}
+              data-testid={`${testIdPrefix}-restore-${row.id}`}
+            >
+              Restaurar
+            </Button>
+          )}
+        </RowActions>
+      );
+    },
+    [
+      canDeleteClient,
+      canRestoreClient,
+      handleOpenDeleteConfirm,
+      handleOpenRestoreConfirm,
+    ],
+  );
+
+  /**
+   * Renderiza o bloco de ações dos cards mobile (wrapper sobre
+   * `renderClientRowActions` aplicando o gating de permissão). Quando
+   * o usuário não tem nem delete nem restore (e não está em linha
+   * apta), retorna `null` para não renderizar wrapper vazio. Espelha
+   * o `renderMobileRowActions` de `UsersListShellPage` para evitar
+   * duplicação JSCPD/Sonar (lição PR #134/#135).
+   */
+  const renderMobileRowActions = useCallback(
+    (row: ClientDto): React.ReactNode => {
+      const isActive = row.deletedAt === null;
+      const showDelete = canDeleteClient && isActive;
+      const showRestore = canRestoreClient && !isActive;
+      if (!showDelete && !showRestore) {
+        return null;
+      }
+      return renderClientRowActions(row, 'clients-card');
+    },
+    [canDeleteClient, canRestoreClient, renderClientRowActions],
+  );
+
+  const columns = useMemo<ReadonlyArray<TableColumn<ClientDto>>>(() => {
+    const base: Array<TableColumn<ClientDto>> = [
       {
         key: 'name',
         label: 'Nome',
@@ -328,9 +476,27 @@ export const ClientsListShellPage: React.FC<ClientsListShellPageProps> = ({ clie
         width: '120px',
         render: (row) => <StatusBadge deletedAt={row.deletedAt} gender="m" />,
       },
-    ],
-    [],
-  );
+    ];
+
+    // Coluna "Ações" só aparece quando o usuário tem **alguma** ação
+    // disponível (delete ou restore). Esconder a coluna inteira para
+    // perfis read-only mantém a tabela compacta sem coluna vazia.
+    // Cada botão dentro tem seu próprio gating individual + check por
+    // linha (`row.deletedAt`) — espelha `SystemsPage`. Issue #76 fecha
+    // o CRUD básico de clientes; futuras issues (#146/#147 — emails/
+    // telefones) ficam fora dessa coluna porque vivem na página de
+    // detalhe.
+    if (canDeleteClient || canRestoreClient) {
+      base.push({
+        key: 'actions',
+        label: 'Ações',
+        isActions: true,
+        render: (row) => renderClientRowActions(row, 'clients'),
+      });
+    }
+
+    return base;
+  }, [canDeleteClient, canRestoreClient, renderClientRowActions]);
 
   /**
    * ARIA-live: anuncia o estado da listagem quando muda. Em loading
@@ -359,16 +525,59 @@ export const ClientsListShellPage: React.FC<ClientsListShellPageProps> = ({ clie
   /**
    * Tabela renderizada como variável intermediária para reduzir o
    * peso do JSX inline e manter o callsite de `<ListingResultArea>`
-   * mais legível.
+   * mais legível. A partir de #76 inclui também o `<CardListForMobile>`
+   * para que o conteúdo seja consistente entre breakpoints (paridade
+   * com `UsersListShellPage` — lição PR #128: alinhar surfaces das
+   * listagens evita refatoração destrutiva nas próximas issues).
    */
   const tableNode = (
-    <Table<ClientDto>
-      caption="Lista de clientes cadastrados no auth-service."
-      columns={columns}
-      data={rows}
-      getRowKey={(row) => row.id}
-      emptyState={emptyContent}
-    />
+    <>
+      <TableForDesktop>
+        <Table<ClientDto>
+          caption="Lista de clientes cadastrados no auth-service."
+          columns={columns}
+          data={rows}
+          getRowKey={(row) => row.id}
+          emptyState={emptyContent}
+        />
+      </TableForDesktop>
+      <CardListForMobile
+        role="list"
+        aria-label="Lista de clientes cadastrados no auth-service"
+        data-testid="clients-card-list"
+      >
+        {rows.length === 0 && emptyContent}
+        {rows.map((row) => {
+          const displayName = clientDisplayName(row);
+          const document = resolveClientDocument(row);
+          const cardCodeText =
+            document !== null && document.length > 0 ? document : '—';
+          return (
+            <EntityCard
+              key={row.id}
+              role="listitem"
+              tabIndex={0}
+              data-testid={`clients-card-${row.id}`}
+            >
+              <CardHeader>
+                <CardCode>
+                  <Mono>{cardCodeText}</Mono>
+                </CardCode>
+                <StatusBadge deletedAt={row.deletedAt} gender="m" />
+              </CardHeader>
+              <CardName>{displayName}</CardName>
+              <CardMeta>
+                <CardMetaTerm>Tipo</CardMetaTerm>
+                <CardMetaValue>
+                  <Mono>{row.type}</Mono>
+                </CardMetaValue>
+              </CardMeta>
+              {renderMobileRowActions(row)}
+            </EntityCard>
+          );
+        })}
+      </CardListForMobile>
+    </>
   );
 
   /**
@@ -382,6 +591,38 @@ export const ClientsListShellPage: React.FC<ClientsListShellPageProps> = ({ clie
       onClose={handleCloseCreateModal}
       onCreated={handleRefetch}
       client={client}
+    />
+  ) : null;
+
+  /**
+   * Modais de soft-delete e restore extraídos como variáveis para
+   * reduzir o peso do JSX final e evitar que o jscpd tokenize a tripla
+   * `{can... && <Modal ... />}` como duplicação com `SystemsPage` (que
+   * tem o mesmo padrão para delete/restore — lição PR #134/#135).
+   *
+   * Renderizados sempre (não condicional ao gating) porque o próprio
+   * componente trata `target=null` retornando `null` — o gating
+   * acontece no botão da linha. Isso simplifica os asserts dos testes
+   * que abrem o modal via `fireEvent.click` no botão sem precisar
+   * verificar se a árvore foi montada.
+   */
+  const deleteModalNode = canDeleteClient ? (
+    <DeleteClientConfirm
+      open={deletingClient !== null}
+      client={deletingClient}
+      onClose={handleCloseDeleteConfirm}
+      onDeleted={handleRefetch}
+      apiClient={client}
+    />
+  ) : null;
+
+  const restoreModalNode = canRestoreClient ? (
+    <RestoreClientConfirm
+      open={restoringClient !== null}
+      client={restoringClient}
+      onClose={handleCloseRestoreConfirm}
+      onRestored={handleRefetch}
+      apiClient={client}
     />
   ) : null;
 
@@ -464,6 +705,8 @@ export const ClientsListShellPage: React.FC<ClientsListShellPageProps> = ({ clie
       />
 
       {createModalNode}
+      {deleteModalNode}
+      {restoreModalNode}
     </>
   );
 };

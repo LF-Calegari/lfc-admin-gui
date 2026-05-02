@@ -680,6 +680,96 @@ export async function updateClient(
 }
 
 /**
+ * Desativa (soft-delete) um cliente via `DELETE /clients/{id}` (Issue #76).
+ *
+ * O backend (`ClientsController.DeleteById`) seta `DeletedAt = UtcNow` e
+ * responde `204 No Content` em sucesso. O método não devolve corpo — a
+ * função resolve `void` e a UI faz refetch para sincronizar a lista.
+ *
+ * Lança `ApiError` em qualquer falha:
+ *
+ * - `kind: 'http'` com `status === 404` → cliente inexistente ou já
+ *   soft-deletado (o backend filtra por `DeletedAt == null` por padrão
+ *   via global query filter); a UI fecha o modal, dispara toast e força
+ *   refetch (paridade com `deleteSystem`).
+ * - `kind: 'http'` com `status === 409` → conflito por usuários ativos
+ *   vinculados (defensivo). Hoje o backend não devolve esse status no
+ *   `DELETE /clients/{id}` (apenas soft-delete), mas o `MutationConfirmModal`
+ *   já tem o slot `errorCopy.conflictMessage` reservado para quando o
+ *   contrato evoluir. A UI mostra a mensagem do backend ou o fallback
+ *   da `errorCopy`. Critério de aceite #76 — "Tratamento de erro caso o
+ *   cliente tenha usuários ativos vinculados.".
+ * - `kind: 'http'` com `status === 401` → sessão expirada; cliente HTTP
+ *   já lidou com `onUnauthorized`. UI mantém-se silenciosa além do toast.
+ * - `kind: 'http'` com `status === 403` → falta permissão
+ *   `AUTH_V1_CLIENTS_DELETE`; toast vermelho com mensagem do backend.
+ * - `kind: 'network'`/outros → toast vermelho genérico.
+ *
+ * Diferente de `createClient`/`updateClient`, não há type guard de
+ * resposta porque `204` não tem corpo — `client.delete<void>` resolve
+ * `undefined` e descartamos.
+ *
+ * O parâmetro `client` é injetável para isolar testes (passa-se um stub
+ * tipado como `ApiClient`); em produção usa-se o singleton `apiClient`.
+ */
+export async function deleteClient(
+  id: string,
+  options?: SafeRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<void> {
+  await client.delete<void>(`/clients/${id}`, options);
+}
+
+/**
+ * Restaura (desfaz soft-delete) um cliente via
+ * `POST /clients/{id}/restore` (Issue #76, EPIC #49 — fecha o CRUD básico
+ * de clientes junto com o delete).
+ *
+ * O backend (`ClientsController.RestoreById`) limpa `DeletedAt` via
+ * `IgnoreQueryFilters()` e responde `200 OK` com
+ * `{ message: "Cliente restaurado com sucesso." }`. Diferente de
+ * `createClient`/`updateClient`, o corpo da resposta **não** é um
+ * `ClientDto` — é um envelope simples `{ message }` que descartamos.
+ * A UI faz refetch para sincronizar a lista (idêntico ao padrão do
+ * `deleteClient`/`restoreSystem`), então retornamos `void`.
+ *
+ * Lança `ApiError` em qualquer falha:
+ *
+ * - `kind: 'http'` com `status === 404` → cliente inexistente **ou** já
+ *   ativo (o backend devolve 404 com mensagem específica em ambos os
+ *   casos: filtro `DeletedAt != null` no `WHERE`). A UI fecha o modal,
+ *   dispara toast e força refetch — o registro foi mexido por outra
+ *   sessão entre a abertura do modal e o submit, ou nem existe.
+ * - `kind: 'http'` com `status === 401` → sessão expirada; cliente HTTP
+ *   já lidou com `onUnauthorized`. UI mantém-se silenciosa além do toast.
+ * - `kind: 'http'` com `status === 403` → falta permissão
+ *   `AUTH_V1_CLIENTS_RESTORE`; toast vermelho com mensagem do backend.
+ * - `kind: 'network'`/outros → toast vermelho genérico.
+ *
+ * Não há type guard de resposta porque `{ message }` é descartado —
+ * `client.post<void>` resolve com o body como `unknown` e ignoramos.
+ * Caso o backend evolua para devolver `ClientResponse` no futuro, basta
+ * ajustar este wrapper para validar com `isClientDto` e atualizar o
+ * tipo de retorno.
+ *
+ * Recebe `BodyRequestOptions` (com `signal`) por simetria com
+ * `createClient`/`updateClient` e `restoreSystem` — `POST` é tratado
+ * como mutação com corpo no cliente HTTP, ainda que aqui não enviemos
+ * payload. Passamos `undefined` como body para que o backend receba
+ * uma requisição vazia.
+ *
+ * O parâmetro `client` é injetável para isolar testes (passa-se um stub
+ * tipado como `ApiClient`); em produção usa-se o singleton `apiClient`.
+ */
+export async function restoreClient(
+  id: string,
+  options?: BodyRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<void> {
+  await client.post<void>(`/clients/${id}/restore`, undefined, options);
+}
+
+/**
  * Constrói o body para `POST /clients` e `PUT /clients/{id}`
  * aplicando trim defensivo e o filtro de campos por tipo (PF/PJ).
  * Centralizar essa montagem garante que nenhum call site inclua
