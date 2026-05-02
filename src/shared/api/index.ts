@@ -147,6 +147,7 @@ export {
 } from './tokenTypes';
 export type { TokenTypeDto } from './tokenTypes';
 export {
+  createUser,
   DEFAULT_USERS_INCLUDE_DELETED,
   DEFAULT_USERS_PAGE,
   DEFAULT_USERS_PAGE_SIZE,
@@ -154,7 +155,7 @@ export {
   isUserDto,
   listUsers,
 } from './users';
-export type { ListUsersParams, UserDto } from './users';
+export type { CreateUserPayload, ListUsersParams, UserDto } from './users';
 export {
   assignPermissionToUser,
   DEFAULT_PERMISSIONS_INCLUDE_DELETED,

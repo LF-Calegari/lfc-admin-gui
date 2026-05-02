@@ -1,3 +1,4 @@
+import { Plus } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { PageHeader } from '../../components/layout/PageHeader';
@@ -14,6 +15,7 @@ import {
   isApiError,
   listUsers,
 } from '../../shared/api';
+import { useAuth } from '../../shared/auth';
 import {
   CardCode,
   CardHeader,
@@ -40,6 +42,8 @@ import {
   useListingLiveMessage,
 } from '../../shared/listing';
 
+import { NewUserModal } from './NewUserModal';
+
 import type { TableColumn } from '../../components/ui';
 import type {
   ApiClient,
@@ -47,6 +51,18 @@ import type {
   SafeRequestOptions,
   UserDto,
 } from '../../shared/api';
+
+/**
+ * Code de permissão exigido para o botão "Novo usuário" (Issue #78).
+ *
+ * Espelha o `AUTH_V1_USERS_CREATE` cadastrado pelo
+ * `AuthenticatorRoutesSeeder` no `lfc-authenticator`. O backend é a
+ * fonte autoritativa (o `POST /users` valida via
+ * `[Authorize(Policy = PermissionPolicies.UsersCreate)]`); o gating
+ * client-side é apenas UX — esconder ações que o usuário não pode
+ * executar.
+ */
+const USERS_CREATE_PERMISSION = 'AUTH_V1_USERS_CREATE';
 
 /**
  * Atraso entre a última tecla e o disparo da request de busca. 300 ms
@@ -119,6 +135,9 @@ function deriveStatusDeletedAt(user: UserDto): string | null {
 export const UsersListShellPage: React.FC<UsersListShellPageProps> = ({
   client,
 }) => {
+  const { hasPermission } = useAuth();
+  const canCreateUser = hasPermission(USERS_CREATE_PERMISSION);
+
   // Termo digitado pelo usuário em tempo real (input controlado).
   const [searchTerm, setSearchTerm] = useState<string>('');
   const debouncedSearch = useDebouncedValue(searchTerm, SEARCH_DEBOUNCE_MS);
@@ -127,6 +146,19 @@ export const UsersListShellPage: React.FC<UsersListShellPageProps> = ({
     DEFAULT_USERS_INCLUDE_DELETED,
   );
   const [page, setPage] = useState<number>(DEFAULT_USERS_PAGE);
+
+  // Estado de abertura do modal "Novo usuário" (Issue #78). O modal é
+  // controlado por essa página para que a Toolbar consiga ocultar o
+  // botão por permissão sem perder o ciclo de vida do form.
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState<boolean>(false);
+
+  const handleOpenCreateModal = useCallback(() => {
+    setIsCreateModalOpen(true);
+  }, []);
+
+  const handleCloseCreateModal = useCallback(() => {
+    setIsCreateModalOpen(false);
+  }, []);
 
   /**
    * Reseta a página para 1 sempre que muda um filtro/busca — evita o
@@ -373,6 +405,19 @@ export const UsersListShellPage: React.FC<UsersListShellPageProps> = ({
         onIncludeDeletedChange={handleIncludeDeletedChange}
         includeDeletedHelperText="Inclui usuários com remoção lógica."
         includeDeletedTestId="users-include-deleted"
+        actions={
+          canCreateUser && (
+            <Button
+              variant="primary"
+              size="md"
+              icon={<Plus size={14} strokeWidth={1.75} />}
+              onClick={handleOpenCreateModal}
+              data-testid="users-create-open"
+            >
+              Novo usuário
+            </Button>
+          )
+        }
       />
 
       <LiveRegion message={liveMessage} testId="users-live" />
@@ -446,6 +491,15 @@ export const UsersListShellPage: React.FC<UsersListShellPageProps> = ({
           pageInfoTestId="users-page-info"
           prevTestId="users-prev"
           nextTestId="users-next"
+        />
+      )}
+
+      {canCreateUser && (
+        <NewUserModal
+          open={isCreateModalOpen}
+          onClose={handleCloseCreateModal}
+          onCreated={handleRefetch}
+          client={client}
         />
       )}
     </>
