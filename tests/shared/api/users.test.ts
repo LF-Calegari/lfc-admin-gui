@@ -13,6 +13,7 @@ import {
   isPagedUsersResponse,
   isUserDto,
   listUsers,
+  resetUserPassword,
   updateUser,
 } from '@/shared/api';
 
@@ -831,6 +832,134 @@ describe('updateUser — response e erros', () => {
 
     await expect(
       updateUser(USER_ID, buildBasicPayload(), undefined, client as unknown as ApiClient),
+    ).rejects.toMatchObject({ kind: 'http', status: 403 });
+  });
+});
+
+/* ─── resetUserPassword (Issue #81) ──────────────────────── */
+
+describe('resetUserPassword — body e path', () => {
+  it('emite PUT /users/{id}/password com body { password } literal (sem trim)', async () => {
+    const client = createStub();
+    client.put.mockResolvedValueOnce(makeUserDto());
+
+    await resetUserPassword(
+      USER_ID,
+      '  senha-com-espacos  ',
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.put).toHaveBeenCalledTimes(1);
+    expect(client.put.mock.calls[0][0]).toBe(`/users/${USER_ID}/password`);
+    // Frontend NÃO trima — backend faz `request.Password.Trim()` ao
+    // receber. Preservar literal no transporte garante simetria com
+    // o que o operador digitou (e com gerenciadores de senha que
+    // produzem strings com prefix/suffix intencionais).
+    expect(client.put.mock.calls[0][1]).toEqual({
+      password: '  senha-com-espacos  ',
+    });
+  });
+
+  it('passa options adiante para o cliente (signal/abort)', async () => {
+    const client = createStub();
+    client.put.mockResolvedValueOnce(makeUserDto());
+    const controller = new AbortController();
+
+    await resetUserPassword(
+      USER_ID,
+      'nova-senha',
+      { signal: controller.signal },
+      client as unknown as ApiClient,
+    );
+
+    expect(client.put.mock.calls[0][2]).toEqual({ signal: controller.signal });
+  });
+
+  it('só inclui a chave password no body (não vaza outros campos)', async () => {
+    const client = createStub();
+    client.put.mockResolvedValueOnce(makeUserDto());
+
+    await resetUserPassword(
+      USER_ID,
+      'nova-senha',
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    const body = client.put.mock.calls[0][1] as Record<string, unknown>;
+    expect(Object.keys(body)).toEqual(['password']);
+  });
+});
+
+describe('resetUserPassword — response e erros', () => {
+  it('devolve UserDto atualizado quando o response é válido', async () => {
+    const client = createStub();
+    const updated = makeUserDto({ updatedAt: '2026-02-01T12:00:00Z' });
+    client.put.mockResolvedValueOnce(updated);
+
+    const result = await resetUserPassword(
+      USER_ID,
+      'nova-senha',
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(result).toEqual(updated);
+  });
+
+  it('lança ApiError(parse) quando o response não é UserDto', async () => {
+    const client = createStub();
+    client.put.mockResolvedValueOnce({ malformed: true });
+
+    await expect(
+      resetUserPassword(USER_ID, 'nova-senha', undefined, client as unknown as ApiClient),
+    ).rejects.toMatchObject({ kind: 'parse' });
+  });
+
+  it('propaga 400 com errors.Password (validação de campo) sem traduzir', async () => {
+    const client = createStub();
+    const apiError = {
+      kind: 'http',
+      status: 400,
+      message: 'Erro de validação.',
+      details: {
+        errors: {
+          Password: ['Password deve ter no máximo 60 caracteres.'],
+        },
+      },
+    };
+    client.put.mockRejectedValueOnce(apiError);
+
+    await expect(
+      resetUserPassword(USER_ID, 'x'.repeat(120), undefined, client as unknown as ApiClient),
+    ).rejects.toEqual(apiError);
+  });
+
+  it('propaga 404 do backend (usuário removido) sem traduzir', async () => {
+    const client = createStub();
+    const apiError = {
+      kind: 'http',
+      status: 404,
+      message: 'Usuário não encontrado.',
+    };
+    client.put.mockRejectedValueOnce(apiError);
+
+    await expect(
+      resetUserPassword(USER_ID, 'nova-senha', undefined, client as unknown as ApiClient),
+    ).rejects.toEqual(apiError);
+  });
+
+  it('propaga 401/403 sem traduzir', async () => {
+    const client = createStub();
+    client.put.mockRejectedValueOnce({
+      kind: 'http',
+      status: 403,
+      message: 'Sem permissão.',
+    });
+
+    await expect(
+      resetUserPassword(USER_ID, 'nova-senha', undefined, client as unknown as ApiClient),
     ).rejects.toMatchObject({ kind: 'http', status: 403 });
   });
 });
