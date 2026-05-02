@@ -1,8 +1,13 @@
+import { computeIdSetDiff, idSetDiffHasChanges } from '../../shared/forms';
+import { groupBySystem } from '../../shared/listing';
+
 import type {
   EffectivePermissionDto,
   EffectivePermissionSource,
   PermissionDto,
 } from '../../shared/api';
+import type { IdSetDiff } from '../../shared/forms';
+import type { SystemGroup } from '../../shared/listing';
 
 /**
  * Helpers puros (sem React) que sustentam a tela de atribuição direta
@@ -11,12 +16,14 @@ import type {
  * orquestração de estado/UI — testes ficam de baixo custo (sem DOM,
  * sem providers) e a página fica enxuta.
  *
- * **Por que separado da página (lição PR #128/#134):** quando a
- * `PermissionsListShellPage` (sub-issue futura da EPIC #48) ganhar um
- * agrupamento similar por sistema, a função `groupPermissionsBySystem`
- * é candidata óbvia a reuso. Manter pura e exportada desde já evita
- * o "vamos extrair quando duplicar" — política proativa cobrada pelo
- * histórico de Sonar New Code Duplication.
+ * **Por que delegamos para `src/shared/{forms,listing}/`:** Issue #71
+ * (atribuição via role) precisa do mesmo cálculo de diff e do mesmo
+ * agrupamento por sistema. Manter cópias paralelas neste módulo (e em
+ * `userRolesHelpers.ts`) tokeniza como bloco duplicado no Sonar
+ * (lição PR #134/#135 — quando o **corpo** é idêntico entre recursos,
+ * extrair em helper genérico). Os wrappers preservam os tipos
+ * específicos do recurso (`PermissionId`, `PermissionAssignmentDiff`)
+ * para que call-sites continuem expressivos.
  */
 
 /**
@@ -30,6 +37,10 @@ export type PermissionId = string;
  * Bloco visual: todas as permissões pertencentes a um mesmo sistema.
  * Ordenadas por `routeCode` + `permissionTypeCode` para estabilidade
  * visual entre fetches (mesmo critério do backend para listagens).
+ *
+ * Tipo é um alias do `SystemGroup<PermissionDto>` genérico — preserva
+ * o nome semântico para os call-sites e mantém a coleção como
+ * `permissions` (não `items`) para legibilidade da página.
  */
 export interface PermissionSystemGroup {
   systemId: string;
@@ -46,11 +57,11 @@ export interface PermissionSystemGroup {
  * (estava marcada e ficou desmarcada), nunca as duas. O salvar dispara
  * um `assignPermissionToUser` por id em `toAdd` e um
  * `removePermissionFromUser` por id em `toRemove`.
+ *
+ * Estendemos `IdSetDiff` em vez de redefinir o shape — o tipo continua
+ * compatível com `idSetDiffHasChanges` e os helpers genéricos.
  */
-export interface PermissionAssignmentDiff {
-  toAdd: ReadonlyArray<PermissionId>;
-  toRemove: ReadonlyArray<PermissionId>;
-}
+export type PermissionAssignmentDiff = IdSetDiff;
 
 /**
  * Falha pontual de sincronização: ao aplicar o diff, alguma chamada
@@ -76,17 +87,6 @@ function compareStrings(a: string, b: string): number {
   return a.localeCompare(b, 'pt-BR', { sensitivity: 'base' });
 }
 
-/** Chave usada para o bucket "órfão" (sistema vazio/inexistente). */
-const ORPHAN_BUCKET_KEY = '__orphan__';
-/** Marcador visível do grupo órfão no `systemCode`. */
-const ORPHAN_DISPLAY_CODE = '—';
-
-interface SystemMeta {
-  systemId: string;
-  systemCode: string;
-  systemName: string;
-}
-
 /**
  * Compara duas permissões dentro do mesmo grupo: primeiro por
  * `routeCode`, depois por `permissionTypeCode` em desempate. Reusado
@@ -102,47 +102,17 @@ function comparePermissionsInGroup(a: PermissionDto, b: PermissionDto): number {
 }
 
 /**
- * Compara dois grupos: empurra o grupo órfão (`systemCode === '—'`)
- * para o final independentemente da ordenação alfabética, e em seguida
- * ordena por `systemCode` em ordem natural.
+ * Adapta o `SystemGroup<PermissionDto>` genérico para a forma esperada
+ * pela página (`permissions` em vez de `items`). Mantemos o adapter
+ * simples — só renomeia o campo da coleção.
  */
-function compareSystemGroups(a: PermissionSystemGroup, b: PermissionSystemGroup): number {
-  const aOrphan = a.systemCode === ORPHAN_DISPLAY_CODE;
-  const bOrphan = b.systemCode === ORPHAN_DISPLAY_CODE;
-  if (aOrphan && !bOrphan) return 1;
-  if (!aOrphan && bOrphan) return -1;
-  return compareStrings(a.systemCode, b.systemCode);
-}
-
-/**
- * Constrói os buckets indexados por `systemCode` (ou `__orphan__`
- * quando o sistema não está denormalizado). Função separada de
- * `groupPermissionsBySystem` para reduzir complexidade cognitiva
- * conforme regra do `eslint-plugin-sonarjs` (limite 15).
- */
-function buildBuckets(
-  permissions: ReadonlyArray<PermissionDto>,
-): { buckets: Map<string, PermissionDto[]>; systemMeta: Map<string, SystemMeta> } {
-  const buckets = new Map<string, PermissionDto[]>();
-  const systemMeta = new Map<string, SystemMeta>();
-
-  for (const perm of permissions) {
-    const isOrphan = perm.systemCode.length === 0;
-    const key = isOrphan ? ORPHAN_BUCKET_KEY : perm.systemCode;
-    const existingBucket = buckets.get(key);
-    if (existingBucket) {
-      existingBucket.push(perm);
-      continue;
-    }
-    buckets.set(key, [perm]);
-    systemMeta.set(key, {
-      systemId: perm.systemId,
-      systemCode: isOrphan ? ORPHAN_DISPLAY_CODE : perm.systemCode,
-      systemName: perm.systemName.length > 0 ? perm.systemName : 'Sem sistema',
-    });
-  }
-
-  return { buckets, systemMeta };
+function toPermissionGroup(group: SystemGroup<PermissionDto>): PermissionSystemGroup {
+  return {
+    systemId: group.systemId,
+    systemCode: group.systemCode,
+    systemName: group.systemName,
+    permissions: group.items,
+  };
 }
 
 /**
@@ -159,35 +129,17 @@ function buildBuckets(
  * 2. Permissões dentro de cada grupo por `routeCode` então
  *    `permissionTypeCode` (mesmo critério do backend para listagens).
  *
- * Função pura — entrada imutável, saída nova. A complexidade
- * cognitiva é mantida abaixo do limite Sonar via sub-funções
- * dedicadas (`buildBuckets`/`comparePermissionsInGroup`/
- * `compareSystemGroups`).
+ * Função pura — entrada imutável, saída nova. A complexidade cognitiva
+ * fica abaixo do limite Sonar via delegação ao `groupBySystem` genérico
+ * (`src/shared/listing/groupBySystem.ts`).
  */
 export function groupPermissionsBySystem(
   permissions: ReadonlyArray<PermissionDto>,
 ): ReadonlyArray<PermissionSystemGroup> {
-  if (permissions.length === 0) {
-    return [];
-  }
-
-  const { buckets, systemMeta } = buildBuckets(permissions);
-
-  const groups: PermissionSystemGroup[] = [];
-  for (const [key, items] of buckets) {
-    const meta = systemMeta.get(key);
-    if (!meta) continue;
-    items.sort(comparePermissionsInGroup);
-    groups.push({
-      systemId: meta.systemId,
-      systemCode: meta.systemCode,
-      systemName: meta.systemName,
-      permissions: items,
-    });
-  }
-
-  groups.sort(compareSystemGroups);
-  return groups;
+  const groups = groupBySystem(permissions, {
+    compareItems: comparePermissionsInGroup,
+  });
+  return groups.map(toPermissionGroup);
 }
 
 /**
@@ -281,35 +233,27 @@ export function buildRoleMembershipsByPermission(
  * Resultados ordenados pela ordem natural dos ids (`localeCompare`)
  * para tornar o teste determinístico — a UI não depende da ordem,
  * mas testes que comparam arrays se beneficiam.
+ *
+ * Implementação delega ao `computeIdSetDiff` genérico em
+ * `src/shared/forms/computeIdSetDiff.ts` — o cálculo é idêntico ao da
+ * Issue #71 (roles), portanto centralizar evita duplicação que o
+ * Sonar tokenizaria.
  */
 export function computeAssignmentDiff(
   originalDirect: ReadonlySet<PermissionId>,
   selectedDirect: ReadonlySet<PermissionId>,
 ): PermissionAssignmentDiff {
-  const toAdd: PermissionId[] = [];
-  const toRemove: PermissionId[] = [];
-
-  for (const id of selectedDirect) {
-    if (!originalDirect.has(id)) {
-      toAdd.push(id);
-    }
-  }
-  for (const id of originalDirect) {
-    if (!selectedDirect.has(id)) {
-      toRemove.push(id);
-    }
-  }
-
-  toAdd.sort((a, b) => compareStrings(a, b));
-  toRemove.sort((a, b) => compareStrings(a, b));
-
-  return { toAdd, toRemove };
+  return computeIdSetDiff(originalDirect, selectedDirect);
 }
 
 /**
  * Devolve `true` quando o diff contém ao menos uma operação. Usado
  * pela UI para habilitar/desabilitar o botão "Salvar".
+ *
+ * Implementação delega ao `idSetDiffHasChanges` genérico para preservar
+ * fonte única de verdade entre Issue #70 (permissões) e Issue #71
+ * (roles).
  */
 export function diffHasChanges(diff: PermissionAssignmentDiff): boolean {
-  return diff.toAdd.length > 0 || diff.toRemove.length > 0;
+  return idSetDiffHasChanges(diff);
 }

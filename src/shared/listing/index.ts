@@ -44,7 +44,43 @@ export {
   ToolbarActions,
 } from './styles';
 
+export {
+  AssignmentMatrixShell,
+  type AssignmentMatrixShellProps,
+} from './AssignmentMatrixShell';
+export {
+  EmptyHint as AssignmentEmptyHint,
+  EmptyShell as AssignmentEmptyShell,
+  EmptyTitle as AssignmentEmptyTitle,
+  GroupCard as AssignmentGroupCard,
+  GroupCode as AssignmentGroupCode,
+  GroupCount as AssignmentGroupCount,
+  GroupHeader as AssignmentGroupHeader,
+  GroupList as AssignmentGroupList,
+  GroupName as AssignmentGroupName,
+  ItemBadges as AssignmentItemBadges,
+  ItemCodeChip as AssignmentItemCodeChip,
+  ItemDescription as AssignmentItemDescription,
+  ItemDetails as AssignmentItemDetails,
+  ItemList as AssignmentItemList,
+  ItemMetaRow as AssignmentItemMetaRow,
+  ItemPrimaryText as AssignmentItemPrimaryText,
+  ItemRow as AssignmentItemRow,
+  ItemTitleRow as AssignmentItemTitleRow,
+  LegendBar as AssignmentLegendBar,
+  LegendCopy as AssignmentLegendCopy,
+  LegendItem as AssignmentLegendItem,
+  LoadingCopy as AssignmentLoadingCopy,
+  LoadingShell as AssignmentLoadingShell,
+  SaveCounter as AssignmentSaveCounter,
+} from './AssignmentMatrixStyles';
 export { ErrorRetryBlock } from './ErrorRetryBlock';
+export {
+  groupBySystem,
+  type GroupBySystemOptions,
+  type SystemGroup,
+  type SystemGroupItem,
+} from './groupBySystem';
 export { InitialLoadingSpinner } from './InitialLoadingSpinner';
 export { ListingToolbar } from './ListingToolbar';
 export { LiveRegion } from './LiveRegion';

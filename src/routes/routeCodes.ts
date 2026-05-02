@@ -68,6 +68,16 @@ const ROUTE_CODES: ReadonlyArray<RouteCodeEntry> = [
   // intencional para preservar o invariante "um routeCode por linha"
   // exigido pelos testes de sanidade.
   { pattern: '/systems/:id/routes', routeCode: 'AUTH_V1_SYSTEMS_ROUTES_LIST' },
+  // Issue #69 (EPIC #47): tela de associação de permissões a uma
+  // role específica do sistema. Sub-rota mais específica precede a
+  // listagem `/systems/:id/roles` no `matchPath` — o backend
+  // (`RolesController.AssignPermission`) exige policy
+  // `RolesUpdate`, code `AUTH_V1_ROLES_UPDATE`. Espelha a estratégia
+  // de `/usuarios/:id/permissoes` (Issue #70 — `AUTH_V1_USERS_PERMISSIONS_ASSIGN`).
+  {
+    pattern: '/systems/:systemId/roles/:roleId/permissoes',
+    routeCode: 'AUTH_V1_ROLES_UPDATE',
+  },
   // Issue #66 (EPIC #47): listagem de roles escopada a um sistema.
   // Mesma decisão da Issue #62 — `/systems/:id/roles` é o caminho
   // canônico cadastrado pelo `AuthenticatorRoutesSeeder` para
@@ -91,6 +101,11 @@ const ROUTE_CODES: ReadonlyArray<RouteCodeEntry> = [
   // ativo das EPICs.
   { pattern: '/permissoes', routeCode: 'AUTH_V1_PERMISSIONS_LIST' },
   { pattern: '/usuarios/:id/permissoes', routeCode: 'AUTH_V1_USERS_PERMISSIONS_ASSIGN' },
+  // Issue #71: tela de atribuição via role a um usuário específico.
+  // Pattern mais específico que `/usuarios/:id`, precisa vencer no
+  // `matchPath({ end: false })`. Espelha o ordenamento de
+  // `/usuarios/:id/permissoes` (Issue #70).
+  { pattern: '/usuarios/:id/roles', routeCode: 'AUTH_V1_USERS_ROLES_ASSIGN' },
   { pattern: '/usuarios/:id', routeCode: 'AUTH_V1_USERS_GET_BY_ID' },
   { pattern: '/usuarios', routeCode: 'AUTH_V1_USERS_LIST' },
   { pattern: '/clientes/:id', routeCode: 'AUTH_V1_CLIENTS_GET_BY_ID' },

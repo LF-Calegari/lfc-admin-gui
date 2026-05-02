@@ -106,6 +106,7 @@ export type {
   UpdateRoutePayload,
 } from './routes';
 export {
+  assignPermissionToRole,
   createRole,
   DEFAULT_ROLES_INCLUDE_DELETED,
   DEFAULT_ROLES_PAGE,
@@ -113,13 +114,17 @@ export {
   deleteRole,
   isPagedRolesResponse,
   isRoleDto,
+  isRolePermissionLinkDto,
+  listRolePermissions,
   listRoles,
+  removePermissionFromRole,
   updateRole,
 } from './roles';
 export type {
   CreateRolePayload,
   ListRolesParams,
   RoleDto,
+  RolePermissionLinkDto,
   UpdateRolePayload,
 } from './roles';
 export {

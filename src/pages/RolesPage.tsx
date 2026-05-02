@@ -1,6 +1,6 @@
-import { ArrowLeft, Pencil } from "lucide-react";
+import { ArrowLeft, KeyRound, Pencil } from "lucide-react";
 import React, { useCallback, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 
 import { PageHeader } from "../components/layout/PageHeader";
 import { Alert, Button, Table } from "../components/ui";
@@ -137,6 +137,7 @@ export const RolesPage: React.FC<RolesPageProps> = ({ client }) => {
   // sem `:systemId` pinta o `InvalidIdNotice` no lugar da listagem.
   const { systemId } = useParams<{ systemId: string }>();
   const hasValidSystemId = isProbablyValidSystemId(systemId);
+  const navigate = useNavigate();
 
   const { hasPermission } = useAuth();
   const canUpdateRole = hasPermission(ROLES_UPDATE_PERMISSION);
@@ -184,6 +185,23 @@ export const RolesPage: React.FC<RolesPageProps> = ({ client }) => {
   const handleCloseEditModal = useCallback(() => {
     setEditingRole(null);
   }, []);
+
+  /**
+   * Navega para a tela de associação de permissões da role
+   * (Issue #69). O caminho é construído com o `:systemId` atual
+   * (preservando a IA de "tudo escopado por sistema") e o id da role
+   * clicada. Imperativo via `useNavigate` para preservar a UX
+   * (botão dentro de tabela) — alternativa com `<Link>` envolvendo
+   * `<Button>` exigiria `as`-prop polimórfica que o Button não
+   * suporta hoje.
+   */
+  const handleOpenPermissions = useCallback(
+    (row: RoleDto) => {
+      if (!hasValidSystemId) return;
+      navigate(`/systems/${systemId}/roles/${row.id}/permissoes`);
+    },
+    [hasValidSystemId, navigate, systemId],
+  );
 
   /**
    * `fetcher` memoizado para o `usePaginatedFetch`: capture os params
@@ -318,10 +336,11 @@ export const RolesPage: React.FC<RolesPageProps> = ({ client }) => {
     ];
 
     // Coluna "Ações" só aparece quando o usuário tem alguma ação
-    // disponível. Hoje "Editar" (Issue #68); a paridade total com
-    // Sistemas/Rotas (criar via toolbar, desativar/restaurar) fica
-    // para issues futuras da EPIC #47. Espelha a estratégia do
-    // `RoutesPage`/`SystemsPage`.
+    // disponível. Hoje "Editar" (Issue #68) + "Permissões" (Issue
+    // #69, abre `/systems/:systemId/roles/:roleId/permissoes`); a
+    // paridade total com Sistemas/Rotas (criar via toolbar,
+    // desativar/restaurar) fica para issues futuras da EPIC #47.
+    // Espelha a estratégia do `RoutesPage`/`SystemsPage`.
     if (canUpdateRole) {
       base.push({
         key: "actions",
@@ -330,22 +349,45 @@ export const RolesPage: React.FC<RolesPageProps> = ({ client }) => {
         render: (row) => (
           <RowActions>
             {row.deletedAt === null && (
-              // "Editar" só faz sentido em roles ativas. O backend
+              // Ações só fazem sentido em roles ativas. O backend
               // devolve 404 ao tentar PUT em role soft-deletada
               // (`Roles.FirstOrDefaultAsync` cai no query filter
               // global), mas esconder no UI alinha com a coluna
               // Status. Espelha a estratégia de `RoutesPage`/
               // `SystemsPage`.
-              <Button
-                variant="ghost"
-                size="sm"
-                icon={<Pencil size={14} strokeWidth={1.5} />}
-                onClick={() => handleOpenEditModal(row)}
-                aria-label={`Editar role ${row.name}`}
-                data-testid={`roles-edit-${row.id}`}
-              >
-                Editar
-              </Button>
+              <>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon={<Pencil size={14} strokeWidth={1.5} />}
+                  onClick={() => handleOpenEditModal(row)}
+                  aria-label={`Editar role ${row.name}`}
+                  data-testid={`roles-edit-${row.id}`}
+                >
+                  Editar
+                </Button>
+                {/*
+                  Issue #69 — entrada na tela de associação de
+                  permissões. Navega imperativamente via
+                  `useNavigate` para preservar o look-and-feel das
+                  ações inline (`<Button variant="ghost">`); o
+                  `Button` atual não tem polimorfismo de `as`-prop,
+                  então o `<Link>` direto não combinaria visualmente
+                  sem hack de `style`. O caminho é construído com o
+                  `:systemId` da URL atual + `row.id` da role da
+                  linha.
+                */}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon={<KeyRound size={14} strokeWidth={1.5} />}
+                  onClick={() => handleOpenPermissions(row)}
+                  aria-label={`Permissões da role ${row.name}`}
+                  data-testid={`roles-permissions-${row.id}`}
+                >
+                  Permissões
+                </Button>
+              </>
             )}
           </RowActions>
         ),
@@ -353,7 +395,7 @@ export const RolesPage: React.FC<RolesPageProps> = ({ client }) => {
     }
 
     return base;
-  }, [canUpdateRole, handleOpenEditModal]);
+  }, [canUpdateRole, handleOpenEditModal, handleOpenPermissions]);
 
   const showOverlay = isFetching && !isInitialLoading;
 
@@ -498,6 +540,16 @@ export const RolesPage: React.FC<RolesPageProps> = ({ client }) => {
                       data-testid={`roles-card-edit-${row.id}`}
                     >
                       Editar
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      icon={<KeyRound size={14} strokeWidth={1.5} />}
+                      onClick={() => handleOpenPermissions(row)}
+                      aria-label={`Permissões da role ${row.name}`}
+                      data-testid={`roles-card-permissions-${row.id}`}
+                    >
+                      Permissões
                     </Button>
                   </RowActions>
                 )}

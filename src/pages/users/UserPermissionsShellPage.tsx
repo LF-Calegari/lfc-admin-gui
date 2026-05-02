@@ -1,7 +1,6 @@
 import { ArrowLeft, Info, Save } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import styled from 'styled-components';
 
 import { PageHeader } from '../../components/layout/PageHeader';
 import {
@@ -21,6 +20,30 @@ import {
   removePermissionFromUser,
 } from '../../shared/api';
 import {
+  AssignmentEmptyHint,
+  AssignmentEmptyShell,
+  AssignmentEmptyTitle,
+  AssignmentGroupCard,
+  AssignmentGroupCode,
+  AssignmentGroupCount,
+  AssignmentGroupHeader,
+  AssignmentGroupList,
+  AssignmentGroupName,
+  AssignmentItemBadges,
+  AssignmentItemCodeChip,
+  AssignmentItemDescription,
+  AssignmentItemDetails,
+  AssignmentItemList,
+  AssignmentItemMetaRow,
+  AssignmentItemPrimaryText,
+  AssignmentItemRow,
+  AssignmentItemTitleRow,
+  AssignmentLegendBar,
+  AssignmentLegendCopy,
+  AssignmentLegendItem,
+  AssignmentLoadingCopy,
+  AssignmentLoadingShell,
+  AssignmentSaveCounter,
   BackLink,
   ErrorRetryBlock,
   InvalidIdNotice,
@@ -351,35 +374,47 @@ export const UserPermissionsShellPage: React.FC<UserPermissionsShellPageProps> =
             >
               Salvar alterações
               {hasUnsavedChanges && (
-                <SaveCounter aria-label={`${diff.toAdd.length + diff.toRemove.length} alterações pendentes`}>
+                <AssignmentSaveCounter
+                  aria-label={`${diff.toAdd.length + diff.toRemove.length} alterações pendentes`}
+                >
                   {diff.toAdd.length + diff.toRemove.length}
-                </SaveCounter>
+                </AssignmentSaveCounter>
               )}
             </Button>
           </>
         }
       />
 
-      <LegendBar role="note" aria-label="Legenda de origem das permissões">
-        <LegendItem>
+      <AssignmentLegendBar
+        role="note"
+        aria-label="Legenda de origem das permissões"
+      >
+        <AssignmentLegendItem>
           <Badge variant="success" dot>
             Direta
           </Badge>
-          <LegendCopy>vínculo direto com o usuário (editável aqui).</LegendCopy>
-        </LegendItem>
-        <LegendItem>
+          <AssignmentLegendCopy>
+            vínculo direto com o usuário (editável aqui).
+          </AssignmentLegendCopy>
+        </AssignmentLegendItem>
+        <AssignmentLegendItem>
           <Badge variant="info" dot>
             Herdada
           </Badge>
-          <LegendCopy>recebida via role do usuário — edite a role para alterar.</LegendCopy>
-        </LegendItem>
-      </LegendBar>
+          <AssignmentLegendCopy>
+            recebida via role do usuário — edite a role para alterar.
+          </AssignmentLegendCopy>
+        </AssignmentLegendItem>
+      </AssignmentLegendBar>
 
       {state.isInitialLoading && (
-        <LoadingShell data-testid="user-permissions-loading" aria-live="polite">
+        <AssignmentLoadingShell
+          data-testid="user-permissions-loading"
+          aria-live="polite"
+        >
           <Spinner size="md" tone="accent" />
-          <LoadingCopy>Carregando permissões…</LoadingCopy>
-        </LoadingShell>
+          <AssignmentLoadingCopy>Carregando permissões…</AssignmentLoadingCopy>
+        </AssignmentLoadingShell>
       )}
 
       {!state.isInitialLoading && state.errorMessage && (
@@ -391,18 +426,20 @@ export const UserPermissionsShellPage: React.FC<UserPermissionsShellPageProps> =
       )}
 
       {!state.isInitialLoading && !state.errorMessage && groups.length === 0 && (
-        <EmptyShell data-testid="user-permissions-empty">
+        <AssignmentEmptyShell data-testid="user-permissions-empty">
           <Info size={20} strokeWidth={1.5} aria-hidden="true" />
-          <EmptyTitle>Nenhuma permissão cadastrada no catálogo.</EmptyTitle>
-          <EmptyHint>
+          <AssignmentEmptyTitle>
+            Nenhuma permissão cadastrada no catálogo.
+          </AssignmentEmptyTitle>
+          <AssignmentEmptyHint>
             Cadastre permissões na seção Permissões antes de atribuir
             diretamente a um usuário.
-          </EmptyHint>
-        </EmptyShell>
+          </AssignmentEmptyHint>
+        </AssignmentEmptyShell>
       )}
 
       {!state.isInitialLoading && !state.errorMessage && groups.length > 0 && (
-        <GroupList aria-label="Permissões agrupadas por sistema">
+        <AssignmentGroupList aria-label="Permissões agrupadas por sistema">
           {groups.map((group) => (
             <PermissionGroup
               key={group.systemId || group.systemCode}
@@ -414,7 +451,7 @@ export const UserPermissionsShellPage: React.FC<UserPermissionsShellPageProps> =
               onToggle={handleTogglePermission}
             />
           ))}
-        </GroupList>
+        </AssignmentGroupList>
       )}
     </>
   );
@@ -437,15 +474,19 @@ const PermissionGroup: React.FC<PermissionGroupProps> = ({
   isSaving,
   onToggle,
 }) => (
-  <GroupCard data-testid={`user-permissions-group-${group.systemCode}`}>
-    <GroupHeader>
-      <GroupCode>{group.systemCode}</GroupCode>
-      <GroupName>{group.systemName}</GroupName>
-      <GroupCount aria-label={`${group.permissions.length} permissões neste sistema`}>
+  <AssignmentGroupCard
+    data-testid={`user-permissions-group-${group.systemCode}`}
+  >
+    <AssignmentGroupHeader>
+      <AssignmentGroupCode>{group.systemCode}</AssignmentGroupCode>
+      <AssignmentGroupName>{group.systemName}</AssignmentGroupName>
+      <AssignmentGroupCount
+        aria-label={`${group.permissions.length} permissões neste sistema`}
+      >
         {group.permissions.length}
-      </GroupCount>
-    </GroupHeader>
-    <PermissionList>
+      </AssignmentGroupCount>
+    </AssignmentGroupHeader>
+    <AssignmentItemList>
       {group.permissions.map((perm) => {
         const isSelected = selectedDirect.has(perm.id);
         const wasOriginallyDirect = originalDirect.has(perm.id);
@@ -453,7 +494,7 @@ const PermissionGroup: React.FC<PermissionGroupProps> = ({
         const isInherited = inheritedRoles.length > 0;
         const isPending = isSelected !== wasOriginallyDirect;
         return (
-          <PermissionItem
+          <AssignmentItemRow
             key={perm.id}
             data-testid={`user-permissions-item-${perm.id}`}
             data-pending={isPending || undefined}
@@ -465,20 +506,24 @@ const PermissionGroup: React.FC<PermissionGroupProps> = ({
               aria-label={`${perm.routeName || perm.routeCode} · ${perm.permissionTypeName || perm.permissionTypeCode}`}
               data-testid={`user-permissions-checkbox-${perm.id}`}
             />
-            <PermissionDetails>
-              <PermissionTitle>
-                <PermissionRoute>{perm.routeName || perm.routeCode}</PermissionRoute>
-                <PermissionType>
+            <AssignmentItemDetails>
+              <AssignmentItemTitleRow>
+                <AssignmentItemPrimaryText>
+                  {perm.routeName || perm.routeCode}
+                </AssignmentItemPrimaryText>
+                <AssignmentItemCodeChip>
                   <Mono>{perm.permissionTypeCode}</Mono>
-                </PermissionType>
-              </PermissionTitle>
-              <PermissionMeta>
+                </AssignmentItemCodeChip>
+              </AssignmentItemTitleRow>
+              <AssignmentItemMetaRow>
                 <Mono>{perm.routeCode || '—'}</Mono>
                 {perm.description && (
-                  <PermissionDescription>{perm.description}</PermissionDescription>
+                  <AssignmentItemDescription>
+                    {perm.description}
+                  </AssignmentItemDescription>
                 )}
-              </PermissionMeta>
-              <PermissionBadges>
+              </AssignmentItemMetaRow>
+              <AssignmentItemBadges>
                 {wasOriginallyDirect && (
                   <Badge variant="success" dot>
                     Direta
@@ -494,13 +539,13 @@ const PermissionGroup: React.FC<PermissionGroupProps> = ({
                     {isSelected ? 'Adição pendente' : 'Remoção pendente'}
                   </Badge>
                 )}
-              </PermissionBadges>
-            </PermissionDetails>
-          </PermissionItem>
+              </AssignmentItemBadges>
+            </AssignmentItemDetails>
+          </AssignmentItemRow>
         );
       })}
-    </PermissionList>
-  </GroupCard>
+    </AssignmentItemList>
+  </AssignmentGroupCard>
 );
 
 /**
@@ -537,212 +582,3 @@ function extractErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
-const SaveCounter = styled.span`
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 6px;
-  border-radius: var(--radius-full);
-  background: var(--clr-forest);
-  color: var(--clr-lime);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: var(--weight-semibold);
-  line-height: 1;
-`;
-
-const LegendBar = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-3) var(--space-5);
-  padding: var(--space-3) var(--space-4);
-  margin-bottom: var(--space-5);
-  background: var(--bg-surface);
-  border: var(--border-thin) solid var(--border-subtle);
-  border-radius: var(--radius-md);
-`;
-
-const LegendItem = styled.div`
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-`;
-
-const LegendCopy = styled.span`
-  font-size: var(--text-xs);
-  color: var(--fg2);
-  line-height: var(--leading-base);
-`;
-
-const LoadingShell = styled.div`
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-3);
-  padding: var(--space-12) 0;
-  color: var(--text-muted);
-`;
-
-const LoadingCopy = styled.span`
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  letter-spacing: var(--tracking-wider);
-`;
-
-const EmptyShell = styled.div`
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-10) var(--space-4);
-  color: var(--text-muted);
-  background: var(--bg-surface);
-  border: var(--border-thin) dashed var(--border-base);
-  border-radius: var(--radius-lg);
-`;
-
-const EmptyTitle = styled.span`
-  font-size: var(--text-sm);
-  color: var(--fg2);
-`;
-
-const EmptyHint = styled.span`
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  text-align: center;
-  max-width: 60ch;
-`;
-
-const GroupList = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-5);
-`;
-
-const GroupCard = styled.section`
-  background: var(--bg-surface);
-  border: var(--border-thin) solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-`;
-
-const GroupHeader = styled.header`
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  border-bottom: var(--border-thin) solid var(--border-subtle);
-  background: var(--bg-elevated);
-`;
-
-const GroupCode = styled.span`
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  letter-spacing: var(--tracking-wider);
-  text-transform: uppercase;
-  color: var(--accent-ink);
-`;
-
-const GroupName = styled.h3`
-  font-size: var(--text-md);
-  font-weight: var(--weight-semibold);
-  color: var(--fg1);
-  margin: 0;
-  letter-spacing: -0.01em;
-`;
-
-const GroupCount = styled.span`
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 22px;
-  padding: 2px 8px;
-  border-radius: var(--radius-full);
-  background: var(--bg-base);
-  border: var(--border-thin) solid var(--border-subtle);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--fg2);
-`;
-
-const PermissionList = styled.ul`
-  list-style: none;
-  margin: 0;
-  padding: 0;
-`;
-
-const PermissionItem = styled.li`
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  border-bottom: var(--border-thin) solid var(--border-subtle);
-  transition: background var(--duration-fast) var(--ease-default);
-
-  &:last-child {
-    border-bottom: none;
-  }
-
-  &:hover {
-    background: var(--bg-ghost-hover);
-  }
-
-  &[data-pending='true'] {
-    background: color-mix(in srgb, var(--warning) 6%, transparent);
-  }
-`;
-
-const PermissionDetails = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  flex: 1;
-  min-width: 0;
-`;
-
-const PermissionTitle = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--space-2);
-`;
-
-const PermissionRoute = styled.span`
-  font-size: var(--text-sm);
-  font-weight: var(--weight-medium);
-  color: var(--fg1);
-`;
-
-const PermissionType = styled.span`
-  display: inline-flex;
-  padding: 1px 6px;
-  border-radius: var(--radius-sm);
-  background: var(--bg-elevated);
-  border: var(--border-thin) solid var(--border-subtle);
-`;
-
-const PermissionMeta = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2) var(--space-3);
-  align-items: center;
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-`;
-
-const PermissionDescription = styled.span`
-  font-size: var(--text-xs);
-  color: var(--fg2);
-  line-height: var(--leading-base);
-`;
-
-const PermissionBadges = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  margin-top: var(--space-1);
-`;

@@ -90,10 +90,17 @@ export function createRolesClientStub(): ApiClientStub {
  * `usersCount`) ficam `null` por default para refletir o estado
  * **atual** do backend (TODO no model); testes que exercitam o
  * caminho "backend devolveu o valor" sobrescrevem explicitamente.
+ *
+ * `systemId` é incluído por default apontando para `ID_SYS_AUTH` para
+ * casar com o contrato pós-`lfc-authenticator#163` (campo passou a
+ * ser obrigatório no model `AppRole`); testes podem sobrescrever para
+ * `null` quando precisarem exercer o caminho "fixture legado sem o
+ * campo".
  */
 export function makeRole(overrides: Partial<RoleDto> = {}): RoleDto {
   return {
     id: ID_ROLE_ROOT,
+    systemId: ID_SYS_AUTH,
     name: "Root",
     code: "root",
     description: null,

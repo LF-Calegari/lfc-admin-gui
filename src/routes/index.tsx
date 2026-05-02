@@ -9,6 +9,7 @@ import { LoginPage } from '../pages/LoginPage';
 import { NotFoundPage } from '../pages/NotFoundPage';
 import { PermissionsListShellPage } from '../pages/permissions';
 import { PlaceholderPage } from '../pages/PlaceholderPage';
+import { RolePermissionsShellPage } from '../pages/roles/RolePermissionsShellPage';
 import { RolesPage } from '../pages/RolesPage';
 import { RoutesPage } from '../pages/RoutesPage';
 import { SettingsPage } from '../pages/SettingsPage';
@@ -18,6 +19,7 @@ import { UnauthorizedPage } from '../pages/UnauthorizedPage';
 import {
   UserDetailShellPage,
   UserPermissionsShellPage,
+  UserRolesShellPage,
   UsersListShellPage,
 } from '../pages/users';
 import { RequireAuth, RequirePermission } from '../shared/auth';
@@ -126,6 +128,25 @@ export const AppRoutes: React.FC = () => (
         }
       />
       <Route
+        path="/systems/:systemId/roles/:roleId/permissoes"
+        element={
+          // Issue #69: a tela exige LER o catálogo de permissões
+          // (`AUTH_V1_PERMISSIONS_LIST`) E ATUALIZAR a role
+          // (`AUTH_V1_ROLES_UPDATE`). Aninhamos `RequirePermission`
+          // para validar ambas — ordem é irrelevante visualmente, mas
+          // começamos pela leitura para que o erro mais comum (admin
+          // sem `Permissions.Read`) fale primeiro: se o catálogo não
+          // pode nem ser carregado, salvar não faz sentido. Espelha
+          // o padrão estabelecido em `/usuarios/:id/permissoes` para
+          // `UserPermissionsShellPage` (Issue #70).
+          <RequirePermission code="AUTH_V1_PERMISSIONS_LIST">
+            <RequirePermission code="AUTH_V1_ROLES_UPDATE">
+              <RolePermissionsShellPage />
+            </RequirePermission>
+          </RequirePermission>
+        }
+      />
+      <Route
         path="/routes"
         element={
           <RequirePermission code="AUTH_V1_SYSTEMS_ROUTES_LIST">
@@ -203,6 +224,24 @@ export const AppRoutes: React.FC = () => (
           <RequirePermission code="AUTH_V1_PERMISSIONS_LIST">
             <RequirePermission code="AUTH_V1_USERS_PERMISSIONS_ASSIGN">
               <UserPermissionsShellPage />
+            </RequirePermission>
+          </RequirePermission>
+        }
+      />
+      <Route
+        path="/usuarios/:id/roles"
+        element={
+          // Issue #71: a tela exige LER o catálogo de roles
+          // (`AUTH_V1_ROLES_LIST`) E ATUALIZAR o vínculo no usuário
+          // (`AUTH_V1_USERS_ROLES_ASSIGN`). Aninhamos `RequirePermission`
+          // para validar ambas — espelha o gating de
+          // `/usuarios/:id/permissoes` (Issue #70) para que ambas as
+          // telas tenham UX consistente. Começamos pela leitura para
+          // que o erro mais comum (admin sem `Roles.Read`) fale
+          // primeiro.
+          <RequirePermission code="AUTH_V1_ROLES_LIST">
+            <RequirePermission code="AUTH_V1_USERS_ROLES_ASSIGN">
+              <UserRolesShellPage />
             </RequirePermission>
           </RequirePermission>
         }

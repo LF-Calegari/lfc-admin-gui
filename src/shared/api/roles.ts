@@ -37,23 +37,14 @@ function makeParseError(): ApiError {
  *
  * **Estado atual do contrato (snapshot do backend em `RolesController.cs`):**
  *
- * O backend hoje expõe `/roles` como recurso **global** (não vinculado
- * a um sistema) e devolve `RoleResponse(Id, Name, Code, CreatedAt,
- * UpdatedAt, DeletedAt)`. Os campos abaixo marcados como TODO ainda
- * não são devolvidos pelo backend:
- *
- * - `description: string | null` — TODO no backend (`AppRole.Description`
- *   ainda não existe no model). Mantido como opcional/`null` no DTO
- *   para que a UI saiba renderizar "—" como placeholder hoje e exiba
- *   a descrição automaticamente quando o backend evoluir.
- * - `permissionsCount: number` / `usersCount: number` — TODO no backend
- *   (controller não inclui contagens no projection). Mantidos como
- *   opcionais para suportar o futuro `RoleResponse` enriquecido sem
- *   precisar de PR destrutivo nesta camada.
- * - `systemId` — TODO no backend (roles são globais hoje). A UI lê
- *   `:systemId` da URL para preservar a IA da EPIC #47 (listagem por
- *   sistema), mas o filtro real só passa a fazer sentido quando o
- *   model for estendido com `SystemId`.
+ * Após PR `lfc-authenticator#163`, o backend enriqueceu o
+ * `RoleResponse` com `SystemId` (obrigatório no model `AppRole`),
+ * `Description` (string|null persistida) e contagens
+ * (`PermissionsCount`/`UsersCount` via subselects EF). O endpoint
+ * `GET /roles` evoluiu para `PagedResponse<RoleResponse>` com filtros
+ * server-side (`systemId`, `q`, `page`, `pageSize`, `includeDeleted`)
+ * — `listRoles` consome o envelope diretamente, sem adapter
+ * client-side.
  *
  * As datas são serializadas pelo backend em ISO 8601 (UTC) — mantemos
  * como `string` porque a UI consome via `Intl.DateTimeFormat`/
@@ -61,30 +52,45 @@ function makeParseError(): ApiError {
  * cliente HTTP traria custo sem benefício. `deletedAt !== null` indica
  * soft-delete.
  *
- * Cada um dos campos opcionais acima passa pelo `isRoleDto` apenas
- * quando presente — payloads sem o campo (estado atual) continuam
- * válidos.
+ * **Compatibilidade:** mantemos `description`/`permissionsCount`/
+ * `usersCount` aceitando `null`/ausente para que mocks de teste e
+ * payloads de servidores menos atualizados continuem válidos. O
+ * `systemId` é obrigatório (não-nulo) — Issue #71 depende dele para
+ * agrupar a tabela de roles por sistema.
  */
 export interface RoleDto {
   id: string;
+  /**
+   * UUID do sistema dono da role. Após `lfc-authenticator#163` é
+   * obrigatório no model `AppRole` e a API rejeita `POST /roles` sem
+   * o campo — em produção, sempre vem preenchido. Issue #71 usa este
+   * valor para agrupar a tela de atribuição via role por sistema.
+   *
+   * Tipo `string | null` (em vez de `string` puro) preserva
+   * compatibilidade com fixtures de teste históricas e payloads de
+   * servidores menos atualizados — quando ausente, a UI cai no grupo
+   * "Sem sistema" do agrupamento por sistema (mesmo padrão do
+   * `PermissionDto` quando o LEFT JOIN do backend devolve
+   * `string.Empty`).
+   */
+  systemId: string | null;
   name: string;
   code: string;
   /**
-   * Descrição livre da role. Ainda **não enviada** pelo backend
-   * `lfc-authenticator` (`AppRole.Description` é TODO). A UI exibe
-   * "—" como placeholder enquanto o campo for `null`/`undefined`.
+   * Descrição livre da role. Após `lfc-authenticator#163` o backend
+   * persiste o valor (substring até 500 chars; vazio vira `null`). A
+   * UI exibe "—" como placeholder quando `null`/`undefined`.
    */
   description: string | null;
   /**
-   * Contagem de permissões vinculadas à role. Ainda **não enviada**
-   * pelo backend (TODO). A UI exibe "—" enquanto o valor for
-   * `null`/`undefined` — quando o backend devolver, a UI mostra
-   * automaticamente.
+   * Contagem de permissões vinculadas à role (subselect EF —
+   * `lfc-authenticator#163`). A UI exibe "—" quando `null`/`undefined`
+   * (mocks legados); aceitar opcional preserva compatibilidade.
    */
   permissionsCount: number | null;
   /**
-   * Contagem de usuários que possuem essa role. Mesmo status de
-   * `permissionsCount` — TODO no backend; a UI exibe "—" hoje.
+   * Contagem de usuários que possuem essa role (subselect EF). Mesmo
+   * status de `permissionsCount`.
    */
   usersCount: number | null;
   createdAt: string;
@@ -94,8 +100,12 @@ export interface RoleDto {
 
 /**
  * Type guard para `RoleDto`. Tolera `description`/`deletedAt`/
- * `permissionsCount`/`usersCount` ausentes (tratados como `null`) —
- * outros campos são obrigatórios e checados em runtime.
+ * `permissionsCount`/`usersCount` ausentes (tratados como `null`) e
+ * `systemId` ausente (tratado como string vazia para compatibilidade
+ * com fixtures legadas — o backend real após `lfc-authenticator#163`
+ * sempre devolve o campo, mas relaxar aqui evita refatoração em
+ * cascata em todos os mocks de teste antigos). Demais campos são
+ * obrigatórios e checados em runtime.
  *
  * Exportado para que outros call sites (ex.: `createRole`/`updateRole`
  * validando o `RoleResponse` devolvido pelo backend nas próximas
@@ -114,6 +124,9 @@ export function isRoleDto(value: unknown): value is RoleDto {
     typeof record.code === "string" &&
     typeof record.createdAt === "string" &&
     typeof record.updatedAt === "string" &&
+    (record.systemId === null ||
+      record.systemId === undefined ||
+      typeof record.systemId === "string") &&
     (record.description === null ||
       record.description === undefined ||
       typeof record.description === "string") &&
@@ -165,6 +178,18 @@ export function isPagedRolesResponse(
 export const DEFAULT_ROLES_PAGE = 1;
 export const DEFAULT_ROLES_PAGE_SIZE = 20;
 export const DEFAULT_ROLES_INCLUDE_DELETED = false;
+
+/**
+ * Limite superior aceito pelo backend para `pageSize` em `GET /roles`
+ * (`RolesController.MaxPageSize`). Issue #71 carrega TODAS as roles
+ * ativas do catálogo numa única requisição (matriz de checkboxes
+ * agrupada por sistema); subir além desse limite faz a request
+ * explodir em 400. Quando o catálogo de roles crescer além de 100,
+ * a issue pede revisitar (paginação real ou agrupar/colapsar por
+ * sistema com fetch lazy). Espelha `MAX_PERMISSIONS_PAGE_SIZE` em
+ * `permissions.ts`.
+ */
+export const MAX_ROLES_PAGE_SIZE = 100;
 
 /**
  * Parâmetros aceitos por `listRoles`.
@@ -424,6 +449,238 @@ export async function deleteRole(
   client: ApiClient = apiClient,
 ): Promise<void> {
   await client.delete<void>(`/roles/${id}`, options);
+}
+
+/**
+ * Lista **todas** as roles ativas do catálogo (todas as sistemas) via
+ * `GET /roles?pageSize=100` consumindo o envelope server-side
+ * `PagedResponse<RoleDto>` (após `lfc-authenticator#163`). Wrapper
+ * dedicado à Issue #71 — a tela de atribuição via role precisa do
+ * conjunto completo agrupado por sistema, e adicionar uma função
+ * separada evita que `listRoles` (consumida pela `RolesPage` da
+ * Issue #66 com adapter client-side) seja alterada e quebre a UI
+ * existente.
+ *
+ * **Por que função própria, não evolução de `listRoles`:** `listRoles`
+ * tem contrato e suíte de testes acoplados ao adapter client-side
+ * (filtra/ordena/paginará em memória sobre array cru). O backend
+ * pós-`#163` já devolve envelope, mas migrar `listRoles` para
+ * consumi-lo direto demanda revisão de testes da `RolesPage` e dos
+ * mocks — fora do escopo desta sub-issue. `listAllRoles` é o ponto
+ * de entrada limpo para a tela nova; a unificação dos dois wrappers
+ * fica para uma sub-issue de cleanup dedicada.
+ *
+ * Aceita `includeDeleted` opcional (default `false` — mesmo padrão das
+ * demais listagens) e aceita opcionalmente `pageSize` para limitar o
+ * volume de uma única request — defaults para `MAX_ROLES_PAGE_SIZE`
+ * (100, limite do backend) que é suficiente para a Issue #71. Quando
+ * o catálogo crescer além desse limite, a UI deve passar para
+ * paginação preguiçosa (revisitar via issue dedicada).
+ *
+ * Lança `ApiError` em qualquer falha (rede, parse, HTTP). O parâmetro
+ * `client` é injetável para isolar testes; em produção usa-se o
+ * singleton `apiClient`.
+ */
+export interface ListAllRolesParams {
+  /** Quando `true`, inclui roles com `deletedAt != null`. Default: false. */
+  includeDeleted?: boolean;
+  /** Itens por página. Default: `MAX_ROLES_PAGE_SIZE` (100). */
+  pageSize?: number;
+}
+
+export async function listAllRoles(
+  params: ListAllRolesParams = {},
+  options?: SafeRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<PagedResponse<RoleDto>> {
+  const search = new URLSearchParams();
+  const pageSize = params.pageSize ?? MAX_ROLES_PAGE_SIZE;
+  search.set("pageSize", String(pageSize));
+  if (params.includeDeleted === true) {
+    search.set("includeDeleted", "true");
+  }
+  const path = `/roles?${search.toString()}`;
+  const data = await client.get<unknown>(path, options);
+  if (!isPagedRolesResponse(data)) {
+    throw makeParseError();
+  }
+  return data;
+}
+
+/**
+ * Espelho do `RolePermissionResponse` do `lfc-authenticator`
+ * (`RolesController.RolePermissionResponse`) — devolvido em
+ * `POST /roles/{roleId}/permissions`. A UI da Issue #69 não consome
+ * os campos individualmente (refetch de `listRolePermissions`
+ * sincroniza o estado pós-mutação), mas tipamos o retorno para
+ * preservar contrato — qualquer evolução do backend é capturada pelo
+ * type guard.
+ *
+ * Backend é idempotente (mesmo padrão de `UserPermission`):
+ *
+ * - Vínculo inexistente → cria novo `RolePermission` (`201 Created`).
+ * - Vínculo soft-deletado → reativa (`DeletedAt = null`, `200 OK`).
+ * - Vínculo já ativo → devolve o existente (`200 OK`).
+ */
+export interface RolePermissionLinkDto {
+  id: string;
+  roleId: string;
+  permissionId: string;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+/**
+ * Type guard para `RolePermissionLinkDto`. Tolera `deletedAt` ausente
+ * (tratado como `null`); demais campos obrigatórios e checados em
+ * runtime. Espelha `isUserPermissionLinkDto` em `permissions.ts`.
+ */
+export function isRolePermissionLinkDto(
+  value: unknown,
+): value is RolePermissionLinkDto {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.id === "string" &&
+    typeof record.roleId === "string" &&
+    typeof record.permissionId === "string" &&
+    typeof record.createdAt === "string" &&
+    typeof record.updatedAt === "string" &&
+    (record.deletedAt === null ||
+      record.deletedAt === undefined ||
+      typeof record.deletedAt === "string")
+  );
+}
+
+/**
+ * Lista as permissões atualmente vinculadas a uma role via
+ * `GET /roles/{roleId}/permissions` (lfc-authenticator —
+ * `RolesController.GetRolePermissions`).
+ *
+ * Devolve **apenas os ids** das permissões ativas vinculadas — a UI
+ * da Issue #69 cruza com o catálogo (`listPermissions(systemId)`)
+ * para construir a matriz de checkboxes. Backend devolve um array
+ * cru de `permissionId` (ou de objetos `{ permissionId }`); aceitamos
+ * ambos os formatos para tolerar evoluções pequenas no contrato (já
+ * vimos esse padrão de evolução em `tokenTypes.ts`).
+ *
+ * Lança `ApiError` em qualquer falha (404 quando a role não existe,
+ * parse quando o shape diverge). Cancelamento via `signal` em
+ * `options` é propagado para o cliente.
+ *
+ * O parâmetro `client` é injetável para isolar testes; em produção
+ * usa-se o singleton `apiClient`.
+ */
+export async function listRolePermissions(
+  roleId: string,
+  options?: SafeRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<ReadonlyArray<string>> {
+  const data = await client.get<unknown>(
+    `/roles/${roleId}/permissions`,
+    options,
+  );
+  return parseRolePermissionIds(data);
+}
+
+/**
+ * Normaliza a resposta do backend para um array imutável de
+ * `permissionId`. Aceita tanto o formato cru `string[]` (mais
+ * comum em endpoints "leves" no `lfc-authenticator`) quanto o
+ * formato `RolePermissionLinkDto[]` (mais simétrico com `assign`/
+ * `remove`); a UI só precisa do conjunto de ids para o checkbox.
+ *
+ * Lança `ApiError(parse)` em qualquer outro shape — protege contra
+ * divergência silenciosa de versão.
+ */
+function parseRolePermissionIds(data: unknown): ReadonlyArray<string> {
+  if (!Array.isArray(data)) {
+    throw makeParseError();
+  }
+  if (data.length === 0) {
+    return [];
+  }
+  if (data.every((item) => typeof item === "string")) {
+    return data;
+  }
+  if (data.every(isRolePermissionLinkDto)) {
+    return data.map((link) => link.permissionId);
+  }
+  throw makeParseError();
+}
+
+/**
+ * Vincula uma permissão a uma role via
+ * `POST /roles/{roleId}/permissions` (lfc-authenticator —
+ * `RolesController.AssignPermission`).
+ *
+ * Backend é idempotente:
+ *
+ * - Vínculo inexistente → cria novo `RolePermission` (`201 Created`).
+ * - Vínculo soft-deletado → reativa (`DeletedAt = null`, `200 OK`).
+ * - Vínculo já ativo → devolve o existente (`200 OK`).
+ *
+ * A UI trata todos como sucesso. Lança `ApiError`:
+ *
+ * - 400 → `permissionId` inválido/inexistente (toast + reverter o
+ *   checkbox).
+ * - 404 → role não encontrada (fechar a tela e voltar).
+ * - 401/403 → cliente HTTP já lidou com `onUnauthorized`/falta de
+ *   permissão; UI exibe toast.
+ *
+ * O parâmetro `client` é injetável para isolar testes; em produção
+ * usa-se o singleton `apiClient`. Espelha
+ * `assignPermissionToUser` em `permissions.ts`.
+ */
+export async function assignPermissionToRole(
+  roleId: string,
+  permissionId: string,
+  options?: BodyRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<RolePermissionLinkDto> {
+  const data = await client.post<unknown>(
+    `/roles/${roleId}/permissions`,
+    { permissionId },
+    options,
+  );
+  if (!isRolePermissionLinkDto(data)) {
+    throw makeParseError();
+  }
+  return data;
+}
+
+/**
+ * Remove o vínculo de uma permissão com a role via
+ * `DELETE /roles/{roleId}/permissions/{permissionId}` (lfc-authenticator
+ * — `RolesController.RemovePermission`).
+ *
+ * Backend faz soft-delete do vínculo (`DeletedAt = UtcNow`, `204 No
+ * Content`). Permissões vinculadas a outras roles **não** são
+ * afetadas — a remoção só zera o vínculo desta role.
+ *
+ * Lança `ApiError`:
+ *
+ * - 404 → vínculo não encontrado (a UI já está fora de sincronia;
+ *   refetch resolve).
+ * - 401/403 → cliente HTTP já lidou; UI exibe toast.
+ *
+ * O parâmetro `client` é injetável para isolar testes; em produção
+ * usa-se o singleton `apiClient`. Espelha
+ * `removePermissionFromUser` em `permissions.ts`.
+ */
+export async function removePermissionFromRole(
+  roleId: string,
+  permissionId: string,
+  options?: SafeRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<void> {
+  await client.delete<void>(
+    `/roles/${roleId}/permissions/${permissionId}`,
+    options,
+  );
 }
 
 /**
