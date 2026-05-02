@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import React from 'react';
 import { describe, expect, it } from 'vitest';
 
-import { ClientDetailShellPage, ClientsListShellPage } from '@/pages/clients';
+import { ClientsListShellPage } from '@/pages/clients';
 import { PermissionsListShellPage } from '@/pages/permissions';
 import { UserDetailShellPage } from '@/pages/users';
 
@@ -24,7 +24,9 @@ import { UserDetailShellPage } from '@/pages/users';
  * `tests/pages/UsersListShellPage.test.tsx`. Issue #70 promoveu a
  * `UserPermissionsShellPage` a tela funcional (matriz de checkbox por
  * permissão), com cobertura em
- * `tests/pages/users/UserPermissionsPage.test.tsx`.
+ * `tests/pages/users/UserPermissionsPage.test.tsx`. Issue #144 promoveu
+ * a `ClientDetailShellPage` a `ClientEditPage` (4 abas), com cobertura
+ * em `tests/pages/clients/ClientEditPage.test.tsx`.
  *
  * As asserts cobrem:
  * - Renderização sem warning/exception (cada shell é um componente
@@ -50,12 +52,10 @@ const SHELL_CASES: ReadonlyArray<ShellCase> = [
     eyebrow: '05 Clientes',
     title: 'Clientes',
   },
-  {
-    name: 'ClientDetailShellPage',
-    Component: ClientDetailShellPage,
-    eyebrow: '05 Clientes · Detalhe',
-    title: 'Detalhe do cliente',
-  },
+  // Nota: `ClientDetailShellPage` foi promovida pela Issue #144 a
+  // tela funcional `ClientEditPage` com 4 abas. Por isso não aparece
+  // mais nesta tabela — sua cobertura vive em
+  // `tests/pages/clients/ClientEditPage.test.tsx`.
   {
     name: 'PermissionsListShellPage',
     Component: PermissionsListShellPage,
