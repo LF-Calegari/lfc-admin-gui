@@ -229,7 +229,7 @@ function isNullableString(value: unknown): value is string | null | undefined {
  * coleções (`userIds`/`extraEmails`/`mobilePhones`/`landlinePhones`)
  * sem rejeitar fixtures minimalistas que omitem o campo.
  */
-function isOptionalArray<T>(
+function isOptionalArray(
   value: unknown,
   isItem: (item: unknown) => boolean,
 ): boolean {
