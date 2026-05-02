@@ -326,3 +326,111 @@ export async function submitFormAndAwait(
   });
   await awaitOn();
 }
+
+/* ─── Helpers para suíte de edição (Issue #68) ──────────────── */
+
+/**
+ * Empilha respostas no stub do cliente para simular a sequência
+ * típica da `RolesPage` ao abrir o modal de edição:
+ *
+ *  1. `GET /roles` (listagem inicial da página, com a role-alvo).
+ *  2. (opcional) `GET /roles` (refetch após atualização).
+ *
+ * Diferente de `mockOpenEditModalResponses` em
+ * `routesTestHelpers.tsx` (que precisa empilhar token types), o
+ * fluxo de edit de role só requer o GET inicial — não há
+ * dependências externas no modal. Centraliza para que cada teste
+ * da suíte de edição não duplique o mesmo `client.get
+ * .mockResolvedValueOnce` (lição PR #127 — trechos de 5+ linhas em
+ * 2+ testes são `New Code Duplication`).
+ */
+export function mockOpenEditModalResponses(
+  client: ApiClientStub,
+  options: { role?: RoleDto } = {},
+): void {
+  const role = options.role ?? makeRole();
+  client.get.mockResolvedValueOnce([role]);
+}
+
+/**
+ * Mocka a resposta inicial (listagem com a role-alvo), renderiza a
+ * `RolesPage`, espera a lista carregar e clica no botão "Editar"
+ * da linha da role informada. Aguarda a presença do form do modal
+ * (`edit-role-form`) para garantir que o efeito de sincronização
+ * já populou os campos.
+ *
+ * Espelha `openEditRouteModal`/`openEditModal` (sistemas) — pré-
+ * fabricado para evitar duplicação entre as suítes de edição
+ * (lição PR #128). Quem precisar de mocks diferentes pode chamar
+ * `client.get.mockXxx` antes para sobrescrever a fila — a
+ * detecção de mocks pré-existentes preserva o caso "fila
+ * customizada de respostas" (ex.: cenários de erro 404 com
+ * refetch).
+ */
+export async function openEditRoleModal(
+  client: ApiClientStub,
+  options: { role?: RoleDto } = {},
+): Promise<void> {
+  const role = options.role ?? makeRole();
+  if (
+    client.get.mock.calls.length === 0 &&
+    client.get.mock.results.length === 0
+  ) {
+    mockOpenEditModalResponses(client, { role });
+  }
+  renderRolesPage(client);
+  await waitForInitialList(client);
+  fireEvent.click(screen.getByTestId(`roles-edit-${role.id}`));
+  // Garante que o efeito do modal terminou — a presença do form
+  // indica que o `useEffect` de sincronização já rodou.
+  await waitFor(() => {
+    expect(screen.getByTestId("edit-role-form")).toBeInTheDocument();
+  });
+}
+
+/**
+ * Preenche os campos do form do `EditRoleModal`. Cada chave é
+ * opcional — testes que validam só `name` e `code` deixam
+ * `description` ausente. Espelha `fillEditRouteForm` mas com
+ * testIds `edit-role-*`.
+ */
+export function fillEditRoleForm(values: {
+  name?: string;
+  code?: string;
+  description?: string;
+}): void {
+  if (values.name !== undefined) {
+    fireEvent.change(screen.getByTestId("edit-role-name"), {
+      target: { value: values.name },
+    });
+  }
+  if (values.code !== undefined) {
+    fireEvent.change(screen.getByTestId("edit-role-code"), {
+      target: { value: values.code },
+    });
+  }
+  if (values.description !== undefined) {
+    fireEvent.change(screen.getByTestId("edit-role-description"), {
+      target: { value: values.description },
+    });
+  }
+}
+
+/**
+ * Submete o form do `EditRoleModal` e aguarda o `client.put` ser
+ * chamado pelo menos `expectedPutCalls` vezes (default `1`).
+ * Espelha `submitEditRouteForm`/`submitEditSystemForm` — `act` +
+ * `waitFor` para flushar a microtask do submit antes do assert.
+ */
+export async function submitEditRoleForm(
+  client: ApiClientStub,
+  expectedPutCalls = 1,
+): Promise<void> {
+  await act(async () => {
+    fireEvent.submit(screen.getByTestId("edit-role-form"));
+    await Promise.resolve();
+  });
+  await waitFor(() =>
+    expect(client.put).toHaveBeenCalledTimes(expectedPutCalls),
+  );
+}

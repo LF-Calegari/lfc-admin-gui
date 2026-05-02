@@ -19,17 +19,37 @@ export {
   classifyApiSubmitError,
   type ApiSubmitErrorAction,
   type ApiSubmitErrorCopy,
-} from './classifySubmitError';
-export { useFieldChangeHandlers, type FieldChangeHandlers } from './createFieldChangeHandler';
+} from "./classifySubmitError";
+export {
+  useFieldChangeHandlers,
+  type FieldChangeHandlers,
+} from "./createFieldChangeHandler";
 export {
   applyEditSubmitAction,
   type EditSubmitActionCopy,
   type EditSubmitActionDispatchers,
-} from './applyEditSubmitAction';
+} from "./applyEditSubmitAction";
 export {
   useEditEntitySubmit,
   type EditEntitySubmitCallbacks,
   type EditEntitySubmitCopy,
   type EditEntitySubmitDispatchers,
   type UseEditEntitySubmitArgs,
-} from './useEditEntitySubmit';
+} from "./useEditEntitySubmit";
+export {
+  NameCodeDescriptionFormBody,
+  NAME_CODE_DESCRIPTION_NAME_MAX,
+  NAME_CODE_DESCRIPTION_CODE_MAX,
+  NAME_CODE_DESCRIPTION_DESCRIPTION_MAX,
+  decideNameCodeDescriptionBadRequestHandling,
+  extractNameCodeDescriptionValidationErrors,
+  validateNameCodeDescriptionForm,
+  type NameCodeDescriptionFieldErrors,
+  type NameCodeDescriptionFormCopy,
+  type NameCodeDescriptionFormState,
+  type NameCodeDescriptionSubmitDecision,
+} from "./NameCodeDescriptionForm";
+export {
+  useNameCodeDescriptionForm,
+  type UseNameCodeDescriptionFormReturn,
+} from "./useNameCodeDescriptionForm";

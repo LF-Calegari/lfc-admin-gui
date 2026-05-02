@@ -1,7 +1,12 @@
-import { apiClient } from './index';
+import { apiClient } from "./index";
 
-import type { PagedResponse } from './systems';
-import type { ApiClient, ApiError, BodyRequestOptions, SafeRequestOptions } from './types';
+import type { PagedResponse } from "./systems";
+import type {
+  ApiClient,
+  ApiError,
+  BodyRequestOptions,
+  SafeRequestOptions,
+} from "./types";
 
 /**
  * Cria um `ApiError(parse)` baseado em `Error` real (com stack/`name`)
@@ -17,8 +22,8 @@ import type { ApiClient, ApiError, BodyRequestOptions, SafeRequestOptions } from
  * primeiro PR do recurso).
  */
 function makeParseError(): ApiError {
-  return Object.assign(new Error('Resposta inválida do servidor.'), {
-    kind: 'parse' as const,
+  return Object.assign(new Error("Resposta inválida do servidor."), {
+    kind: "parse" as const,
   });
 }
 
@@ -97,28 +102,28 @@ export interface RoleDto {
  * em arquivos diferentes precisam de helper compartilhado").
  */
 export function isRoleDto(value: unknown): value is RoleDto {
-  if (!value || typeof value !== 'object') {
+  if (!value || typeof value !== "object") {
     return false;
   }
   const record = value as Record<string, unknown>;
   return (
-    typeof record.id === 'string' &&
-    typeof record.name === 'string' &&
-    typeof record.code === 'string' &&
-    typeof record.createdAt === 'string' &&
-    typeof record.updatedAt === 'string' &&
+    typeof record.id === "string" &&
+    typeof record.name === "string" &&
+    typeof record.code === "string" &&
+    typeof record.createdAt === "string" &&
+    typeof record.updatedAt === "string" &&
     (record.description === null ||
       record.description === undefined ||
-      typeof record.description === 'string') &&
+      typeof record.description === "string") &&
     (record.permissionsCount === null ||
       record.permissionsCount === undefined ||
-      typeof record.permissionsCount === 'number') &&
+      typeof record.permissionsCount === "number") &&
     (record.usersCount === null ||
       record.usersCount === undefined ||
-      typeof record.usersCount === 'number') &&
+      typeof record.usersCount === "number") &&
     (record.deletedAt === null ||
       record.deletedAt === undefined ||
-      typeof record.deletedAt === 'string')
+      typeof record.deletedAt === "string")
   );
 }
 
@@ -138,15 +143,17 @@ export function isRoleDto(value: unknown): value is RoleDto {
  * (espelhando `RoutesController`); aí `listRoles` valida o envelope
  * direto e aposenta a adaptação client-side.
  */
-export function isPagedRolesResponse(value: unknown): value is PagedResponse<RoleDto> {
-  if (!value || typeof value !== 'object') {
+export function isPagedRolesResponse(
+  value: unknown,
+): value is PagedResponse<RoleDto> {
+  if (!value || typeof value !== "object") {
     return false;
   }
   const record = value as Record<string, unknown>;
   if (
-    typeof record.page !== 'number' ||
-    typeof record.pageSize !== 'number' ||
-    typeof record.total !== 'number' ||
+    typeof record.page !== "number" ||
+    typeof record.pageSize !== "number" ||
+    typeof record.total !== "number" ||
     !Array.isArray(record.data)
   ) {
     return false;
@@ -202,7 +209,7 @@ export interface ListRolesParams {
  * `Routes`), trocar para `'/systems/roles'` em uma única linha — o
  * resto do adapter já está pronto.
  */
-const ROLES_LIST_PATH = '/roles';
+const ROLES_LIST_PATH = "/roles";
 
 /**
  * Lista roles de um sistema com busca, paginação e filtro de
@@ -318,19 +325,25 @@ function adaptRolesListResponse(
  * projetar tipos compartilhados para evitar duplicação no PR
  * seguinte.
  *
+ * - `systemId` (obrigatório, UUID) — sistema dono da role. O backend
+ *   marca `RoleRequestBase.SystemId` como `[Required]` e rejeita
+ *   payloads sem este campo com 400. A UI sempre injeta o valor lido
+ *   da URL `/systems/:systemId/roles` (após enriquecimento do
+ *   contrato em `lfc-authenticator#163`/`#164`).
  * - `name` (obrigatório, máx. 80 chars) — nome amigável da role.
- * - `code` (obrigatório, máx. 50 chars) — identificador único global
- *   no `lfc-authenticator` (UX_Roles_Code é único globalmente —
- *   colidir com Code de outra role retorna 409).
- * - `description` (opcional, máx. 500 chars) — descrição livre.
- *   **Hoje** o backend não persiste o campo (TODO no model
- *   `AppRole`); o wrapper já o aceita para que a UI da #67 e #68
- *   não precise de PR destrutivo aqui quando o backend evoluir.
+ * - `code` (obrigatório, máx. 50 chars) — identificador da role.
+ *   Único por `(SystemId, Code)` no `lfc-authenticator` — colidir
+ *   com Code de outra role no mesmo sistema retorna 409 com
+ *   `"Já existe outro role com este Code neste sistema."`.
+ * - `description` (opcional, máx. 500 chars) — descrição livre. O
+ *   backend converte string vazia em `null` (mesmo padrão de
+ *   `RoutesController`).
  *
  * Backend trima `Name`/`Code` e converte `Description` vazia em
- * `null` (mesmo padrão de `RoutesController`).
+ * `null`.
  */
 export interface CreateRolePayload {
+  systemId: string;
   name: string;
   code: string;
   description?: string;
@@ -365,7 +378,7 @@ export async function createRole(
   client: ApiClient = apiClient,
 ): Promise<RoleDto> {
   const body = buildRoleMutationBody(payload);
-  const data = await client.post<unknown>('/roles', body, options);
+  const data = await client.post<unknown>("/roles", body, options);
   if (!isRoleDto(data)) {
     throw makeParseError();
   }
@@ -432,14 +445,17 @@ export async function deleteRole(
  * divergência futura no shape ajusta um único helper. Espelha
  * `buildRouteMutationBody` de `routes.ts`.
  *
- * **Hoje** o backend ignora `description` (TODO no model `AppRole`),
- * mas o wrapper já o envia para evitar PR destrutivo quando o
- * backend ganhar suporte ao campo.
+ * Após o enriquecimento do contrato em `lfc-authenticator#163`/
+ * `#164`, o backend exige `SystemId` e persiste `Description`. O
+ * wrapper propaga ambos: `systemId` é repassado sem trim (vem da URL
+ * já normalizada pelo router), e `description` é trimada e omitida
+ * se vier vazia para que o backend grave `null`.
  */
 function buildRoleMutationBody(
   payload: CreateRolePayload | UpdateRolePayload,
 ): CreateRolePayload {
   const body: CreateRolePayload = {
+    systemId: payload.systemId,
     name: payload.name.trim(),
     code: payload.code.trim(),
   };

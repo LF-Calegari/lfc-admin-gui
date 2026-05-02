@@ -1,13 +1,9 @@
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Pencil } from "lucide-react";
 import React, { useCallback, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 
 import { PageHeader } from "../components/layout/PageHeader";
-import {
-  Alert,
-  Button,
-  Table,
-} from "../components/ui";
+import { Alert, Button, Table } from "../components/ui";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { usePaginatedFetch } from "../hooks/usePaginatedFetch";
 import { usePaginationControls } from "../hooks/usePaginationControls";
@@ -17,6 +13,7 @@ import {
   DEFAULT_ROLES_PAGE_SIZE,
   listRoles,
 } from "../shared/api";
+import { useAuth } from "../shared/auth";
 import {
   BackLink,
   CardCode,
@@ -41,11 +38,14 @@ import {
   PaginationFooter,
   Placeholder,
   RefetchOverlay,
+  RowActions,
   StatusBadge,
   TableForDesktop,
   TableShell,
   useListingLiveMessage,
 } from "../shared/listing";
+
+import { EditRoleModal } from "./roles/EditRoleModal";
 
 import type { TableColumn } from "../components/ui";
 import type { ApiClient, RoleDto, SafeRequestOptions } from "../shared/api";
@@ -58,6 +58,17 @@ import type { ApiClient, RoleDto, SafeRequestOptions } from "../shared/api";
  * usado pela `RoutesPage`/`SystemsPage`.
  */
 const SEARCH_DEBOUNCE_MS = 300;
+
+/**
+ * Code de permissão exigido para o botão "Editar" por linha (Issue
+ * #68). Espelha o `AUTH_V1_ROLES_UPDATE` cadastrado pelo
+ * `AuthenticatorRoutesSeeder` no `lfc-authenticator`. O backend é a
+ * fonte autoritativa (`PUT /roles/{id}` valida via
+ * `[Authorize(Policy = PermissionPolicies.RolesUpdate)]`); o gating
+ * client-side é apenas UX — esconder ações que o usuário não pode
+ * executar.
+ */
+const ROLES_UPDATE_PERMISSION = "AUTH_V1_ROLES_UPDATE";
 
 interface RolesPageProps {
   /**
@@ -127,6 +138,9 @@ export const RolesPage: React.FC<RolesPageProps> = ({ client }) => {
   const { systemId } = useParams<{ systemId: string }>();
   const hasValidSystemId = isProbablyValidSystemId(systemId);
 
+  const { hasPermission } = useAuth();
+  const canUpdateRole = hasPermission(ROLES_UPDATE_PERMISSION);
+
   // Termo digitado pelo usuário em tempo real (input controlado).
   const [searchTerm, setSearchTerm] = useState<string>("");
   const debouncedSearch = useDebouncedValue(searchTerm, SEARCH_DEBOUNCE_MS);
@@ -135,6 +149,13 @@ export const RolesPage: React.FC<RolesPageProps> = ({ client }) => {
     DEFAULT_ROLES_INCLUDE_DELETED,
   );
   const [page, setPage] = useState<number>(DEFAULT_ROLES_PAGE);
+
+  // Role selecionada para edição (Issue #68). Quando definida, abre
+  // o `EditRoleModal` pré-populado com seus dados; `null` mantém o
+  // modal fechado. Manter a role completa (em vez de só o id) evita
+  // round-trip extra para refazer fetch no modal — a tabela já tem
+  // o payload pronto.
+  const [editingRole, setEditingRole] = useState<RoleDto | null>(null);
 
   /**
    * Reseta a página para 1 sempre que muda um filtro/busca — evita o
@@ -154,6 +175,14 @@ export const RolesPage: React.FC<RolesPageProps> = ({ client }) => {
   const handleIncludeDeletedChange = useCallback((value: boolean) => {
     setIncludeDeleted(value);
     setPage(DEFAULT_ROLES_PAGE);
+  }, []);
+
+  const handleOpenEditModal = useCallback((row: RoleDto) => {
+    setEditingRole(row);
+  }, []);
+
+  const handleCloseEditModal = useCallback(() => {
+    setEditingRole(null);
   }, []);
 
   /**
@@ -256,8 +285,8 @@ export const RolesPage: React.FC<RolesPageProps> = ({ client }) => {
     );
   }, [handleClearSearch, hasActiveSearch, includeDeleted, trimmedSearch]);
 
-  const columns = useMemo<ReadonlyArray<TableColumn<RoleDto>>>(
-    () => [
+  const columns = useMemo<ReadonlyArray<TableColumn<RoleDto>>>(() => {
+    const base: Array<TableColumn<RoleDto>> = [
       {
         key: "name",
         label: "Nome",
@@ -286,9 +315,45 @@ export const RolesPage: React.FC<RolesPageProps> = ({ client }) => {
         width: "120px",
         render: (row) => <StatusBadge deletedAt={row.deletedAt} />,
       },
-    ],
-    [],
-  );
+    ];
+
+    // Coluna "Ações" só aparece quando o usuário tem alguma ação
+    // disponível. Hoje "Editar" (Issue #68); a paridade total com
+    // Sistemas/Rotas (criar via toolbar, desativar/restaurar) fica
+    // para issues futuras da EPIC #47. Espelha a estratégia do
+    // `RoutesPage`/`SystemsPage`.
+    if (canUpdateRole) {
+      base.push({
+        key: "actions",
+        label: "Ações",
+        isActions: true,
+        render: (row) => (
+          <RowActions>
+            {row.deletedAt === null && (
+              // "Editar" só faz sentido em roles ativas. O backend
+              // devolve 404 ao tentar PUT em role soft-deletada
+              // (`Roles.FirstOrDefaultAsync` cai no query filter
+              // global), mas esconder no UI alinha com a coluna
+              // Status. Espelha a estratégia de `RoutesPage`/
+              // `SystemsPage`.
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<Pencil size={14} strokeWidth={1.5} />}
+                onClick={() => handleOpenEditModal(row)}
+                aria-label={`Editar role ${row.name}`}
+                data-testid={`roles-edit-${row.id}`}
+              >
+                Editar
+              </Button>
+            )}
+          </RowActions>
+        ),
+      });
+    }
+
+    return base;
+  }, [canUpdateRole, handleOpenEditModal]);
 
   const showOverlay = isFetching && !isInitialLoading;
 
@@ -362,7 +427,10 @@ export const RolesPage: React.FC<RolesPageProps> = ({ client }) => {
       <LiveRegion message={liveMessage} testId="roles-live" />
 
       {isInitialLoading && (
-        <InitialLoadingSpinner testId="roles-loading" label="Carregando roles" />
+        <InitialLoadingSpinner
+          testId="roles-loading"
+          label="Carregando roles"
+        />
       )}
 
       {!isInitialLoading && errorMessage && (
@@ -409,10 +477,30 @@ export const RolesPage: React.FC<RolesPageProps> = ({ client }) => {
                   )}
                 <CardMeta>
                   <CardMetaTerm>Permissões</CardMetaTerm>
-                  <CardMetaValue>{renderCount(row.permissionsCount)}</CardMetaValue>
+                  <CardMetaValue>
+                    {renderCount(row.permissionsCount)}
+                  </CardMetaValue>
                   <CardMetaTerm>Usuários</CardMetaTerm>
                   <CardMetaValue>{renderCount(row.usersCount)}</CardMetaValue>
                 </CardMeta>
+                {canUpdateRole && row.deletedAt === null && (
+                  // Ações na versão mobile espelham a coluna "Ações"
+                  // do desktop. Só aparecem quando o usuário tem
+                  // permissão e a linha é ativa — coerente com o
+                  // gating da tabela.
+                  <RowActions>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      icon={<Pencil size={14} strokeWidth={1.5} />}
+                      onClick={() => handleOpenEditModal(row)}
+                      aria-label={`Editar role ${row.name}`}
+                      data-testid={`roles-card-edit-${row.id}`}
+                    >
+                      Editar
+                    </Button>
+                  </RowActions>
+                )}
               </EntityCard>
             ))}
           </CardListForMobile>
@@ -432,6 +520,17 @@ export const RolesPage: React.FC<RolesPageProps> = ({ client }) => {
           pageInfoTestId="roles-page-info"
           prevTestId="roles-prev"
           nextTestId="roles-next"
+        />
+      )}
+
+      {canUpdateRole && hasValidSystemId && (
+        <EditRoleModal
+          open={editingRole !== null}
+          role={editingRole}
+          systemId={systemId}
+          onClose={handleCloseEditModal}
+          onUpdated={handleRefetch}
+          client={client}
         />
       )}
     </>
