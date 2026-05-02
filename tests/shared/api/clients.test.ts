@@ -6,11 +6,13 @@ import {
   clientDisplayName,
   createClient,
   DEFAULT_CLIENTS_PAGE_SIZE,
+  deleteClient,
   getClientById,
   getClientsByIds,
   isClientDto,
   isPagedClientsResponse,
   listClients,
+  restoreClient,
   updateClient,
 } from '@/shared/api';
 
@@ -916,5 +918,158 @@ describe('updateClient', () => {
         client as unknown as ApiClient,
       ),
     ).rejects.toBe(badRequest);
+  });
+});
+
+/* ─── deleteClient (Issue #76) ──────────────────────────── */
+
+describe('deleteClient', () => {
+  it('faz DELETE /clients/{id} sem corpo e resolve void em sucesso', async () => {
+    const client = makeClientStub();
+    client.delete.mockResolvedValueOnce(undefined);
+
+    const result = await deleteClient(
+      CLIENT_PF_ID,
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.delete).toHaveBeenCalledTimes(1);
+    expect(client.delete).toHaveBeenCalledWith(`/clients/${CLIENT_PF_ID}`, undefined);
+    expect(result).toBeUndefined();
+  });
+
+  it('propaga signal via options', async () => {
+    const client = makeClientStub();
+    client.delete.mockResolvedValueOnce(undefined);
+    const controller = new AbortController();
+
+    await deleteClient(
+      CLIENT_PF_ID,
+      { signal: controller.signal },
+      client as unknown as ApiClient,
+    );
+
+    expect(client.delete).toHaveBeenCalledWith(`/clients/${CLIENT_PF_ID}`, {
+      signal: controller.signal,
+    });
+  });
+
+  it('propaga ApiError 404 do backend (cliente não encontrado)', async () => {
+    const client = makeClientStub();
+    const notFound = {
+      kind: 'http' as const,
+      status: 404,
+      message: 'Cliente não encontrado.',
+    };
+    client.delete.mockRejectedValueOnce(notFound);
+
+    await expect(
+      deleteClient(CLIENT_PF_ID, undefined, client as unknown as ApiClient),
+    ).rejects.toBe(notFound);
+  });
+
+  it('propaga ApiError 409 do backend (conflito por usuários vinculados — defensivo)', async () => {
+    // Hoje o backend não devolve 409 no DELETE — apenas faz o
+    // soft-delete sem detachar vínculos. Mantemos o teste como
+    // defensivo para o caso do backend evoluir o contrato (critério
+    // #76 — "Tratamento de erro caso o cliente tenha usuários ativos
+    // vinculados.").
+    const client = makeClientStub();
+    const conflict = {
+      kind: 'http' as const,
+      status: 409,
+      message: 'Cliente possui usuários ativos vinculados.',
+    };
+    client.delete.mockRejectedValueOnce(conflict);
+
+    await expect(
+      deleteClient(CLIENT_PF_ID, undefined, client as unknown as ApiClient),
+    ).rejects.toBe(conflict);
+  });
+
+  it('propaga ApiError 401/403 do backend (sessão/permissão)', async () => {
+    const client = makeClientStub();
+    const forbidden = {
+      kind: 'http' as const,
+      status: 403,
+      message: 'Você não tem permissão para esta ação.',
+    };
+    client.delete.mockRejectedValueOnce(forbidden);
+
+    await expect(
+      deleteClient(CLIENT_PF_ID, undefined, client as unknown as ApiClient),
+    ).rejects.toBe(forbidden);
+  });
+});
+
+/* ─── restoreClient (Issue #76) ─────────────────────────── */
+
+describe('restoreClient', () => {
+  it('faz POST /clients/{id}/restore com body undefined e resolve void em sucesso', async () => {
+    const client = makeClientStub();
+    // Backend devolve `{ message: "Cliente restaurado com sucesso." }`
+    // mas o wrapper retorna `void` — descartamos o body.
+    client.post.mockResolvedValueOnce(undefined);
+
+    const result = await restoreClient(
+      CLIENT_PF_ID,
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.post).toHaveBeenCalledTimes(1);
+    expect(client.post).toHaveBeenCalledWith(
+      `/clients/${CLIENT_PF_ID}/restore`,
+      undefined,
+      undefined,
+    );
+    expect(result).toBeUndefined();
+  });
+
+  it('propaga signal via options', async () => {
+    const client = makeClientStub();
+    client.post.mockResolvedValueOnce(undefined);
+    const controller = new AbortController();
+
+    await restoreClient(
+      CLIENT_PF_ID,
+      { signal: controller.signal },
+      client as unknown as ApiClient,
+    );
+
+    expect(client.post).toHaveBeenCalledWith(
+      `/clients/${CLIENT_PF_ID}/restore`,
+      undefined,
+      { signal: controller.signal },
+    );
+  });
+
+  it('propaga ApiError 404 do backend (cliente inexistente ou já ativo)', async () => {
+    const client = makeClientStub();
+    const notFound = {
+      kind: 'http' as const,
+      status: 404,
+      message: 'Cliente não encontrado ou não está deletado.',
+    };
+    client.post.mockRejectedValueOnce(notFound);
+
+    await expect(
+      restoreClient(CLIENT_PF_ID, undefined, client as unknown as ApiClient),
+    ).rejects.toBe(notFound);
+  });
+
+  it('propaga ApiError 401/403 do backend (sessão/permissão)', async () => {
+    const client = makeClientStub();
+    const forbidden = {
+      kind: 'http' as const,
+      status: 401,
+      message: 'Sessão expirada. Faça login novamente.',
+    };
+    client.post.mockRejectedValueOnce(forbidden);
+
+    await expect(
+      restoreClient(CLIENT_PF_ID, undefined, client as unknown as ApiClient),
+    ).rejects.toBe(forbidden);
   });
 });
