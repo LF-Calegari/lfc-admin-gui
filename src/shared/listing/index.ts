@@ -45,6 +45,10 @@ export {
 } from './styles';
 
 export {
+  AssignmentGroupHeaderRow,
+  type AssignmentGroupHeaderRowProps,
+} from './AssignmentGroupHeaderRow';
+export {
   AssignmentMatrixShell,
   type AssignmentMatrixShellProps,
 } from './AssignmentMatrixShell';

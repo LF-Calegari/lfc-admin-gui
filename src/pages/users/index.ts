@@ -1,5 +1,6 @@
 export { UsersListShellPage } from './UsersListShellPage';
 export { UserDetailShellPage } from './UserDetailShellPage';
+export { UserEffectivePermissionsShellPage } from './UserEffectivePermissionsShellPage';
 export { UserPermissionsShellPage } from './UserPermissionsShellPage';
 export { UserRolesShellPage } from './UserRolesShellPage';
 export { NewUserModal } from './NewUserModal';

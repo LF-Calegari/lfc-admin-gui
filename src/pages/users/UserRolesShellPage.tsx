@@ -21,10 +21,7 @@ import {
 import { computeIdSetDiff, idSetDiffHasChanges } from '../../shared/forms';
 import {
   AssignmentGroupCard,
-  AssignmentGroupCode,
-  AssignmentGroupCount,
-  AssignmentGroupHeader,
-  AssignmentGroupName,
+  AssignmentGroupHeaderRow,
   AssignmentItemBadges,
   AssignmentItemCodeChip,
   AssignmentItemDescription,
@@ -396,13 +393,12 @@ const RoleGroup: React.FC<RoleGroupProps> = ({
   onToggle,
 }) => (
   <AssignmentGroupCard data-testid={`user-roles-group-${group.systemCode}`}>
-    <AssignmentGroupHeader>
-      <AssignmentGroupCode>{group.systemCode}</AssignmentGroupCode>
-      <AssignmentGroupName>{group.systemName}</AssignmentGroupName>
-      <AssignmentGroupCount aria-label={`${group.items.length} roles neste sistema`}>
-        {group.items.length}
-      </AssignmentGroupCount>
-    </AssignmentGroupHeader>
+    <AssignmentGroupHeaderRow
+      systemCode={group.systemCode}
+      systemName={group.systemName}
+      count={group.items.length}
+      countAriaLabel={`${group.items.length} roles neste sistema`}
+    />
     <AssignmentItemList>
       {group.items.map((role) => {
         const checkboxChecked = chosenRoleIds.has(role.id);
