@@ -128,3 +128,27 @@ export {
   listTokenTypes,
 } from './tokenTypes';
 export type { TokenTypeDto } from './tokenTypes';
+export {
+  DEFAULT_USERS_INCLUDE_DELETED,
+  DEFAULT_USERS_PAGE,
+  DEFAULT_USERS_PAGE_SIZE,
+  isPagedUsersResponse,
+  isUserDto,
+  listUsers,
+} from './users';
+export type { ListUsersParams, UserDto } from './users';
+export {
+  clientDisplayName,
+  DEFAULT_CLIENTS_INCLUDE_DELETED,
+  DEFAULT_CLIENTS_PAGE,
+  DEFAULT_CLIENTS_PAGE_SIZE,
+  getClientsByIds,
+  isClientDto,
+  isPagedClientsResponse,
+  listClients,
+} from './clients';
+export type {
+  ClientDto,
+  ClientLookupDto,
+  ListClientsParams,
+} from './clients';
