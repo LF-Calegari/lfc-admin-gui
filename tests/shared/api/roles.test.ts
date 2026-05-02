@@ -9,10 +9,8 @@ import {
   isPagedRolesResponse,
   isRoleDto,
   isRolePermissionLinkDto,
-  listAllRoles,
   listRolePermissions,
   listRoles,
-  MAX_ROLES_PAGE_SIZE,
   removePermissionFromRole,
   updateRole,
 } from "@/shared/api";
@@ -764,98 +762,3 @@ describe("removePermissionFromRole", () => {
   });
 });
 
-/**
- * Suíte do `listAllRoles` (Issue #71). Diferente de `listRoles`
- * (adapter client-side legado), este wrapper consome diretamente o
- * envelope `PagedResponse<RoleDto>` server-side enviado por
- * `lfc-authenticator#163`. A UI da Issue #71 usa um único request
- * com `pageSize=100` para carregar TODAS as roles do catálogo.
- */
-describe("listAllRoles", () => {
-  it("emite GET /roles?pageSize=100 quando params vazio (default)", async () => {
-    const client = createStub();
-    const envelope = {
-      data: [makeRoleDto()],
-      page: 1,
-      pageSize: MAX_ROLES_PAGE_SIZE,
-      total: 1,
-    };
-    client.get.mockResolvedValueOnce(envelope);
-
-    const result = await listAllRoles(
-      {},
-      undefined,
-      client as unknown as ApiClient,
-    );
-
-    expect(client.get).toHaveBeenCalledTimes(1);
-    expect(client.get.mock.calls[0][0]).toBe(`/roles?pageSize=${MAX_ROLES_PAGE_SIZE}`);
-    expect(result.total).toBe(1);
-    expect(result.data).toHaveLength(1);
-  });
-
-  it("inclui includeDeleted=true quando solicitado", async () => {
-    const client = createStub();
-    const envelope = {
-      data: [],
-      page: 1,
-      pageSize: MAX_ROLES_PAGE_SIZE,
-      total: 0,
-    };
-    client.get.mockResolvedValueOnce(envelope);
-
-    await listAllRoles(
-      { includeDeleted: true },
-      undefined,
-      client as unknown as ApiClient,
-    );
-
-    const callPath = client.get.mock.calls[0][0] as string;
-    expect(callPath).toContain("includeDeleted=true");
-    expect(callPath).toContain(`pageSize=${MAX_ROLES_PAGE_SIZE}`);
-  });
-
-  it("respeita pageSize customizado quando informado", async () => {
-    const client = createStub();
-    client.get.mockResolvedValueOnce({
-      data: [],
-      page: 1,
-      pageSize: 50,
-      total: 0,
-    });
-
-    await listAllRoles(
-      { pageSize: 50 },
-      undefined,
-      client as unknown as ApiClient,
-    );
-
-    expect(client.get.mock.calls[0][0]).toBe(`/roles?pageSize=50`);
-  });
-
-  it("lança ApiError(parse) quando o backend devolve shape inválido", async () => {
-    const client = createStub();
-    client.get.mockResolvedValueOnce({ malformed: true });
-
-    await expect(
-      listAllRoles({}, undefined, client as unknown as ApiClient),
-    ).rejects.toMatchObject({
-      kind: "parse",
-      message: "Resposta inválida do servidor.",
-    });
-  });
-
-  it("propaga rejeições do cliente sem traduzir", async () => {
-    const client = createStub();
-    const apiError = {
-      kind: "http",
-      status: 401,
-      message: "Sessão expirada.",
-    };
-    client.get.mockRejectedValueOnce(apiError);
-
-    await expect(
-      listAllRoles({}, undefined, client as unknown as ApiClient),
-    ).rejects.toEqual(apiError);
-  });
-});

@@ -101,11 +101,6 @@ const ROUTE_CODES: ReadonlyArray<RouteCodeEntry> = [
   // ativo das EPICs.
   { pattern: '/permissoes', routeCode: 'AUTH_V1_PERMISSIONS_LIST' },
   { pattern: '/usuarios/:id/permissoes', routeCode: 'AUTH_V1_USERS_PERMISSIONS_ASSIGN' },
-  // Issue #71: tela de atribuição via role a um usuário específico.
-  // Pattern mais específico que `/usuarios/:id`, precisa vencer no
-  // `matchPath({ end: false })`. Espelha o ordenamento de
-  // `/usuarios/:id/permissoes` (Issue #70).
-  { pattern: '/usuarios/:id/roles', routeCode: 'AUTH_V1_USERS_ROLES_ASSIGN' },
   { pattern: '/usuarios/:id', routeCode: 'AUTH_V1_USERS_GET_BY_ID' },
   { pattern: '/usuarios', routeCode: 'AUTH_V1_USERS_LIST' },
   { pattern: '/clientes/:id', routeCode: 'AUTH_V1_CLIENTS_GET_BY_ID' },

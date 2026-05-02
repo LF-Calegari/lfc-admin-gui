@@ -37,14 +37,23 @@ function makeParseError(): ApiError {
  *
  * **Estado atual do contrato (snapshot do backend em `RolesController.cs`):**
  *
- * Após PR `lfc-authenticator#163`, o backend enriqueceu o
- * `RoleResponse` com `SystemId` (obrigatório no model `AppRole`),
- * `Description` (string|null persistida) e contagens
- * (`PermissionsCount`/`UsersCount` via subselects EF). O endpoint
- * `GET /roles` evoluiu para `PagedResponse<RoleResponse>` com filtros
- * server-side (`systemId`, `q`, `page`, `pageSize`, `includeDeleted`)
- * — `listRoles` consome o envelope diretamente, sem adapter
- * client-side.
+ * O backend hoje expõe `/roles` como recurso **global** (não vinculado
+ * a um sistema) e devolve `RoleResponse(Id, Name, Code, CreatedAt,
+ * UpdatedAt, DeletedAt)`. Os campos abaixo marcados como TODO ainda
+ * não são devolvidos pelo backend:
+ *
+ * - `description: string | null` — TODO no backend (`AppRole.Description`
+ *   ainda não existe no model). Mantido como opcional/`null` no DTO
+ *   para que a UI saiba renderizar "—" como placeholder hoje e exiba
+ *   a descrição automaticamente quando o backend evoluir.
+ * - `permissionsCount: number` / `usersCount: number` — TODO no backend
+ *   (controller não inclui contagens no projection). Mantidos como
+ *   opcionais para suportar o futuro `RoleResponse` enriquecido sem
+ *   precisar de PR destrutivo nesta camada.
+ * - `systemId` — TODO no backend (roles são globais hoje). A UI lê
+ *   `:systemId` da URL para preservar a IA da EPIC #47 (listagem por
+ *   sistema), mas o filtro real só passa a fazer sentido quando o
+ *   model for estendido com `SystemId`.
  *
  * As datas são serializadas pelo backend em ISO 8601 (UTC) — mantemos
  * como `string` porque a UI consome via `Intl.DateTimeFormat`/
@@ -52,45 +61,30 @@ function makeParseError(): ApiError {
  * cliente HTTP traria custo sem benefício. `deletedAt !== null` indica
  * soft-delete.
  *
- * **Compatibilidade:** mantemos `description`/`permissionsCount`/
- * `usersCount` aceitando `null`/ausente para que mocks de teste e
- * payloads de servidores menos atualizados continuem válidos. O
- * `systemId` é obrigatório (não-nulo) — Issue #71 depende dele para
- * agrupar a tabela de roles por sistema.
+ * Cada um dos campos opcionais acima passa pelo `isRoleDto` apenas
+ * quando presente — payloads sem o campo (estado atual) continuam
+ * válidos.
  */
 export interface RoleDto {
   id: string;
-  /**
-   * UUID do sistema dono da role. Após `lfc-authenticator#163` é
-   * obrigatório no model `AppRole` e a API rejeita `POST /roles` sem
-   * o campo — em produção, sempre vem preenchido. Issue #71 usa este
-   * valor para agrupar a tela de atribuição via role por sistema.
-   *
-   * Tipo `string | null` (em vez de `string` puro) preserva
-   * compatibilidade com fixtures de teste históricas e payloads de
-   * servidores menos atualizados — quando ausente, a UI cai no grupo
-   * "Sem sistema" do agrupamento por sistema (mesmo padrão do
-   * `PermissionDto` quando o LEFT JOIN do backend devolve
-   * `string.Empty`).
-   */
-  systemId: string | null;
   name: string;
   code: string;
   /**
-   * Descrição livre da role. Após `lfc-authenticator#163` o backend
-   * persiste o valor (substring até 500 chars; vazio vira `null`). A
-   * UI exibe "—" como placeholder quando `null`/`undefined`.
+   * Descrição livre da role. Ainda **não enviada** pelo backend
+   * `lfc-authenticator` (`AppRole.Description` é TODO). A UI exibe
+   * "—" como placeholder enquanto o campo for `null`/`undefined`.
    */
   description: string | null;
   /**
-   * Contagem de permissões vinculadas à role (subselect EF —
-   * `lfc-authenticator#163`). A UI exibe "—" quando `null`/`undefined`
-   * (mocks legados); aceitar opcional preserva compatibilidade.
+   * Contagem de permissões vinculadas à role. Ainda **não enviada**
+   * pelo backend (TODO). A UI exibe "—" enquanto o valor for
+   * `null`/`undefined` — quando o backend devolver, a UI mostra
+   * automaticamente.
    */
   permissionsCount: number | null;
   /**
-   * Contagem de usuários que possuem essa role (subselect EF). Mesmo
-   * status de `permissionsCount`.
+   * Contagem de usuários que possuem essa role. Mesmo status de
+   * `permissionsCount` — TODO no backend; a UI exibe "—" hoje.
    */
   usersCount: number | null;
   createdAt: string;
@@ -100,12 +94,8 @@ export interface RoleDto {
 
 /**
  * Type guard para `RoleDto`. Tolera `description`/`deletedAt`/
- * `permissionsCount`/`usersCount` ausentes (tratados como `null`) e
- * `systemId` ausente (tratado como string vazia para compatibilidade
- * com fixtures legadas — o backend real após `lfc-authenticator#163`
- * sempre devolve o campo, mas relaxar aqui evita refatoração em
- * cascata em todos os mocks de teste antigos). Demais campos são
- * obrigatórios e checados em runtime.
+ * `permissionsCount`/`usersCount` ausentes (tratados como `null`) —
+ * outros campos são obrigatórios e checados em runtime.
  *
  * Exportado para que outros call sites (ex.: `createRole`/`updateRole`
  * validando o `RoleResponse` devolvido pelo backend nas próximas
@@ -124,9 +114,6 @@ export function isRoleDto(value: unknown): value is RoleDto {
     typeof record.code === "string" &&
     typeof record.createdAt === "string" &&
     typeof record.updatedAt === "string" &&
-    (record.systemId === null ||
-      record.systemId === undefined ||
-      typeof record.systemId === "string") &&
     (record.description === null ||
       record.description === undefined ||
       typeof record.description === "string") &&
@@ -178,18 +165,6 @@ export function isPagedRolesResponse(
 export const DEFAULT_ROLES_PAGE = 1;
 export const DEFAULT_ROLES_PAGE_SIZE = 20;
 export const DEFAULT_ROLES_INCLUDE_DELETED = false;
-
-/**
- * Limite superior aceito pelo backend para `pageSize` em `GET /roles`
- * (`RolesController.MaxPageSize`). Issue #71 carrega TODAS as roles
- * ativas do catálogo numa única requisição (matriz de checkboxes
- * agrupada por sistema); subir além desse limite faz a request
- * explodir em 400. Quando o catálogo de roles crescer além de 100,
- * a issue pede revisitar (paginação real ou agrupar/colapsar por
- * sistema com fetch lazy). Espelha `MAX_PERMISSIONS_PAGE_SIZE` em
- * `permissions.ts`.
- */
-export const MAX_ROLES_PAGE_SIZE = 100;
 
 /**
  * Parâmetros aceitos por `listRoles`.
@@ -452,59 +427,33 @@ export async function deleteRole(
 }
 
 /**
- * Lista **todas** as roles ativas do catálogo (todas as sistemas) via
- * `GET /roles?pageSize=100` consumindo o envelope server-side
- * `PagedResponse<RoleDto>` (após `lfc-authenticator#163`). Wrapper
- * dedicado à Issue #71 — a tela de atribuição via role precisa do
- * conjunto completo agrupado por sistema, e adicionar uma função
- * separada evita que `listRoles` (consumida pela `RolesPage` da
- * Issue #66 com adapter client-side) seja alterada e quebre a UI
- * existente.
+ * Constrói o body para `POST /roles` e `PUT /roles/{id}` aplicando
+ * trim defensivo nos campos. Description vazia depois de trim vira
+ * `undefined` para que o serializador omita o campo (backend
+ * converte para `null`). Centralizar essa montagem garante que
+ * create e update enviem exatamente o mesmo payload — qualquer
+ * divergência futura no shape ajusta um único helper. Espelha
+ * `buildRouteMutationBody` de `routes.ts`.
  *
- * **Por que função própria, não evolução de `listRoles`:** `listRoles`
- * tem contrato e suíte de testes acoplados ao adapter client-side
- * (filtra/ordena/paginará em memória sobre array cru). O backend
- * pós-`#163` já devolve envelope, mas migrar `listRoles` para
- * consumi-lo direto demanda revisão de testes da `RolesPage` e dos
- * mocks — fora do escopo desta sub-issue. `listAllRoles` é o ponto
- * de entrada limpo para a tela nova; a unificação dos dois wrappers
- * fica para uma sub-issue de cleanup dedicada.
- *
- * Aceita `includeDeleted` opcional (default `false` — mesmo padrão das
- * demais listagens) e aceita opcionalmente `pageSize` para limitar o
- * volume de uma única request — defaults para `MAX_ROLES_PAGE_SIZE`
- * (100, limite do backend) que é suficiente para a Issue #71. Quando
- * o catálogo crescer além desse limite, a UI deve passar para
- * paginação preguiçosa (revisitar via issue dedicada).
- *
- * Lança `ApiError` em qualquer falha (rede, parse, HTTP). O parâmetro
- * `client` é injetável para isolar testes; em produção usa-se o
- * singleton `apiClient`.
+ * Após o enriquecimento do contrato em `lfc-authenticator#163`/
+ * `#164`, o backend exige `SystemId` e persiste `Description`. O
+ * wrapper propaga ambos: `systemId` é repassado sem trim (vem da URL
+ * já normalizada pelo router), e `description` é trimada e omitida
+ * se vier vazia para que o backend grave `null`.
  */
-export interface ListAllRolesParams {
-  /** Quando `true`, inclui roles com `deletedAt != null`. Default: false. */
-  includeDeleted?: boolean;
-  /** Itens por página. Default: `MAX_ROLES_PAGE_SIZE` (100). */
-  pageSize?: number;
-}
-
-export async function listAllRoles(
-  params: ListAllRolesParams = {},
-  options?: SafeRequestOptions,
-  client: ApiClient = apiClient,
-): Promise<PagedResponse<RoleDto>> {
-  const search = new URLSearchParams();
-  const pageSize = params.pageSize ?? MAX_ROLES_PAGE_SIZE;
-  search.set("pageSize", String(pageSize));
-  if (params.includeDeleted === true) {
-    search.set("includeDeleted", "true");
+function buildRoleMutationBody(
+  payload: CreateRolePayload | UpdateRolePayload,
+): CreateRolePayload {
+  const body: CreateRolePayload = {
+    systemId: payload.systemId,
+    name: payload.name.trim(),
+    code: payload.code.trim(),
+  };
+  const trimmedDescription = payload.description?.trim();
+  if (trimmedDescription && trimmedDescription.length > 0) {
+    body.description = trimmedDescription;
   }
-  const path = `/roles?${search.toString()}`;
-  const data = await client.get<unknown>(path, options);
-  if (!isPagedRolesResponse(data)) {
-    throw makeParseError();
-  }
-  return data;
+  return body;
 }
 
 /**
@@ -683,32 +632,3 @@ export async function removePermissionFromRole(
   );
 }
 
-/**
- * Constrói o body para `POST /roles` e `PUT /roles/{id}` aplicando
- * trim defensivo nos campos. Description vazia depois de trim vira
- * `undefined` para que o serializador omita o campo (backend
- * converte para `null`). Centralizar essa montagem garante que
- * create e update enviem exatamente o mesmo payload — qualquer
- * divergência futura no shape ajusta um único helper. Espelha
- * `buildRouteMutationBody` de `routes.ts`.
- *
- * Após o enriquecimento do contrato em `lfc-authenticator#163`/
- * `#164`, o backend exige `SystemId` e persiste `Description`. O
- * wrapper propaga ambos: `systemId` é repassado sem trim (vem da URL
- * já normalizada pelo router), e `description` é trimada e omitida
- * se vier vazia para que o backend grave `null`.
- */
-function buildRoleMutationBody(
-  payload: CreateRolePayload | UpdateRolePayload,
-): CreateRolePayload {
-  const body: CreateRolePayload = {
-    systemId: payload.systemId,
-    name: payload.name.trim(),
-    code: payload.code.trim(),
-  };
-  const trimmedDescription = payload.description?.trim();
-  if (trimmedDescription && trimmedDescription.length > 0) {
-    body.description = trimmedDescription;
-  }
-  return body;
-}

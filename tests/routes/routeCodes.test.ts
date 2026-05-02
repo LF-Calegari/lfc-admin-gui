@@ -46,10 +46,6 @@ const POSITIVE_CASES: ReadonlyArray<ResolveCase> = [
   { pathname: '/usuarios', expected: 'AUTH_V1_USERS_LIST' },
   { pathname: '/usuarios/42', expected: 'AUTH_V1_USERS_GET_BY_ID' },
   { pathname: '/usuarios/42/permissoes', expected: 'AUTH_V1_USERS_PERMISSIONS_ASSIGN' },
-  // Issue #71: tela de atribuição via role a um usuário específico.
-  // Pattern `/usuarios/:id/roles` é mais específico que `/usuarios/:id`
-  // e precisa vencer no `matchPath` — espelha a decisão da Issue #70.
-  { pathname: '/usuarios/42/roles', expected: 'AUTH_V1_USERS_ROLES_ASSIGN' },
   { pathname: '/tokens', expected: 'AUTH_V1_TOKEN_TYPES_LIST' },
 ];
 
@@ -101,18 +97,6 @@ describe('resolveRouteCode — paths privados conhecidos', () => {
     // matches sob `end: false`.
     expect(resolveRouteCode('/usuarios/42/permissoes')).toBe(
       'AUTH_V1_USERS_PERMISSIONS_ASSIGN',
-    );
-  });
-
-  it('precedência: /usuarios/:id/roles vence /usuarios/:id e /usuarios', () => {
-    // Issue #71 — espelha o teste de precedência da Issue #70 para a
-    // tela de atribuição via role. Sem a ordem correta na tabela,
-    // `matchPath({ end: false })` casaria primeiro com `/usuarios/:id`
-    // e a UI bateria em `verify-token` com o code de "GET" em vez do
-    // code de "ROLES_ASSIGN" (mutação) — backend negaria 401/403 já
-    // que o recurso real é o assign.
-    expect(resolveRouteCode('/usuarios/42/roles')).toBe(
-      'AUTH_V1_USERS_ROLES_ASSIGN',
     );
   });
 

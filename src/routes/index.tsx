@@ -19,7 +19,6 @@ import { UnauthorizedPage } from '../pages/UnauthorizedPage';
 import {
   UserDetailShellPage,
   UserPermissionsShellPage,
-  UserRolesShellPage,
   UsersListShellPage,
 } from '../pages/users';
 import { RequireAuth, RequirePermission } from '../shared/auth';
@@ -224,24 +223,6 @@ export const AppRoutes: React.FC = () => (
           <RequirePermission code="AUTH_V1_PERMISSIONS_LIST">
             <RequirePermission code="AUTH_V1_USERS_PERMISSIONS_ASSIGN">
               <UserPermissionsShellPage />
-            </RequirePermission>
-          </RequirePermission>
-        }
-      />
-      <Route
-        path="/usuarios/:id/roles"
-        element={
-          // Issue #71: a tela exige LER o catálogo de roles
-          // (`AUTH_V1_ROLES_LIST`) E ATUALIZAR o vínculo no usuário
-          // (`AUTH_V1_USERS_ROLES_ASSIGN`). Aninhamos `RequirePermission`
-          // para validar ambas — espelha o gating de
-          // `/usuarios/:id/permissoes` (Issue #70) para que ambas as
-          // telas tenham UX consistente. Começamos pela leitura para
-          // que o erro mais comum (admin sem `Roles.Read`) fale
-          // primeiro.
-          <RequirePermission code="AUTH_V1_ROLES_LIST">
-            <RequirePermission code="AUTH_V1_USERS_ROLES_ASSIGN">
-              <UserRolesShellPage />
             </RequirePermission>
           </RequirePermission>
         }
