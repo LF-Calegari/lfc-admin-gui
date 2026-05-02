@@ -484,6 +484,12 @@ export async function getClientsByIds(
  * Tenta carregar um cliente individual via `GET /clients/{id}`.
  * Retorna `null` quando o backend devolve corpo vazio; lança
  * `ApiError(parse)` quando o JSON não casa com `isClientDto`.
+ *
+ * Mantemos como helper interno para que o `getClientsByIds` continue
+ * podendo skipar resultados vazios silenciosamente. O caller público
+ * (`getClientById` abaixo) trata `null`/`undefined` como erro de parse
+ * porque o backend nunca devolve corpo vazio em `200 OK` — apenas em
+ * `404 Not Found` (que já vira `ApiError` antes de chegar aqui).
  */
 async function fetchClientById(
   id: string,
@@ -498,6 +504,38 @@ async function fetchClientById(
     throw makeParseError();
   }
   return data;
+}
+
+/**
+ * Carrega um cliente individual via `GET /clients/{id}` (Issue #75).
+ *
+ * Endpoint público usado pela aba "Dados" do `ClientEditPage` para
+ * pré-popular o form de edição. Diferente do helper interno
+ * `fetchClientById` (consumido por `getClientsByIds`), este wrapper
+ * trata corpo vazio como erro de parse — o backend nunca responde
+ * `200 OK` com body `null` em `GET /clients/{id}`; `null` indicaria
+ * proxy malformado ou contrato divergente.
+ *
+ * Retorna o `ClientDto` em sucesso; lança `ApiError` em qualquer
+ * falha. Caller tipicamente trata:
+ *
+ * - 404 → cliente removido entre navegação e fetch (`onAfterNotFound`).
+ * - 401/403 → redirect ou toast (gating de permissão).
+ * - parse → drift de contrato (toast genérico).
+ *
+ * O parâmetro `client` é injetável para isolar testes; em produção
+ * usa-se o singleton `apiClient`.
+ */
+export async function getClientById(
+  id: string,
+  options?: SafeRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<ClientDto> {
+  const dto = await fetchClientById(id, options, client);
+  if (dto === null) {
+    throw makeParseError();
+  }
+  return dto;
 }
 
 /**
@@ -571,10 +609,84 @@ export async function createClient(
 }
 
 /**
- * Constrói o body para `POST /clients` aplicando trim defensivo e
- * o filtro de campos por tipo (PF/PJ). Centralizar essa montagem
- * garante que nenhum call site inclua acidentalmente o campo do
- * tipo oposto (que o backend rejeitaria com 400).
+ * Body aceito pelo `PUT /clients/{id}` no `lfc-authenticator`
+ * (`ClientsController.UpdateById` linha 358). O backend reaproveita
+ * o `CreateClientRequest` no PUT, então o shape é idêntico ao do
+ * create. Mantemos um alias dedicado por dois motivos:
+ *
+ * 1. Tipos discriminados no call-site (`updateClient` aceita
+ *    `UpdateClientPayload`, `createClient` aceita `CreateClientPayload`)
+ *    — preserva clareza ao ler o código sem desambiguar pela
+ *    assinatura da função.
+ * 2. Espelho do `UserUpdatePayload`/`UpdateUserPayload` (`users.ts`),
+ *    onde o shape diverge do create (sem `password`) — manter o
+ *    alias hoje, mesmo igual ao create, evita refator destrutivo
+ *    se o backend vier a divergir os dois requests no futuro.
+ *
+ * **Imutabilidade do `type` (Issue #75):** o backend rejeita com 400
+ * `"Tipo do cliente não pode ser alterado após a criação."` quando
+ * o `Type` enviado difere do `Type` persistido. A UI espelha
+ * desabilitando o `<Select>` de tipo no modo edit (`typeDisabled`
+ * em `ClientFormBody`); o body envia o `type` atual do cliente para
+ * que o backend rode a comparação esperada e devolva 200, não 400.
+ */
+export type UpdateClientPayload = CreateClientPayload;
+
+/**
+ * Atualiza um cliente existente via `PUT /clients/{id}` (Issue #75).
+ *
+ * Retorna o `ClientDto` atualizado (`200 OK` com `ClientResponse` no
+ * corpo). Lança `ApiError` em qualquer falha — caller tipicamente
+ * trata:
+ *
+ * - 409 → conflito de unicidade global de `cpf` ou `cnpj`. Backend
+ *   devolve mensagens distintas ("Já existe cliente com este CPF."
+ *   / "Já existe cliente com este CNPJ."); o caller exibe inline no
+ *   campo correspondente ao tipo do cliente.
+ * - 400 → erros de validação por campo em `details` (mesmo shape de
+ *   `ValidationProblemDetails` usado pelos demais recursos) **ou**
+ *   `{ message: "Tipo do cliente não pode ser alterado após a
+ *   criação." }` quando o `type` enviado difere do persistido. O
+ *   segundo caso não tem `details.errors` mapeáveis, então cai no
+ *   fallback do `applyBadRequest` (Alert no topo do form). A UI já
+ *   evita esse cenário desabilitando o `<Select>` de tipo, mas
+ *   preserva o tratamento defensivo.
+ * - 404 → cliente não encontrado (soft-deletado concorrentemente
+ *   entre abertura e submit). UI fecha o tab/redireciona, dispara
+ *   toast e força refetch.
+ * - 401/403 → toast vermelho (gating de permissão).
+ *
+ * O parâmetro `client` é injetável para isolar testes (passa-se um
+ * stub tipado como `ApiClient`); em produção usa-se o singleton
+ * `apiClient`.
+ *
+ * O response é validado contra `isClientDto` para detectar drift de
+ * contrato precocemente — backend retornando shape inesperado
+ * dispara `ApiError(parse)` em vez de propagar shape inválido para
+ * a UI.
+ */
+export async function updateClient(
+  id: string,
+  payload: UpdateClientPayload,
+  options?: BodyRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<ClientDto> {
+  const body = buildClientMutationBody(payload);
+  const data = await client.put<unknown>(`/clients/${id}`, body, options);
+  if (!isClientDto(data)) {
+    throw makeParseError();
+  }
+  return data;
+}
+
+/**
+ * Constrói o body para `POST /clients` e `PUT /clients/{id}`
+ * aplicando trim defensivo e o filtro de campos por tipo (PF/PJ).
+ * Centralizar essa montagem garante que nenhum call site inclua
+ * acidentalmente o campo do tipo oposto (que o backend rejeitaria
+ * com 400). Compartilhado entre `createClient` (Issue #74) e
+ * `updateClient` (Issue #75) — o backend reaproveita o
+ * `CreateClientRequest` no PUT, então o build do body é idêntico.
  *
  * Para PF: envia `type`, `cpf`, `fullName`. Para PJ: envia `type`,
  * `cnpj`, `corporateName`. Em ambos, qualquer campo whitespace-only

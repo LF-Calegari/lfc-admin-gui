@@ -367,3 +367,121 @@ export function buildClientsSubmitErrorCases(): ReadonlyArray<ClientsErrorCase> 
     },
   ];
 }
+
+/* ─── Helpers de fluxo do `ClientDataTab` (Issue #75) ──── */
+
+/**
+ * Preenche os campos do form do `ClientDataTab` para o caminho PF.
+ * Espelha `fillNewClientPfForm` para o `idPrefix="client-data"`
+ * usado pela aba "Dados". Cada chave é opcional — testes que
+ * validam um único campo passam apenas o relevante.
+ */
+export function fillClientDataPfForm(values: { cpf?: string; fullName?: string }): void {
+  if (values.cpf !== undefined) {
+    fireEvent.change(screen.getByTestId('client-data-cpf'), {
+      target: { value: values.cpf },
+    });
+  }
+  if (values.fullName !== undefined) {
+    fireEvent.change(screen.getByTestId('client-data-fullName'), {
+      target: { value: values.fullName },
+    });
+  }
+}
+
+/**
+ * Preenche os campos do form do `ClientDataTab` para o caminho PJ.
+ * Espelha `fillNewClientPjForm` para o `idPrefix="client-data"`.
+ */
+export function fillClientDataPjForm(values: {
+  cnpj?: string;
+  corporateName?: string;
+}): void {
+  if (values.cnpj !== undefined) {
+    fireEvent.change(screen.getByTestId('client-data-cnpj'), {
+      target: { value: values.cnpj },
+    });
+  }
+  if (values.corporateName !== undefined) {
+    fireEvent.change(screen.getByTestId('client-data-corporateName'), {
+      target: { value: values.corporateName },
+    });
+  }
+}
+
+/**
+ * Submete o form do `ClientDataTab` e aguarda o `client.put` ser
+ * chamado pelo menos `expectedPutCalls` vezes (default `1`). Espelha
+ * `submitNewClientForm` para o caminho de edição (PUT em vez de
+ * POST).
+ */
+export async function submitClientDataForm(
+  client: ApiClientStub,
+  expectedPutCalls = 1,
+): Promise<void> {
+  await act(async () => {
+    fireEvent.submit(screen.getByTestId('client-data-form'));
+    await Promise.resolve();
+  });
+  await waitFor(() => expect(client.put).toHaveBeenCalledTimes(expectedPutCalls));
+}
+
+/**
+ * Constrói os cenários comuns de erro de submit para a suíte de
+ * edição de clientes (Issue #75). A mensagem genérica diverge da
+ * criação ("atualizar" vs "criar") — manter cenários próprios
+ * preserva os asserts ancorados na copy específica de cada caminho.
+ */
+export function buildClientsEditSubmitErrorCases(): ReadonlyArray<ClientsErrorCase> {
+  return [
+    {
+      name: '400 com errors mapeia mensagens para os campos correspondentes',
+      error: {
+        kind: 'http',
+        status: 400,
+        message: 'Erro de validação.',
+        details: {
+          errors: {
+            FullName: ['FullName é obrigatório para cliente PF.'],
+          },
+        },
+      },
+      expectedText: 'FullName é obrigatório para cliente PF.',
+    },
+    {
+      name: '400 sem errors mapeáveis exibe Alert no topo do form',
+      error: {
+        kind: 'http',
+        status: 400,
+        message: 'Tipo do cliente não pode ser alterado após a criação.',
+      },
+      expectedText: 'Tipo do cliente não pode ser alterado após a criação.',
+    },
+    {
+      name: '401 dispara toast vermelho com mensagem do backend',
+      error: {
+        kind: 'http',
+        status: 401,
+        message: 'Sessão expirada. Faça login novamente.',
+      },
+      expectedText: 'Sessão expirada. Faça login novamente.',
+    },
+    {
+      name: '403 dispara toast vermelho com mensagem do backend',
+      error: {
+        kind: 'http',
+        status: 403,
+        message: 'Você não tem permissão para esta ação.',
+      },
+      expectedText: 'Você não tem permissão para esta ação.',
+    },
+    {
+      name: 'erro genérico de rede dispara toast vermelho genérico',
+      error: {
+        kind: 'network',
+        message: 'Falha de conexão com o servidor.',
+      },
+      expectedText: 'Não foi possível atualizar o cliente. Tente novamente.',
+    },
+  ];
+}

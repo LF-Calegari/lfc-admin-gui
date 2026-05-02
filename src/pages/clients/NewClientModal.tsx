@@ -13,7 +13,7 @@ import {
   type ClientFieldErrors,
   type ClientSubmitErrorCopy,
 } from './clientsFormShared';
-import { useClientForm } from './useClientForm';
+import { useClientForm, useClientFormFieldProps } from './useClientForm';
 
 import type { ApiClient } from '../../shared/api';
 
@@ -94,23 +94,17 @@ export const NewClientModal: React.FC<NewClientModalProps> = ({
   client,
 }) => {
   const { show } = useToast();
+  const clientForm = useClientForm(INITIAL_CLIENT_FORM_STATE);
   const {
     formState,
-    fieldErrors,
-    submitError,
     isSubmitting,
     setFormState,
     setFieldErrors,
     setSubmitError,
     setIsSubmitting,
-    handleTypeChange,
-    handleCpfChange,
-    handleFullNameChange,
-    handleCnpjChange,
-    handleCorporateNameChange,
     prepareSubmit,
     applyBadRequest,
-  } = useClientForm(INITIAL_CLIENT_FORM_STATE);
+  } = clientForm;
 
   /**
    * Reseta tudo ao fechar — handler único para Esc, backdrop, X
@@ -193,8 +187,8 @@ export const NewClientModal: React.FC<NewClientModalProps> = ({
    */
   const handleSubmit = useCreateEntitySubmit<keyof ClientFieldErrors>({
     dispatchers: {
-      setFieldErrors,
-      setSubmitError,
+      setFieldErrors: clientForm.setFieldErrors,
+      setSubmitError: clientForm.setSubmitError,
       setIsSubmitting,
       applyBadRequest,
       showToast: show,
@@ -210,6 +204,14 @@ export const NewClientModal: React.FC<NewClientModalProps> = ({
     conflictField,
   });
 
+  // `useClientFormFieldProps` encapsula as ~12 linhas de spread de
+  // handlers (`onChangeType/Cpf/FullName/...`) que JSCPD/Sonar
+  // tokenizaria como duplicação entre `NewClientModal` e
+  // `ClientDataTab` — lição PR #134/#135 aplicada antecipadamente
+  // (call-sites duplicados também precisam virar hook compartilhado,
+  // não só os helpers internos).
+  const fieldProps = useClientFormFieldProps(clientForm, handleSubmit, handleClose);
+
   return (
     <Modal
       open={open}
@@ -220,18 +222,8 @@ export const NewClientModal: React.FC<NewClientModalProps> = ({
       closeOnBackdrop={!isSubmitting}
     >
       <ClientFormBody
+        {...fieldProps}
         idPrefix="new-client"
-        submitError={submitError}
-        values={formState}
-        errors={fieldErrors}
-        onChangeType={handleTypeChange}
-        onChangeCpf={handleCpfChange}
-        onChangeFullName={handleFullNameChange}
-        onChangeCnpj={handleCnpjChange}
-        onChangeCorporateName={handleCorporateNameChange}
-        onSubmit={handleSubmit}
-        onCancel={handleClose}
-        isSubmitting={isSubmitting}
         submitLabel="Criar cliente"
       />
     </Modal>

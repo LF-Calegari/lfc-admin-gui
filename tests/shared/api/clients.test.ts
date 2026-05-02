@@ -6,10 +6,12 @@ import {
   clientDisplayName,
   createClient,
   DEFAULT_CLIENTS_PAGE_SIZE,
+  getClientById,
   getClientsByIds,
   isClientDto,
   isPagedClientsResponse,
   listClients,
+  updateClient,
 } from '@/shared/api';
 
 /**
@@ -665,5 +667,254 @@ describe('createClient', () => {
         client as unknown as ApiClient,
       ),
     ).rejects.toBe(conflict);
+  });
+});
+
+/* ─── getClientById (Issue #75) ─────────────────────────── */
+
+describe('getClientById', () => {
+  it('faz GET /clients/{id} e devolve o ClientDto parseado', async () => {
+    const client = makeClientStub();
+    const dto = makeRawClientPf();
+    client.get.mockResolvedValueOnce(dto);
+
+    const result = await getClientById(
+      CLIENT_PF_ID,
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.get).toHaveBeenCalledTimes(1);
+    expect(client.get).toHaveBeenCalledWith(`/clients/${CLIENT_PF_ID}`, undefined);
+    expect(result).toBe(dto);
+  });
+
+  it('propaga signal via options', async () => {
+    const client = makeClientStub();
+    client.get.mockResolvedValueOnce(makeRawClientPf());
+    const controller = new AbortController();
+
+    await getClientById(
+      CLIENT_PF_ID,
+      { signal: controller.signal },
+      client as unknown as ApiClient,
+    );
+
+    expect(client.get).toHaveBeenCalledWith(`/clients/${CLIENT_PF_ID}`, {
+      signal: controller.signal,
+    });
+  });
+
+  it('lança ApiError(parse) quando o backend devolve corpo vazio', async () => {
+    const client = makeClientStub();
+    client.get.mockResolvedValueOnce(null);
+
+    await expect(
+      getClientById(CLIENT_PF_ID, undefined, client as unknown as ApiClient),
+    ).rejects.toMatchObject({ kind: 'parse' });
+  });
+
+  it('lança ApiError(parse) quando o backend devolve payload com shape inválido', async () => {
+    const client = makeClientStub();
+    client.get.mockResolvedValueOnce({ wrong: 'shape' });
+
+    await expect(
+      getClientById(CLIENT_PF_ID, undefined, client as unknown as ApiClient),
+    ).rejects.toMatchObject({ kind: 'parse' });
+  });
+
+  it('propaga ApiError 404 do backend', async () => {
+    const client = makeClientStub();
+    const notFound = {
+      kind: 'http' as const,
+      status: 404,
+      message: 'Cliente não encontrado.',
+    };
+    client.get.mockRejectedValueOnce(notFound);
+
+    await expect(
+      getClientById(CLIENT_PF_ID, undefined, client as unknown as ApiClient),
+    ).rejects.toBe(notFound);
+  });
+});
+
+/* ─── updateClient (Issue #75) ──────────────────────────── */
+
+describe('updateClient', () => {
+  it('envia PUT /clients/{id} para PF com cpf+fullName trimados', async () => {
+    const client = makeClientStub();
+    const updated = makeRawClientPf();
+    client.put.mockResolvedValueOnce(updated);
+
+    const result = await updateClient(
+      CLIENT_PF_ID,
+      {
+        type: 'PF',
+        cpf: '  12345678901  ',
+        fullName: '  Ana Cliente  ',
+      },
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.put).toHaveBeenCalledTimes(1);
+    expect(client.put).toHaveBeenCalledWith(
+      `/clients/${CLIENT_PF_ID}`,
+      {
+        type: 'PF',
+        cpf: '12345678901',
+        fullName: 'Ana Cliente',
+      },
+      undefined,
+    );
+    expect(result).toBe(updated);
+  });
+
+  it('envia PUT /clients/{id} para PJ com cnpj+corporateName trimados', async () => {
+    const client = makeClientStub();
+    const updated = makeRawClientPj();
+    client.put.mockResolvedValueOnce(updated);
+
+    await updateClient(
+      CLIENT_PJ_ID,
+      {
+        type: 'PJ',
+        cnpj: '  12345678000190  ',
+        corporateName: '  Acme Indústria S/A  ',
+      },
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.put).toHaveBeenCalledWith(
+      `/clients/${CLIENT_PJ_ID}`,
+      {
+        type: 'PJ',
+        cnpj: '12345678000190',
+        corporateName: 'Acme Indústria S/A',
+      },
+      undefined,
+    );
+  });
+
+  it('omite campos do tipo oposto (PF não envia cnpj/corporateName)', async () => {
+    const client = makeClientStub();
+    client.put.mockResolvedValueOnce(makeRawClientPf());
+
+    await updateClient(
+      CLIENT_PF_ID,
+      {
+        type: 'PF',
+        cpf: '12345678901',
+        fullName: 'Ana',
+        // Caller mal-comportado tenta enviar campos PJ junto. O
+        // helper interno `buildClientMutationBody` os filtra para
+        // evitar 400 do backend ("CNPJ não deve ser informado para
+        // cliente PF.").
+        cnpj: '12345678000190',
+        corporateName: 'Algo',
+      },
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    const [, body] = client.put.mock.calls[0];
+    expect(body).toEqual({
+      type: 'PF',
+      cpf: '12345678901',
+      fullName: 'Ana',
+    });
+    expect(body).not.toHaveProperty('cnpj');
+    expect(body).not.toHaveProperty('corporateName');
+  });
+
+  it('lança ApiError(parse) quando o backend devolve payload inválido', async () => {
+    const client = makeClientStub();
+    client.put.mockResolvedValueOnce({ wrong: 'shape' });
+
+    await expect(
+      updateClient(
+        CLIENT_PF_ID,
+        { type: 'PF', cpf: '12345678901', fullName: 'Ana' },
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toMatchObject({ kind: 'parse' });
+  });
+
+  it('propaga signal via options', async () => {
+    const client = makeClientStub();
+    client.put.mockResolvedValueOnce(makeRawClientPf());
+    const controller = new AbortController();
+
+    await updateClient(
+      CLIENT_PF_ID,
+      { type: 'PF', cpf: '12345678901', fullName: 'Ana' },
+      { signal: controller.signal },
+      client as unknown as ApiClient,
+    );
+
+    expect(client.put).toHaveBeenCalledWith(
+      `/clients/${CLIENT_PF_ID}`,
+      expect.any(Object),
+      { signal: controller.signal },
+    );
+  });
+
+  it('propaga ApiError 409 do backend (CPF/CNPJ duplicado)', async () => {
+    const client = makeClientStub();
+    const conflict = {
+      kind: 'http' as const,
+      status: 409,
+      message: 'Já existe cliente com este CPF.',
+    };
+    client.put.mockRejectedValueOnce(conflict);
+
+    await expect(
+      updateClient(
+        CLIENT_PF_ID,
+        { type: 'PF', cpf: '12345678901', fullName: 'Ana' },
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toBe(conflict);
+  });
+
+  it('propaga ApiError 404 do backend (cliente removido)', async () => {
+    const client = makeClientStub();
+    const notFound = {
+      kind: 'http' as const,
+      status: 404,
+      message: 'Cliente não encontrado.',
+    };
+    client.put.mockRejectedValueOnce(notFound);
+
+    await expect(
+      updateClient(
+        CLIENT_PF_ID,
+        { type: 'PF', cpf: '12345678901', fullName: 'Ana' },
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toBe(notFound);
+  });
+
+  it('propaga ApiError 400 do backend (type imutável)', async () => {
+    const client = makeClientStub();
+    const badRequest = {
+      kind: 'http' as const,
+      status: 400,
+      message: 'Tipo do cliente não pode ser alterado após a criação.',
+    };
+    client.put.mockRejectedValueOnce(badRequest);
+
+    await expect(
+      updateClient(
+        CLIENT_PF_ID,
+        { type: 'PJ', cnpj: '12345678000190', corporateName: 'Acme' },
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toBe(badRequest);
   });
 });
