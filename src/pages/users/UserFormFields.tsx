@@ -1,7 +1,8 @@
 import React, { useMemo } from 'react';
 import styled from 'styled-components';
 
-import { Alert, Button, Input, Switch } from '../../components/ui';
+import { Alert, Input, Switch } from '../../components/ui';
+import { FormFooter as SharedFormFooter } from '../../shared/forms';
 
 import {
   EMAIL_MAX,
@@ -30,20 +31,11 @@ const UserFormShell = styled.form`
   gap: var(--space-4);
 `;
 
-/** Footer com botões alinhados à direita, separados pelo gap padrão. */
-const UserFormFooter = styled.div`
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-3);
-  margin-top: var(--space-2);
-`;
-
-/** Linha de hint "campos com * são obrigatórios" no rodapé do form. */
-const UserFormHelperRow = styled.div`
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  letter-spacing: var(--tracking-tight);
-`;
+// `UserFormFooter`/`UserFormHelperRow` migraram para
+// `src/shared/forms/FormFooter.tsx` (lição PR #134/#135 — bloco
+// idêntico entre `UserFormFields`, `RouteFormFields`,
+// `ClientFormFields` e `NameCodeDescriptionForm`). O helper genérico
+// agora cuida do hint + Cancelar/Submit por trás de uma API uniforme.
 
 const FieldStack = styled.div`
   display: flex;
@@ -337,27 +329,11 @@ export const UserFormBody: React.FC<UserFormBodyProps> = ({
       onChangeActive={onChangeActive}
       disabled={isSubmitting}
     />
-    <UserFormHelperRow>Campos com * são obrigatórios.</UserFormHelperRow>
-    <UserFormFooter>
-      <Button
-        type="button"
-        variant="ghost"
-        size="md"
-        onClick={onCancel}
-        disabled={isSubmitting}
-        data-testid={`${idPrefix}-cancel`}
-      >
-        Cancelar
-      </Button>
-      <Button
-        type="submit"
-        variant="primary"
-        size="md"
-        loading={isSubmitting}
-        data-testid={`${idPrefix}-submit`}
-      >
-        {submitLabel}
-      </Button>
-    </UserFormFooter>
+    <SharedFormFooter
+      idPrefix={idPrefix}
+      onCancel={onCancel}
+      isSubmitting={isSubmitting}
+      submitLabel={submitLabel}
+    />
   </UserFormShell>
 );

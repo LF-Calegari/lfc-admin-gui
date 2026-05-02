@@ -129,6 +129,7 @@ export type {
 } from './roles';
 export {
   clientDisplayName,
+  createClient,
   DEFAULT_CLIENTS_INCLUDE_DELETED,
   DEFAULT_CLIENTS_PAGE,
   DEFAULT_CLIENTS_PAGE_SIZE,
@@ -143,6 +144,7 @@ export type {
   ClientLookupDto,
   ClientPhoneDto,
   ClientType,
+  CreateClientPayload,
   ListClientsParams,
 } from './clients';
 export {

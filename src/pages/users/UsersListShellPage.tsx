@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { PageHeader } from '../../components/layout/PageHeader';
 import { Button, Table } from '../../components/ui';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
+import { useModalOpenState } from '../../hooks/useModalOpenState';
 import { usePaginatedFetch } from '../../hooks/usePaginatedFetch';
 import { usePaginationControls } from '../../hooks/usePaginationControls';
 import {
@@ -150,15 +151,15 @@ export const UsersListShellPage: React.FC<UsersListShellPageProps> = ({
   // Estado de abertura do modal "Novo usuário" (Issue #78). O modal é
   // controlado por essa página para que a Toolbar consiga ocultar o
   // botão por permissão sem perder o ciclo de vida do form.
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState<boolean>(false);
-
-  const handleOpenCreateModal = useCallback(() => {
-    setIsCreateModalOpen(true);
-  }, []);
-
-  const handleCloseCreateModal = useCallback(() => {
-    setIsCreateModalOpen(false);
-  }, []);
+  // Lição PR #134/#135: o trio `useState + useCallback(open) +
+  // useCallback(close)` era duplicado entre `UsersListShellPage` e
+  // `ClientsListShellPage` — extraído em `useModalOpenState` em
+  // `src/hooks/` no PR #74.
+  const {
+    isOpen: isCreateModalOpen,
+    open: handleOpenCreateModal,
+    close: handleCloseCreateModal,
+  } = useModalOpenState();
 
   /**
    * Reseta a página para 1 sempre que muda um filtro/busca — evita o

@@ -1,8 +1,8 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import { expect, vi } from 'vitest';
 
-import type { ApiClient, ClientDto, PagedResponse } from '@/shared/api';
+import type { ApiClient, ApiError, ClientDto, PagedResponse } from '@/shared/api';
 
 import { ToastProvider } from '@/components/ui';
 import { ClientsListShellPage } from '@/pages/clients';
@@ -169,4 +169,201 @@ export function lastGetPath(client: ApiClientStub): string {
   if (calls.length === 0) return '';
   const path = calls[calls.length - 1][0];
   return typeof path === 'string' ? path : '';
+}
+
+/* ─── Helpers de fluxo do `NewClientModal` (Issue #74) ─── */
+
+/**
+ * Mocka o GET inicial com uma página contendo um cliente sintético,
+ * renderiza a `ClientsListShellPage`, espera a lista carregar e
+ * clica no botão "Novo cliente" para abrir o modal de criação.
+ *
+ * Helper análogo a `openCreateModal` da `SystemsPage` — colapsa o
+ * boilerplate de 4 linhas que se repetiria em ~8 testes da suíte de
+ * criação. Lição PR #127: trechos de 5+ linhas em 2+ testes são
+ * `New Code Duplication` no Sonar mesmo quando a estrutura é
+ * idêntica com 1 mudança. Centralizar aqui evita 7ª recorrência.
+ *
+ * Quem precisar de mocks diferentes pode chamar `client.get.mockXxx`
+ * antes para sobrescrever a fila — a detecção de mocks pré-existentes
+ * preserva o caso "fila customizada de respostas" (ex.: cenários de
+ * sucesso seguidos de refetch).
+ */
+export async function openCreateClientModal(client: ApiClientStub): Promise<void> {
+  if (client.get.mock.calls.length === 0 && client.get.mock.results.length === 0) {
+    client.get.mockResolvedValueOnce(makePagedClientsResponse([makeClient()]));
+  }
+  renderClientsListPage(client);
+  await waitForInitialList(client);
+  fireEvent.click(screen.getByTestId('clients-create-open'));
+}
+
+/**
+ * Preenche os campos do form do `NewClientModal` para o caminho PF.
+ * Cada chave é opcional — testes que validam só `cpf` ou só
+ * `fullName` passam apenas a chave relevante. Os valores são
+ * entregues diretamente ao `fireEvent.change`; trim/normalização é
+ * responsabilidade do `prepareSubmit` (espelha `digitsOnly` do
+ * backend).
+ *
+ * Asserção do tipo é responsabilidade do caller — o modal abre em
+ * PF por default (`INITIAL_CLIENT_FORM_STATE.type === 'PF'`), mas
+ * se o teste alternar para PJ via `selectClientType('PJ')` antes,
+ * os campos PF não estarão no DOM e o helper falhará no `getByTestId`.
+ */
+export function fillNewClientPfForm(values: { cpf?: string; fullName?: string }): void {
+  if (values.cpf !== undefined) {
+    fireEvent.change(screen.getByTestId('new-client-cpf'), {
+      target: { value: values.cpf },
+    });
+  }
+  if (values.fullName !== undefined) {
+    fireEvent.change(screen.getByTestId('new-client-fullName'), {
+      target: { value: values.fullName },
+    });
+  }
+}
+
+/**
+ * Espelho de `fillNewClientPfForm` para o caminho PJ. Espera que o
+ * teste tenha alternado para PJ via `selectClientType('PJ')` antes
+ * — caso contrário, os campos PJ não estarão no DOM.
+ */
+export function fillNewClientPjForm(values: {
+  cnpj?: string;
+  corporateName?: string;
+}): void {
+  if (values.cnpj !== undefined) {
+    fireEvent.change(screen.getByTestId('new-client-cnpj'), {
+      target: { value: values.cnpj },
+    });
+  }
+  if (values.corporateName !== undefined) {
+    fireEvent.change(screen.getByTestId('new-client-corporateName'), {
+      target: { value: values.corporateName },
+    });
+  }
+}
+
+/**
+ * Alterna o `<Select>` de tipo do `NewClientModal` para PF ou PJ.
+ * O componente `Select` do design system aceita `onChange(value)`
+ * com a string do `<option>` selecionado.
+ */
+export function selectClientType(value: 'PF' | 'PJ'): void {
+  fireEvent.change(screen.getByTestId('new-client-type'), {
+    target: { value },
+  });
+}
+
+/**
+ * Submete o form do `NewClientModal` e aguarda o `client.post` ser
+ * chamado pelo menos `expectedPostCalls` vezes (default `1`). Faz o
+ * `act(async)` necessário para flushar a microtask do submit antes
+ * do `waitFor`, padrão repetido em todos os testes de submissão.
+ */
+export async function submitNewClientForm(
+  client: ApiClientStub,
+  expectedPostCalls = 1,
+): Promise<void> {
+  await act(async () => {
+    fireEvent.submit(screen.getByTestId('new-client-form'));
+    await Promise.resolve();
+  });
+  await waitFor(() => expect(client.post).toHaveBeenCalledTimes(expectedPostCalls));
+}
+
+/**
+ * Caso de teste declarativo para os cenários `it.each(ERROR_CASES)`
+ * da suíte de criação (#74). Espelha `SystemsErrorCase`/
+ * `RolesErrorCase` mas com tipos próprios para evitar acoplamento
+ * cruzado entre arquivos de helpers.
+ */
+export interface ClientsErrorCase {
+  /** Descrição usada como `it.each($name)`. */
+  name: string;
+  /** Erro lançado pelo cliente HTTP no submit. */
+  error: ApiError;
+  /** Texto visível no UI após o submit (string vira regex case-insensitive). */
+  expectedText: RegExp | string;
+  /** Default `true` — quando `false`, o modal fecha após o erro. */
+  modalStaysOpen?: boolean;
+}
+
+/**
+ * Aceita string ou regex e devolve sempre um `RegExp` insensível a
+ * caixa, com escape de metacaracteres. Usado pelos cenários de erro
+ * para localizar mensagens no UI sem depender do match exato literal.
+ *
+ * Espelha `toCaseInsensitiveMatcher` em `systemsTestHelpers.tsx`.
+ * Reimplementado aqui (em vez de importar) para preservar a coesão
+ * do helper de clientes — o módulo se mantém autossuficiente.
+ */
+export function toCaseInsensitiveMatcher(text: RegExp | string): RegExp {
+  if (typeof text !== 'string') {
+    return text;
+  }
+  return new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`), 'i');
+}
+
+/**
+ * Constrói os 5 cenários comuns de erro de submit para a suíte de
+ * criação de clientes. Mantemos no helper local em vez de delegar
+ * para `buildSharedSubmitErrorCases` da suíte de sistemas porque a
+ * mensagem genérica diverge ("Não foi possível criar o cliente."
+ * vs "...sistema."). Centralizar aqui mantém a coesão do helper de
+ * clientes.
+ */
+export function buildClientsSubmitErrorCases(): ReadonlyArray<ClientsErrorCase> {
+  return [
+    {
+      name: '400 com errors mapeia mensagens para os campos correspondentes',
+      error: {
+        kind: 'http',
+        status: 400,
+        message: 'Erro de validação.',
+        details: {
+          errors: {
+            FullName: ['FullName é obrigatório para cliente PF.'],
+          },
+        },
+      },
+      expectedText: 'FullName é obrigatório para cliente PF.',
+    },
+    {
+      name: '400 sem errors mapeáveis exibe Alert no topo do form',
+      error: {
+        kind: 'http',
+        status: 400,
+        message: 'Payload inválido para criação de cliente.',
+      },
+      expectedText: 'Payload inválido para criação de cliente.',
+    },
+    {
+      name: '401 dispara toast vermelho com mensagem do backend',
+      error: {
+        kind: 'http',
+        status: 401,
+        message: 'Sessão expirada. Faça login novamente.',
+      },
+      expectedText: 'Sessão expirada. Faça login novamente.',
+    },
+    {
+      name: '403 dispara toast vermelho com mensagem do backend',
+      error: {
+        kind: 'http',
+        status: 403,
+        message: 'Você não tem permissão para esta ação.',
+      },
+      expectedText: 'Você não tem permissão para esta ação.',
+    },
+    {
+      name: 'erro genérico de rede dispara toast vermelho genérico',
+      error: {
+        kind: 'network',
+        message: 'Falha de conexão com o servidor.',
+      },
+      expectedText: 'Não foi possível criar o cliente. Tente novamente.',
+    },
+  ];
 }

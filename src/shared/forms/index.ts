@@ -21,10 +21,19 @@ export {
   type ApiSubmitErrorCopy,
 } from "./classifySubmitError";
 export {
+<<<<<<< HEAD
   computeIdSetDiff,
   idSetDiffHasChanges,
   type IdSetDiff,
 } from "./computeIdSetDiff";
+=======
+  useApplyBadRequest,
+  type ApplyBadRequestDecision,
+  type ApplyBadRequestDispatchers,
+} from "./createApplyBadRequest";
+export { extractValidationErrorsByField } from "./extractValidationErrors";
+export { FormFooter } from "./FormFooter";
+>>>>>>> fe91fca (feat(clients): criar cliente PF/PJ (#74))
 export {
   useFieldChangeHandlers,
   type FieldChangeHandlers,

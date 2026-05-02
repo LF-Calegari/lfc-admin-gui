@@ -82,6 +82,7 @@ export {
   type SystemGroupItem,
 } from './groupBySystem';
 export { InitialLoadingSpinner } from './InitialLoadingSpinner';
+export { ListingResultArea } from './ListingResultArea';
 export { ListingToolbar } from './ListingToolbar';
 export { LiveRegion } from './LiveRegion';
 export { PaginationFooter } from './PaginationFooter';

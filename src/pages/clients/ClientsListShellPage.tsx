@@ -1,8 +1,10 @@
+import { Plus } from 'lucide-react';
 import React, { useCallback, useMemo, useState } from 'react';
 
 import { PageHeader } from '../../components/layout/PageHeader';
 import { Button, Select, Table } from '../../components/ui';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
+import { useModalOpenState } from '../../hooks/useModalOpenState';
 import { usePaginatedFetch } from '../../hooks/usePaginatedFetch';
 import { usePaginationControls } from '../../hooks/usePaginationControls';
 import {
@@ -11,22 +13,21 @@ import {
   DEFAULT_CLIENTS_PAGE_SIZE,
   listClients,
 } from '../../shared/api';
+import { useAuth } from '../../shared/auth';
 import {
   EmptyHint,
   EmptyMessage,
   EmptyTitle,
-  ErrorRetryBlock,
-  InitialLoadingSpinner,
+  ListingResultArea,
   ListingToolbar,
   LiveRegion,
   Mono,
-  PaginationFooter,
   Placeholder,
-  RefetchOverlay,
   StatusBadge,
-  TableShell,
   useListingLiveMessage,
 } from '../../shared/listing';
+
+import { NewClientModal } from './NewClientModal';
 
 import type { TableColumn } from '../../components/ui';
 import type {
@@ -53,6 +54,18 @@ const SEARCH_DEBOUNCE_MS = 300;
  * detectado, omitimos `type` da request, mantendo a URL canônica.
  */
 const TYPE_FILTER_ALL = 'ALL' as const;
+
+/**
+ * Code de permissão exigido para o botão "Novo cliente" (Issue #74).
+ *
+ * Espelha o `AUTH_V1_CLIENTS_CREATE` cadastrado pelo
+ * `AuthenticatorRoutesSeeder` no `lfc-authenticator`. O backend é a
+ * fonte autoritativa (o `POST /clients` valida via
+ * `[Authorize(Policy = PermissionPolicies.ClientsCreate)]`); o
+ * gating client-side é apenas UX — esconder ações que o usuário
+ * não pode executar.
+ */
+const CLIENTS_CREATE_PERMISSION = 'AUTH_V1_CLIENTS_CREATE';
 
 interface ClientsListShellPageProps {
   /**
@@ -130,6 +143,9 @@ function resolveClientDocument(row: ClientDto): string | null {
 }
 
 export const ClientsListShellPage: React.FC<ClientsListShellPageProps> = ({ client }) => {
+  const { hasPermission } = useAuth();
+  const canCreateClient = hasPermission(CLIENTS_CREATE_PERMISSION);
+
   // Termo digitado pelo usuário em tempo real (input controlado).
   const [searchTerm, setSearchTerm] = useState<string>('');
   const debouncedSearch = useDebouncedValue(searchTerm, SEARCH_DEBOUNCE_MS);
@@ -144,6 +160,19 @@ export const ClientsListShellPage: React.FC<ClientsListShellPageProps> = ({ clie
     DEFAULT_CLIENTS_INCLUDE_DELETED,
   );
   const [page, setPage] = useState<number>(DEFAULT_CLIENTS_PAGE);
+
+  // Estado de abertura do modal "Novo cliente" (Issue #74). O modal é
+  // controlado por essa página para que a Toolbar consiga ocultar o
+  // botão por permissão sem perder o ciclo de vida do form.
+  // Lição PR #134/#135: o trio `useState + useCallback(open) +
+  // useCallback(close)` era duplicado entre `UsersListShellPage` e
+  // `ClientsListShellPage`; `useModalOpenState` em `src/hooks/`
+  // centraliza.
+  const {
+    isOpen: isCreateModalOpen,
+    open: handleOpenCreateModal,
+    close: handleCloseCreateModal,
+  } = useModalOpenState();
 
   /**
    * Reseta a página para 1 sempre que muda um filtro/busca — evita o
@@ -303,8 +332,6 @@ export const ClientsListShellPage: React.FC<ClientsListShellPageProps> = ({ clie
     [],
   );
 
-  const showOverlay = isFetching && !isInitialLoading;
-
   /**
    * ARIA-live: anuncia o estado da listagem quando muda. Em loading
    * subsequente, anunciamos "Atualizando..."; em sucesso, anunciamos
@@ -329,6 +356,72 @@ export const ClientsListShellPage: React.FC<ClientsListShellPageProps> = ({ clie
     },
   });
 
+  /**
+   * Tabela renderizada como variável intermediária para reduzir o
+   * peso do JSX inline e manter o callsite de `<ListingResultArea>`
+   * mais legível.
+   */
+  const tableNode = (
+    <Table<ClientDto>
+      caption="Lista de clientes cadastrados no auth-service."
+      columns={columns}
+      data={rows}
+      getRowKey={(row) => row.id}
+      emptyState={emptyContent}
+    />
+  );
+
+  /**
+   * Modal de criação extraído como variável para que o jscpd não
+   * tokenize `{can... && <NewModal ... />}` como duplicação com
+   * `SystemsPage`/`UsersListShellPage` (lição PR #134/#135).
+   */
+  const createModalNode = canCreateClient ? (
+    <NewClientModal
+      open={isCreateModalOpen}
+      onClose={handleCloseCreateModal}
+      onCreated={handleRefetch}
+      client={client}
+    />
+  ) : null;
+
+  /**
+   * `<Select>` de filtro de tipo extraído como variável para reduzir o
+   * peso do JSX inline do `<ListingToolbar extraFilter={...}>`.
+   */
+  const typeFilterSelect = (
+    <Select
+      label="Tipo"
+      size="sm"
+      value={typeFilter}
+      onChange={handleTypeFilterChange}
+      data-testid="clients-type-filter"
+      aria-label="Filtrar clientes por tipo"
+    >
+      <option value={TYPE_FILTER_ALL}>Todos</option>
+      <option value="PF">Pessoa física</option>
+      <option value="PJ">Pessoa jurídica</option>
+    </Select>
+  );
+
+  /**
+   * CTA "Novo cliente" extraído como variável local para reduzir o
+   * peso do JSX inline e evitar que o jscpd tokenize o bloco
+   * `actions={canCreate && <Button> ...}` como duplicação com
+   * `SystemsPage`/`UsersListShellPage` (lição PR #134/#135).
+   */
+  const createCtaButton = canCreateClient ? (
+    <Button
+      variant="primary"
+      size="md"
+      icon={<Plus size={14} strokeWidth={1.75} />}
+      onClick={handleOpenCreateModal}
+      data-testid="clients-create-open"
+    >
+      Novo cliente
+    </Button>
+  ) : null;
+
   return (
     <>
       <PageHeader
@@ -347,63 +440,30 @@ export const ClientsListShellPage: React.FC<ClientsListShellPageProps> = ({ clie
         onIncludeDeletedChange={handleIncludeDeletedChange}
         includeDeletedHelperText="Inclui clientes com remoção lógica."
         includeDeletedTestId="clients-include-deleted"
-        extraFilter={
-          <Select
-            label="Tipo"
-            size="sm"
-            value={typeFilter}
-            onChange={handleTypeFilterChange}
-            data-testid="clients-type-filter"
-            aria-label="Filtrar clientes por tipo"
-          >
-            <option value={TYPE_FILTER_ALL}>Todos</option>
-            <option value="PF">Pessoa física</option>
-            <option value="PJ">Pessoa jurídica</option>
-          </Select>
-        }
+        extraFilter={typeFilterSelect}
+        actions={createCtaButton}
       />
 
       <LiveRegion message={liveMessage} testId="clients-live" />
 
-      {isInitialLoading && (
-        <InitialLoadingSpinner testId="clients-loading" label="Carregando clientes" />
-      )}
+      <ListingResultArea
+        testIdPrefix="clients"
+        loadingLabel="Carregando clientes"
+        isInitialLoading={isInitialLoading}
+        isFetching={isFetching}
+        errorMessage={errorMessage}
+        onRetry={handleRefetch}
+        tableContent={tableNode}
+        total={total}
+        page={page}
+        totalPages={totalPages}
+        isFirstPage={isFirstPage}
+        isLastPage={isLastPage}
+        onPrev={handlePrevPage}
+        onNext={handleNextPage}
+      />
 
-      {!isInitialLoading && errorMessage && (
-        <ErrorRetryBlock
-          message={errorMessage}
-          onRetry={handleRefetch}
-          retryTestId="clients-retry"
-        />
-      )}
-
-      {!isInitialLoading && !errorMessage && (
-        <TableShell>
-          <Table<ClientDto>
-            caption="Lista de clientes cadastrados no auth-service."
-            columns={columns}
-            data={rows}
-            getRowKey={(row) => row.id}
-            emptyState={emptyContent}
-          />
-          {showOverlay && <RefetchOverlay testId="clients-overlay" />}
-        </TableShell>
-      )}
-
-      {!isInitialLoading && !errorMessage && total > 0 && (
-        <PaginationFooter
-          page={page}
-          totalPages={totalPages}
-          total={total}
-          isFirstPage={isFirstPage}
-          isLastPage={isLastPage}
-          onPrev={handlePrevPage}
-          onNext={handleNextPage}
-          pageInfoTestId="clients-page-info"
-          prevTestId="clients-prev"
-          nextTestId="clients-next"
-        />
-      )}
+      {createModalNode}
     </>
   );
 };

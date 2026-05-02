@@ -1,7 +1,8 @@
 import React, { useMemo } from 'react';
 import styled from 'styled-components';
 
-import { Alert, Button, Input, Select, Textarea } from '../../components/ui';
+import { Alert, Input, Select, Textarea } from '../../components/ui';
+import { FormFooter as SharedFormFooter } from '../../shared/forms';
 
 import {
   CODE_MAX,
@@ -28,20 +29,12 @@ const RouteFormShell = styled.form`
   gap: var(--space-4);
 `;
 
-/** Footer com botões alinhados à direita, separados pelo gap padrão. */
-const RouteFormFooter = styled.div`
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-3);
-  margin-top: var(--space-2);
-`;
-
-/** Linha de hint "campos com * são obrigatórios" no rodapé do form. */
-const RouteFormHelperRow = styled.div`
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  letter-spacing: var(--tracking-tight);
-`;
+// `RouteFormFooter`/`RouteFormHelperRow` migraram para
+// `src/shared/forms/FormFooter.tsx` (lição PR #134/#135 — bloco
+// idêntico entre `UserFormFields`, `RouteFormFields`,
+// `ClientFormFields` e `NameCodeDescriptionForm` foi tokenizado
+// pelo jscpd no PR #74). O helper genérico cuida do hint +
+// Cancelar/Submit + suporte ao `submitDisabled` que rotas precisam.
 
 const FieldStack = styled.div`
   display: flex;
@@ -327,28 +320,12 @@ export const RouteFormBody: React.FC<RouteFormBodyProps> = ({
       disabled={isSubmitting}
       tokenTypesHelperText={tokenTypesHelperText}
     />
-    <RouteFormHelperRow>Campos com * são obrigatórios.</RouteFormHelperRow>
-    <RouteFormFooter>
-      <Button
-        type="button"
-        variant="ghost"
-        size="md"
-        onClick={onCancel}
-        disabled={isSubmitting}
-        data-testid={`${idPrefix}-cancel`}
-      >
-        Cancelar
-      </Button>
-      <Button
-        type="submit"
-        variant="primary"
-        size="md"
-        loading={isSubmitting}
-        disabled={submitDisabled}
-        data-testid={`${idPrefix}-submit`}
-      >
-        {submitLabel}
-      </Button>
-    </RouteFormFooter>
+    <SharedFormFooter
+      idPrefix={idPrefix}
+      onCancel={onCancel}
+      isSubmitting={isSubmitting}
+      submitLabel={submitLabel}
+      submitDisabled={submitDisabled}
+    />
   </RouteFormShell>
 );

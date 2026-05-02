@@ -20,12 +20,9 @@ import {
 } from '../shared/api';
 import { useAuth } from '../shared/auth';
 import {
-  ErrorRetryBlock,
-  InitialLoadingSpinner,
+  ListingResultArea,
   ListingToolbar,
   LiveRegion,
-  PaginationFooter,
-  RefetchOverlay,
   StatusBadge,
   useListingLiveMessage,
 } from '../shared/listing';
@@ -116,23 +113,13 @@ interface SystemsPageProps {
 // consome `<ListingToolbar>` do mesmo módulo, eliminando duplicação
 // Sonar/jscpd entre listagens (lição PR #134/#135).
 
-const TableShell = styled.div`
-  position: relative;
-`;
-
-/**
- * Overlay leve aplicado em cima da tabela durante refetches subsequentes
- * (busca/paginação/toggle). Mantém os dados anteriores visíveis para
- * evitar flicker enquanto sinaliza atividade — o spinner ancorado ao
- * topo deixa claro que algo está em curso sem mover a tabela.
- */
-// `TableOverlay`, `InitialLoading`, `ErrorBlock`, `FootBar`,
-// `PageInfo`, `PageNav` foram movidos para `src/shared/listing/`
-// (Issue #66) — o JSX da página agora consome `<RefetchOverlay>`,
-// `<InitialLoadingSpinner>`, `<ErrorRetryBlock>` e
-// `<PaginationFooter>` do mesmo módulo
-// para eliminar duplicação Sonar/jscpd entre SystemsPage/RoutesPage/
-// RolesPage (lição PR #134/#135).
+// `TableShell`, `RefetchOverlay`, `InitialLoadingSpinner`,
+// `ErrorRetryBlock`, `PaginationFooter` foram encapsulados em
+// `<ListingResultArea>` (Issue #74 — lição PR #134/#135 reforçada,
+// jscpd detectou bloco de 62 linhas idêntico entre SystemsPage e
+// ClientsListShellPage). O shell genérico agora cuida da árvore
+// loading → error → tabela+overlay → paginação por trás de uma
+// API uniforme; cada página só passa `testIdPrefix` + handlers.
 
 const EmptyMessage = styled.div`
   display: flex;
@@ -477,8 +464,6 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client, hideStats = fa
     handleOpenRestoreConfirm,
   ]);
 
-  const showOverlay = isFetching && !isInitialLoading;
-
   // ARIA-live: anuncia o estado da tabela quando muda. Em loading
   // subsequente, anunciamos "Atualizando..."; em sucesso, anunciamos
   // o total. Em erro, o `<Alert role="alert">` já cobre. O hook
@@ -538,20 +523,14 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client, hideStats = fa
 
       <LiveRegion message={liveMessage} testId="systems-live" />
 
-      {isInitialLoading && (
-        <InitialLoadingSpinner testId="systems-loading" label="Carregando sistemas" />
-      )}
-
-      {!isInitialLoading && errorMessage && (
-        <ErrorRetryBlock
-          message={errorMessage}
-          onRetry={handleRefetch}
-          retryTestId="systems-retry"
-        />
-      )}
-
-      {!isInitialLoading && !errorMessage && (
-        <TableShell>
+      <ListingResultArea
+        testIdPrefix="systems"
+        loadingLabel="Carregando sistemas"
+        isInitialLoading={isInitialLoading}
+        isFetching={isFetching}
+        errorMessage={errorMessage}
+        onRetry={handleRefetch}
+        tableContent={
           <Table<SystemDto>
             caption="Lista de sistemas cadastrados no auth-service."
             columns={columns}
@@ -559,24 +538,15 @@ export const SystemsPage: React.FC<SystemsPageProps> = ({ client, hideStats = fa
             getRowKey={(row) => row.id}
             emptyState={emptyContent}
           />
-          {showOverlay && <RefetchOverlay testId="systems-overlay" />}
-        </TableShell>
-      )}
-
-      {!isInitialLoading && !errorMessage && total > 0 && (
-        <PaginationFooter
-          page={page}
-          totalPages={totalPages}
-          total={total}
-          isFirstPage={isFirstPage}
-          isLastPage={isLastPage}
-          onPrev={handlePrevPage}
-          onNext={handleNextPage}
-          pageInfoTestId="systems-page-info"
-          prevTestId="systems-prev"
-          nextTestId="systems-next"
-        />
-      )}
+        }
+        total={total}
+        page={page}
+        totalPages={totalPages}
+        isFirstPage={isFirstPage}
+        isLastPage={isLastPage}
+        onPrev={handlePrevPage}
+        onNext={handleNextPage}
+      />
 
       {canCreateSystem && (
         <NewSystemModal
