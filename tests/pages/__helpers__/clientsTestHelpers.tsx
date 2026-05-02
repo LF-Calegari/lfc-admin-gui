@@ -2,7 +2,13 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react';
 import { expect, vi } from 'vitest';
 
-import type { ApiClient, ApiError, ClientDto, PagedResponse } from '@/shared/api';
+import type {
+  ApiClient,
+  ApiError,
+  ClientDto,
+  ClientEmailDto,
+  PagedResponse,
+} from '@/shared/api';
 
 import { ToastProvider } from '@/components/ui';
 import { ClientsListShellPage } from '@/pages/clients';
@@ -617,4 +623,41 @@ export function buildClientsEditSubmitErrorCases(): ReadonlyArray<ClientsErrorCa
       expectedText: 'Não foi possível atualizar o cliente. Tente novamente.',
     },
   ];
+}
+
+/* ─── Helpers de fluxo do `ClientExtraEmailsTab` (Issue #146) ─ */
+
+/**
+ * Constrói um `ClientEmailDto` com defaults — testes só sobrescrevem o
+ * que importa para o cenário sem repetir todos os campos do contrato.
+ *
+ * O `id` default é um UUID sintético claramente identificável; cenários
+ * que precisem de ids estáveis para asserts reusam essa fixture
+ * passando o `id` próprio.
+ */
+export function makeClientEmail(overrides: Partial<ClientEmailDto> = {}): ClientEmailDto {
+  return {
+    id: 'e0000000-0000-0000-0000-000000000001',
+    email: 'extra1@exemplo.com',
+    createdAt: '2026-02-10T12:00:00Z',
+    ...overrides,
+  };
+}
+
+/**
+ * Submete o form do modal de adicionar email no `ClientExtraEmailsTab`
+ * e aguarda o `client.post` ser chamado pelo menos `expectedPostCalls`
+ * vezes (default `1`). Faz `act(async)` para flushar a microtask do
+ * submit antes do `waitFor`. Espelha `submitNewClientForm` para o
+ * caminho do modal de adicionar email.
+ */
+export async function submitAddExtraEmailForm(
+  client: ApiClientStub,
+  expectedPostCalls = 1,
+): Promise<void> {
+  await act(async () => {
+    fireEvent.submit(screen.getByTestId('client-extra-emails-add-form'));
+    await Promise.resolve();
+  });
+  await waitFor(() => expect(client.post).toHaveBeenCalledTimes(expectedPostCalls));
 }

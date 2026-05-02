@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ApiClient, ClientDto, PagedResponse } from '@/shared/api';
 
 import {
+  addClientExtraEmail,
   clientDisplayName,
   createClient,
   DEFAULT_CLIENTS_PAGE_SIZE,
@@ -12,6 +13,7 @@ import {
   isClientDto,
   isPagedClientsResponse,
   listClients,
+  removeClientExtraEmail,
   restoreClient,
   updateClient,
 } from '@/shared/api';
@@ -1070,6 +1072,249 @@ describe('restoreClient', () => {
 
     await expect(
       restoreClient(CLIENT_PF_ID, undefined, client as unknown as ApiClient),
+    ).rejects.toBe(forbidden);
+  });
+});
+
+describe('addClientExtraEmail (Issue #146)', () => {
+  const EMAIL_ID = 'e0000000-0000-0000-0000-000000000001';
+
+  function makeRawEmail(overrides: Partial<{ id: string; email: string; createdAt: string }> = {}): {
+    id: string;
+    email: string;
+    createdAt: string;
+  } {
+    return {
+      id: EMAIL_ID,
+      email: 'extra@exemplo.com',
+      createdAt: '2026-02-10T12:00:00Z',
+      ...overrides,
+    };
+  }
+
+  it('faz POST /clients/{id}/emails com body { email } e devolve ClientEmailDto', async () => {
+    const client = makeClientStub();
+    const created = makeRawEmail();
+    client.post.mockResolvedValueOnce(created);
+
+    const result = await addClientExtraEmail(
+      CLIENT_PF_ID,
+      'extra@exemplo.com',
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.post).toHaveBeenCalledTimes(1);
+    expect(client.post.mock.calls[0][0]).toBe(
+      `/clients/${CLIENT_PF_ID}/emails`,
+    );
+    expect(client.post.mock.calls[0][1]).toEqual({ email: 'extra@exemplo.com' });
+    expect(result).toEqual(created);
+  });
+
+  it('propaga signal via options', async () => {
+    const client = makeClientStub();
+    client.post.mockResolvedValueOnce(makeRawEmail());
+    const controller = new AbortController();
+
+    await addClientExtraEmail(
+      CLIENT_PF_ID,
+      'extra@exemplo.com',
+      { signal: controller.signal },
+      client as unknown as ApiClient,
+    );
+
+    expect(client.post.mock.calls[0][2]).toEqual({ signal: controller.signal });
+  });
+
+  it('lança ApiError(parse) quando o backend devolve payload inválido', async () => {
+    const client = makeClientStub();
+    client.post.mockResolvedValueOnce({ malformed: true });
+
+    await expect(
+      addClientExtraEmail(
+        CLIENT_PF_ID,
+        'extra@exemplo.com',
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toMatchObject({
+      kind: 'parse',
+      message: 'Resposta inválida do servidor.',
+    });
+  });
+
+  it('propaga ApiError 400 do backend (limite atingido)', async () => {
+    const client = makeClientStub();
+    const limit = {
+      kind: 'http' as const,
+      status: 400,
+      message: 'Limite de 3 emails extras por cliente.',
+    };
+    client.post.mockRejectedValueOnce(limit);
+
+    await expect(
+      addClientExtraEmail(
+        CLIENT_PF_ID,
+        'extra@exemplo.com',
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toBe(limit);
+  });
+
+  it('propaga ApiError 409 do backend (email duplicado)', async () => {
+    const client = makeClientStub();
+    const conflict = {
+      kind: 'http' as const,
+      status: 409,
+      message: 'Email extra já cadastrado para este cliente.',
+    };
+    client.post.mockRejectedValueOnce(conflict);
+
+    await expect(
+      addClientExtraEmail(
+        CLIENT_PF_ID,
+        'extra@exemplo.com',
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toBe(conflict);
+  });
+
+  it('propaga ApiError 409 do backend (email é username de algum usuário)', async () => {
+    const client = makeClientStub();
+    const conflict = {
+      kind: 'http' as const,
+      status: 409,
+      message:
+        'Este email está sendo usado como username e não pode ser email extra.',
+    };
+    client.post.mockRejectedValueOnce(conflict);
+
+    await expect(
+      addClientExtraEmail(
+        CLIENT_PF_ID,
+        'username@exemplo.com',
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toBe(conflict);
+  });
+
+  it('propaga ApiError 404 do backend (cliente removido)', async () => {
+    const client = makeClientStub();
+    const notFound = {
+      kind: 'http' as const,
+      status: 404,
+      message: 'Cliente não encontrado.',
+    };
+    client.post.mockRejectedValueOnce(notFound);
+
+    await expect(
+      addClientExtraEmail(
+        CLIENT_PF_ID,
+        'extra@exemplo.com',
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toBe(notFound);
+  });
+});
+
+describe('removeClientExtraEmail (Issue #146)', () => {
+  const EMAIL_ID = 'e0000000-0000-0000-0000-000000000001';
+
+  it('faz DELETE /clients/{id}/emails/{emailId} sem corpo e resolve void', async () => {
+    const client = makeClientStub();
+    client.delete.mockResolvedValueOnce(undefined);
+
+    const result = await removeClientExtraEmail(
+      CLIENT_PF_ID,
+      EMAIL_ID,
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.delete).toHaveBeenCalledTimes(1);
+    expect(client.delete.mock.calls[0][0]).toBe(
+      `/clients/${CLIENT_PF_ID}/emails/${EMAIL_ID}`,
+    );
+    expect(result).toBeUndefined();
+  });
+
+  it('propaga signal via options', async () => {
+    const client = makeClientStub();
+    client.delete.mockResolvedValueOnce(undefined);
+    const controller = new AbortController();
+
+    await removeClientExtraEmail(
+      CLIENT_PF_ID,
+      EMAIL_ID,
+      { signal: controller.signal },
+      client as unknown as ApiClient,
+    );
+
+    expect(client.delete.mock.calls[0][1]).toEqual({
+      signal: controller.signal,
+    });
+  });
+
+  it('propaga ApiError 400 do backend (email é username — não pode remover)', async () => {
+    const client = makeClientStub();
+    const usernameError = {
+      kind: 'http' as const,
+      status: 400,
+      message:
+        'Não é permitido remover email que esteja sendo usado como username.',
+    };
+    client.delete.mockRejectedValueOnce(usernameError);
+
+    await expect(
+      removeClientExtraEmail(
+        CLIENT_PF_ID,
+        EMAIL_ID,
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toBe(usernameError);
+  });
+
+  it('propaga ApiError 404 do backend (email não pertence ao cliente)', async () => {
+    const client = makeClientStub();
+    const notFound = {
+      kind: 'http' as const,
+      status: 404,
+      message: 'Email extra não encontrado para este cliente.',
+    };
+    client.delete.mockRejectedValueOnce(notFound);
+
+    await expect(
+      removeClientExtraEmail(
+        CLIENT_PF_ID,
+        EMAIL_ID,
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toBe(notFound);
+  });
+
+  it('propaga ApiError 401/403 do backend (sessão/permissão)', async () => {
+    const client = makeClientStub();
+    const forbidden = {
+      kind: 'http' as const,
+      status: 403,
+      message: 'Você não tem permissão para esta ação.',
+    };
+    client.delete.mockRejectedValueOnce(forbidden);
+
+    await expect(
+      removeClientExtraEmail(
+        CLIENT_PF_ID,
+        EMAIL_ID,
+        undefined,
+        client as unknown as ApiClient,
+      ),
     ).rejects.toBe(forbidden);
   });
 });

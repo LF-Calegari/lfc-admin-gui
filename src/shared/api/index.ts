@@ -140,6 +140,7 @@ export type {
   UpdateRolePayload,
 } from './roles';
 export {
+  addClientExtraEmail,
   clientDisplayName,
   createClient,
   DEFAULT_CLIENTS_INCLUDE_DELETED,
@@ -151,6 +152,8 @@ export {
   isClientDto,
   isPagedClientsResponse,
   listClients,
+  MAX_CLIENT_EXTRA_EMAILS,
+  removeClientExtraEmail,
   restoreClient,
   updateClient,
 } from './clients';
