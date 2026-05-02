@@ -4,6 +4,8 @@ import {
   type ApiSubmitErrorCopy,
 } from '../../shared/forms';
 
+import type { CreateUserPayload, UpdateUserPayload } from '../../shared/api';
+
 /**
  * Helpers compartilhados pelos formulários de criação (Issue #78) e
  * futuras edições (sub-issues seguintes da EPIC #49) de usuários.
@@ -192,14 +194,24 @@ function isIntegerString(raw: string): boolean {
  */
 const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
-export function validateUserForm(state: UserFormState): UserFieldErrors | null {
-  const errors: UserFieldErrors = {};
+/**
+ * Aplica as regras compartilhadas entre criação e edição (`name`/
+ * `email`/`identity`/`clientId`) ao objeto `errors`. Mantemos como
+ * função interna que **muta** o `errors` para reduzir alocações
+ * intermediárias e manter o caminho fácil de auditar — `validateUserForm`
+ * e `validateUserUpdateForm` viraram thin wrappers que adicionam apenas
+ * as regras específicas do seu caminho (criação valida `password`).
+ *
+ * Centralizar evita ~30 linhas duplicadas entre as duas funções de
+ * validação (lição PR #128/#134 — refatorar antes do segundo call site
+ * para prevenir New Code Duplication do Sonar).
+ */
+function applySharedUserFieldRules(
+  errors: UserFieldErrors,
+  state: UserFormState,
+): void {
   const name = state.name.trim();
   const email = state.email.trim();
-  // Senha não é trimada — espaços no início/fim podem ser
-  // intencionais para senhas geradas em gerenciadores. O backend
-  // hasheia o valor literal sem trim no `UserPasswordHasher`.
-  const password = state.password;
   const identity = state.identity.trim();
   const clientId = state.clientId.trim();
 
@@ -217,14 +229,6 @@ export function validateUserForm(state: UserFormState): UserFieldErrors | null {
     errors.email = 'Informe um e-mail válido.';
   }
 
-  if (password.length === 0) {
-    errors.password = 'Senha é obrigatória.';
-  } else if (password.length < PASSWORD_MIN) {
-    errors.password = `Senha deve ter ao menos ${PASSWORD_MIN} caracteres.`;
-  } else if (password.length > PASSWORD_MAX) {
-    errors.password = `Senha deve ter no máximo ${PASSWORD_MAX} caracteres.`;
-  }
-
   if (identity.length === 0) {
     errors.identity = 'Identity é obrigatório.';
   } else if (!isIntegerString(identity)) {
@@ -234,8 +238,112 @@ export function validateUserForm(state: UserFormState): UserFieldErrors | null {
   if (clientId.length > 0 && !UUID_REGEX.test(clientId)) {
     errors.clientId = 'ClientId deve ser um UUID válido.';
   }
+}
+
+export function validateUserForm(state: UserFormState): UserFieldErrors | null {
+  const errors: UserFieldErrors = {};
+  applySharedUserFieldRules(errors, state);
+
+  // Senha não é trimada — espaços no início/fim podem ser
+  // intencionais para senhas geradas em gerenciadores. O backend
+  // hasheia o valor literal sem trim no `UserPasswordHasher`.
+  const password = state.password;
+  if (password.length === 0) {
+    errors.password = 'Senha é obrigatória.';
+  } else if (password.length < PASSWORD_MIN) {
+    errors.password = `Senha deve ter ao menos ${PASSWORD_MIN} caracteres.`;
+  } else if (password.length > PASSWORD_MAX) {
+    errors.password = `Senha deve ter no máximo ${PASSWORD_MAX} caracteres.`;
+  }
 
   return Object.keys(errors).length > 0 ? errors : null;
+}
+
+/**
+ * Valida o estado do form contra as regras do `PUT /users/{id}`. Diferença
+ * essencial em relação a `validateUserForm`:
+ *
+ * - **Não exige `password`** — o reset de senha é endpoint separado
+ *   (`PUT /users/{id}/password`, fora do escopo da Issue #79). Edição
+ *   normal preserva a senha vigente; campo nem é exibido no modal.
+ *
+ * As demais regras (`name`/`email`/`identity`/`clientId`) seguem o
+ * contrato do backend (`UpdateUserRequest` em `UsersController.cs`),
+ * idêntico ao caminho de criação para esses campos.
+ */
+export function validateUserUpdateForm(
+  state: UserFormState,
+): UserFieldErrors | null {
+  const errors: UserFieldErrors = {};
+  applySharedUserFieldRules(errors, state);
+  return Object.keys(errors).length > 0 ? errors : null;
+}
+
+/**
+ * Constrói o `CreateUserPayload` a partir do estado validado do form.
+ * Centralizar a conversão (parse `identity` para `int`, omit/trim de
+ * `clientId`, includes `active`) elimina ~18 linhas que apareciam
+ * inline no `useUserForm.prepareSubmit` original — preserva o teste
+ * unitário focado na lógica e simplifica a manutenção.
+ *
+ * **Pré-condição:** o caller já chamou `validateUserForm(state)` e
+ * recebeu `null`. Se a validação não passou, a saída desta função é
+ * indefinida (mas defensivamente, `Number.parseInt` com radix 10
+ * retorna `NaN` — o backend rejeitaria via JSON binder se isso
+ * vazasse, mas o caller nunca deve chegar aqui sem validar antes).
+ */
+export function buildCreateUserPayload(state: UserFormState): CreateUserPayload {
+  const identityInt = Number.parseInt(state.identity.trim(), 10);
+  const trimmedClientId = state.clientId.trim();
+
+  const payload: CreateUserPayload = {
+    name: state.name.trim(),
+    email: state.email.trim(),
+    // Password preservada literal — espaços laterais podem ser
+    // intencionais para senhas de gerenciador.
+    password: state.password,
+    identity: identityInt,
+  };
+
+  if (trimmedClientId.length > 0) {
+    payload.clientId = trimmedClientId;
+  }
+
+  // `active` é sempre incluído — o estado inicial é `true`, então
+  // omitir só quando o usuário deliberadamente liga/desliga seria
+  // assimetria desnecessária. O backend trata `Active` como bool
+  // simples (`= true` quando ausente; aceita explícito).
+  payload.active = state.active;
+
+  return payload;
+}
+
+/**
+ * Constrói o `UpdateUserPayload` a partir do estado validado do form
+ * de edição. Diferenças vs `buildCreateUserPayload`:
+ *
+ * - **Sem `password`** — coerente com `UpdateUserRequest` do backend.
+ * - **`active` sempre presente** — backend marca como `[Required]` no
+ *   update (diferente do create onde aceita ausência via default `true`).
+ *
+ * Pré-condição: caller validou via `validateUserUpdateForm(state)`.
+ */
+export function buildUpdateUserPayload(state: UserFormState): UpdateUserPayload {
+  const identityInt = Number.parseInt(state.identity.trim(), 10);
+  const trimmedClientId = state.clientId.trim();
+
+  const payload: UpdateUserPayload = {
+    name: state.name.trim(),
+    email: state.email.trim(),
+    identity: identityInt,
+    active: state.active,
+  };
+
+  if (trimmedClientId.length > 0) {
+    payload.clientId = trimmedClientId;
+  }
+
+  return payload;
 }
 
 /**

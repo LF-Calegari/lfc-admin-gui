@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import type { ApiError } from '@/shared/api';
 
 import {
+  buildCreateUserPayload,
+  buildUpdateUserPayload,
   classifyUserSubmitError,
   decideUserBadRequestHandling,
   EMAIL_MAX,
@@ -12,6 +14,7 @@ import {
   PASSWORD_MAX,
   PASSWORD_MIN,
   validateUserForm,
+  validateUserUpdateForm,
   type UserFormState,
   type UserSubmitErrorCopy,
 } from '@/pages/users/userFormShared';
@@ -351,5 +354,96 @@ describe('classifyUserSubmitError', () => {
       title: COPY.forbiddenTitle,
       fallback: COPY.genericFallback,
     });
+  });
+});
+
+describe('validateUserUpdateForm', () => {
+  it('retorna null para estado válido (sem exigir senha)', () => {
+    // Edição não exige senha — `password: ''` é aceito.
+    expect(
+      validateUserUpdateForm({ ...VALID_STATE, password: '' }),
+    ).toBeNull();
+  });
+
+  it('aplica as mesmas regras de name/email/identity/clientId que validateUserForm', () => {
+    const errors = validateUserUpdateForm({
+      ...VALID_STATE,
+      name: '',
+      email: 'no-at',
+      identity: '1.5',
+      clientId: 'abc',
+      password: '', // ignorado em update
+    });
+
+    expect(errors).toEqual({
+      name: 'Nome é obrigatório.',
+      email: 'Informe um e-mail válido.',
+      identity: 'Identity deve ser um número inteiro.',
+      clientId: 'ClientId deve ser um UUID válido.',
+    });
+  });
+
+  it('não popula erro de password mesmo com password vazia', () => {
+    const errors = validateUserUpdateForm({ ...VALID_STATE, password: '' });
+    expect(errors).toBeNull();
+  });
+});
+
+describe('buildCreateUserPayload', () => {
+  it('produz CreateUserPayload com campos trimados, identity como int e active explícito', () => {
+    expect(
+      buildCreateUserPayload({
+        ...VALID_STATE,
+        name: '  Alice  ',
+        email: '  alice@example.com  ',
+        identity: '  42  ',
+        clientId: '',
+      }),
+    ).toEqual({
+      name: 'Alice',
+      email: 'alice@example.com',
+      password: VALID_STATE.password,
+      identity: 42,
+      active: true,
+    });
+  });
+
+  it('inclui clientId quando informado e omite quando vazio', () => {
+    const validClientId = '11111111-1111-1111-1111-111111111111';
+    expect(
+      buildCreateUserPayload({ ...VALID_STATE, clientId: validClientId }),
+    ).toMatchObject({ clientId: validClientId });
+
+    const withoutClient = buildCreateUserPayload({ ...VALID_STATE, clientId: '' });
+    expect(withoutClient).not.toHaveProperty('clientId');
+  });
+});
+
+describe('buildUpdateUserPayload', () => {
+  it('produz UpdateUserPayload sem password, com active sempre presente', () => {
+    expect(
+      buildUpdateUserPayload({
+        ...VALID_STATE,
+        name: '  Alice v2  ',
+        email: '  alice2@example.com  ',
+        identity: '  7  ',
+        active: false,
+      }),
+    ).toEqual({
+      name: 'Alice v2',
+      email: 'alice2@example.com',
+      identity: 7,
+      active: false,
+    });
+  });
+
+  it('inclui clientId trimado quando informado e omite quando vazio', () => {
+    const validClientId = '22222222-2222-2222-2222-222222222222';
+    expect(
+      buildUpdateUserPayload({ ...VALID_STATE, clientId: '  ' + validClientId + '  ' }),
+    ).toMatchObject({ clientId: validClientId });
+
+    const withoutClient = buildUpdateUserPayload({ ...VALID_STATE, clientId: '' });
+    expect(withoutClient).not.toHaveProperty('clientId');
   });
 });

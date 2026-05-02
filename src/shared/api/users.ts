@@ -380,3 +380,102 @@ export async function createUser(
   }
   return data;
 }
+
+/**
+ * Body aceito pelo `PUT /users/{id}` no `lfc-authenticator`
+ * (`UsersController.UpdateUserRequest`).
+ *
+ * Issue #79 (EPIC #49) — segundo fluxo de mutação do recurso Users.
+ * Espelha o contrato exato do backend (`UsersController.cs` linha 59):
+ *
+ * - `name` (obrigatório, máx. 80 chars).
+ * - `email` (obrigatório, máx. 320 chars, formato válido) — único; o
+ *   backend normaliza para `lowercase` antes de gravar e valida unicidade
+ *   ignorando o próprio usuário (`EmailExistsNormalizedAsync(_, _, id)`).
+ * - `identity` (obrigatório, `int`).
+ * - `clientId` (opcional, UUID) — quando ausente, o backend mantém o
+ *   `ClientId` atual do usuário (`user.ClientId = request.ClientId ?? user.ClientId`).
+ *   Quando informado e o `Client` não existe, devolve `400 { message:
+ *   "ClientId informado não existe." }` (mensagem **fora** do
+ *   `ValidationProblemDetails`).
+ * - `active` (obrigatório, `bool`) — diferente do create (onde é
+ *   opcional com default `true`), no update o backend exige presença
+ *   explícita.
+ *
+ * **Diferença chave vs `CreateUserPayload`:** sem `password`. O reset de
+ * senha em update é endpoint separado (`PUT /users/{id}/password`,
+ * issue futura) — manter a payload do update sem `Password` previne
+ * regressões silenciosas (operador editando outros campos não muda
+ * senha por engano) e alinha 1:1 com o contrato do backend.
+ */
+export interface UpdateUserPayload {
+  name: string;
+  email: string;
+  identity: number;
+  clientId?: string;
+  active: boolean;
+}
+
+/**
+ * Constrói o body para `PUT /users/{id}` aplicando trim defensivo nos
+ * campos texto e omitindo `clientId` quando vazio depois de trim.
+ *
+ * Espelha `buildUserMutationBody` (create) na semântica de trim/omit, mas
+ * **sem `password`** (preservar simetria com `UpdateUserPayload`) e
+ * **sempre incluindo `active`** (que no update é `[Required]` no backend).
+ *
+ * Centralizar a montagem permite que futuros call sites (refresh
+ * pós-edição via mesmo wrapper, ou refactors) enviem exatamente o mesmo
+ * shape sem reabrir o módulo (lição PR #128).
+ */
+function buildUserUpdateBody(payload: UpdateUserPayload): UpdateUserPayload {
+  const body: UpdateUserPayload = {
+    name: payload.name.trim(),
+    email: payload.email.trim(),
+    identity: payload.identity,
+    active: payload.active,
+  };
+  const trimmedClientId = payload.clientId?.trim();
+  if (trimmedClientId && trimmedClientId.length > 0) {
+    body.clientId = trimmedClientId;
+  }
+  return body;
+}
+
+/**
+ * Atualiza um usuário existente via `PUT /users/{id}` (Issue #79).
+ *
+ * Retorna o `UserDto` atualizado (`200 OK` com `UserResponse` no corpo).
+ * Lança `ApiError` em qualquer falha — caller tipicamente trata:
+ *
+ * - 409 → conflito de email (`"Já existe outro usuário com este Email."`).
+ * - 400 → validação de campo (`ValidationProblemDetails` com chaves
+ *   `Name`/`Email`/`Identity`) **ou** `{ message: "ClientId informado
+ *   não existe." }` quando o `clientId` referenciado não existe na base.
+ *   Os dois casos chegam como `ApiError` com `status: 400`; o segundo
+ *   não tem `details.errors` mapeáveis, então cai no fallback do
+ *   `applyBadRequest` (Alert no topo do form).
+ * - 404 → usuário não encontrado (soft-deletado concorrentemente entre
+ *   abertura e submit). UI fecha o modal, dispara toast e força refetch.
+ * - 401/403 → toast vermelho (gating de permissão).
+ *
+ * O parâmetro `client` é injetável para isolar testes (passa-se um stub
+ * tipado como `ApiClient`); em produção usa-se o singleton `apiClient`.
+ *
+ * O response é validado contra `isUserDto` para detectar drift de
+ * contrato precocemente — backend retornando shape inesperado dispara
+ * `ApiError(parse)` em vez de propagar shape inválido para a UI.
+ */
+export async function updateUser(
+  id: string,
+  payload: UpdateUserPayload,
+  options?: BodyRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<UserDto> {
+  const body = buildUserUpdateBody(payload);
+  const data = await client.put<unknown>(`/users/${id}`, body, options);
+  if (!isUserDto(data)) {
+    throw makeParseError();
+  }
+  return data;
+}

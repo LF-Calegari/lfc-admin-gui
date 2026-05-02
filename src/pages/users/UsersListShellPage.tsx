@@ -1,10 +1,13 @@
-import { Plus } from 'lucide-react';
+import { Pencil, Plus } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { PageHeader } from '../../components/layout/PageHeader';
 import { Button, Table } from '../../components/ui';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
-import { useModalOpenState } from '../../hooks/useModalOpenState';
+import {
+  useListModalState,
+  useToggleModalState,
+} from '../../hooks/useListModalState';
 import { usePaginatedFetch } from '../../hooks/usePaginatedFetch';
 import { usePaginationControls } from '../../hooks/usePaginationControls';
 import {
@@ -37,12 +40,14 @@ import {
   PaginationFooter,
   Placeholder,
   RefetchOverlay,
+  RowActions,
   StatusBadge,
   TableForDesktop,
   TableShell,
   useListingLiveMessage,
 } from '../../shared/listing';
 
+import { EditUserModal } from './EditUserModal';
 import { NewUserModal } from './NewUserModal';
 
 import type { TableColumn } from '../../components/ui';
@@ -64,6 +69,18 @@ import type {
  * executar.
  */
 const USERS_CREATE_PERMISSION = 'AUTH_V1_USERS_CREATE';
+
+/**
+ * Code de permissão exigido para o botão "Editar" por linha (Issue #79).
+ *
+ * Espelha `AUTH_V1_USERS_UPDATE` cadastrado pelo
+ * `AuthenticatorRoutesSeeder`. O backend é a fonte autoritativa
+ * (`PUT /users/{id}` valida via
+ * `[Authorize(Policy = PermissionPolicies.UsersUpdate)]`); o gating
+ * client-side é apenas UX — esconder ações que o usuário não pode
+ * executar.
+ */
+const USERS_UPDATE_PERMISSION = 'AUTH_V1_USERS_UPDATE';
 
 /**
  * Atraso entre a última tecla e o disparo da request de busca. 300 ms
@@ -138,6 +155,7 @@ export const UsersListShellPage: React.FC<UsersListShellPageProps> = ({
 }) => {
   const { hasPermission } = useAuth();
   const canCreateUser = hasPermission(USERS_CREATE_PERMISSION);
+  const canUpdateUser = hasPermission(USERS_UPDATE_PERMISSION);
 
   // Termo digitado pelo usuário em tempo real (input controlado).
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -148,18 +166,56 @@ export const UsersListShellPage: React.FC<UsersListShellPageProps> = ({
   );
   const [page, setPage] = useState<number>(DEFAULT_USERS_PAGE);
 
-  // Estado de abertura do modal "Novo usuário" (Issue #78). O modal é
-  // controlado por essa página para que a Toolbar consiga ocultar o
-  // botão por permissão sem perder o ciclo de vida do form.
-  // Lição PR #134/#135: o trio `useState + useCallback(open) +
-  // useCallback(close)` era duplicado entre `UsersListShellPage` e
-  // `ClientsListShellPage` — extraído em `useModalOpenState` em
-  // `src/hooks/` no PR #74.
+  // Estado de abertura do modal "Novo usuário" (Issue #78). Centralizado
+  // no hook `useToggleModalState` para evitar duplicação ≥10 linhas com
+  // outras páginas que usam o mesmo padrão (lição PR #134/#135).
   const {
     isOpen: isCreateModalOpen,
     open: handleOpenCreateModal,
     close: handleCloseCreateModal,
-  } = useModalOpenState();
+  } = useToggleModalState();
+
+  // Usuário selecionado para edição (Issue #79). Manter o usuário
+  // completo (em vez de só o id) evita round-trip extra para refazer
+  // fetch no modal — a tabela já tem o payload pronto. Centralizado no
+  // hook `useListModalState` (mesmo motivo do toggle acima).
+  const {
+    selected: editingUser,
+    open: handleOpenEditModal,
+    close: handleCloseEditModal,
+  } = useListModalState<UserDto>();
+
+  /**
+   * Renderiza o bloco de ações dos cards mobile (espelho da coluna
+   * "Ações" do desktop). Centralizar aqui evita BLOCKER de duplicação
+   * Sonar/JSCPD com `RolesPage` (lição PR #134/#135 — bloco ≥10 linhas
+   * idêntico entre páginas é tokenizado como `New Code Duplication`).
+   *
+   * Retorna `null` quando o usuário não tem permissão ou a linha é
+   * soft-deletada — coerente com o gating da tabela desktop.
+   */
+  const renderMobileEditAction = useCallback(
+    (row: UserDto): React.ReactNode => {
+      if (!canUpdateUser || row.deletedAt !== null) {
+        return null;
+      }
+      return (
+        <RowActions>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<Pencil size={14} strokeWidth={1.5} />}
+            onClick={() => handleOpenEditModal(row)}
+            aria-label={`Editar usuário ${row.name}`}
+            data-testid={`users-card-edit-${row.id}`}
+          >
+            Editar
+          </Button>
+        </RowActions>
+      );
+    },
+    [canUpdateUser, handleOpenEditModal],
+  );
 
   /**
    * Reseta a página para 1 sempre que muda um filtro/busca — evita o
@@ -338,8 +394,8 @@ export const UsersListShellPage: React.FC<UsersListShellPageProps> = ({
     );
   }, [handleClearSearch, hasActiveSearch, includeDeleted, trimmedSearch]);
 
-  const columns = useMemo<ReadonlyArray<TableColumn<UserDto>>>(
-    () => [
+  const columns = useMemo<ReadonlyArray<TableColumn<UserDto>>>(() => {
+    const base: Array<TableColumn<UserDto>> = [
       {
         key: 'name',
         label: 'Nome',
@@ -361,9 +417,44 @@ export const UsersListShellPage: React.FC<UsersListShellPageProps> = ({
         width: '120px',
         render: (row) => <StatusBadge deletedAt={deriveStatusDeletedAt(row)} />,
       },
-    ],
-    [clientsById],
-  );
+    ];
+
+    // Coluna "Ações" só aparece quando o usuário tem alguma ação
+    // disponível. Hoje "Editar" (Issue #79); a paridade total com
+    // Sistemas/Roles (desativar/restaurar) fica para issues futuras
+    // da EPIC #49. Espelha a estratégia do `RolesPage`/`SystemsPage`.
+    if (canUpdateUser) {
+      base.push({
+        key: 'actions',
+        label: 'Ações',
+        isActions: true,
+        render: (row) => (
+          <RowActions>
+            {row.deletedAt === null && (
+              // "Editar" só faz sentido em usuários ativos. O backend
+              // devolve 404 ao tentar PUT em usuário soft-deletado
+              // (`Users.FirstOrDefaultAsync` cai no query filter
+              // global), mas esconder no UI alinha com a coluna
+              // Status. Espelha a estratégia de `RolesPage`/
+              // `SystemsPage`.
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<Pencil size={14} strokeWidth={1.5} />}
+                onClick={() => handleOpenEditModal(row)}
+                aria-label={`Editar usuário ${row.name}`}
+                data-testid={`users-edit-${row.id}`}
+              >
+                Editar
+              </Button>
+            )}
+          </RowActions>
+        ),
+      });
+    }
+
+    return base;
+  }, [canUpdateUser, clientsById, handleOpenEditModal]);
 
   const showOverlay = isFetching && !isInitialLoading;
 
@@ -473,6 +564,7 @@ export const UsersListShellPage: React.FC<UsersListShellPageProps> = ({
                     {renderClientCell(row, clientsById)}
                   </CardMetaValue>
                 </CardMeta>
+                {renderMobileEditAction(row)}
               </EntityCard>
             ))}
           </CardListForMobile>
@@ -500,6 +592,16 @@ export const UsersListShellPage: React.FC<UsersListShellPageProps> = ({
           open={isCreateModalOpen}
           onClose={handleCloseCreateModal}
           onCreated={handleRefetch}
+          client={client}
+        />
+      )}
+
+      {canUpdateUser && (
+        <EditUserModal
+          open={editingUser !== null}
+          user={editingUser}
+          onClose={handleCloseEditModal}
+          onUpdated={handleRefetch}
           client={client}
         />
       )}

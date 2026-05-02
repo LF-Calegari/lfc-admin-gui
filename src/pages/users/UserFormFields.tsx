@@ -128,6 +128,12 @@ interface UserFormFieldsProps {
   errors: UserFieldErrors;
   onChangeName: (value: string) => void;
   onChangeEmail: (value: string) => void;
+  /**
+   * Handler do campo de senha — só é consumido quando `hidePassword`
+   * é `false` (criação). No fluxo de edição (Issue #79), o campo não
+   * é renderizado; reset de senha é endpoint separado
+   * (`PUT /users/{id}/password`, fora do escopo da #79).
+   */
   onChangePassword: (value: string) => void;
   onChangeIdentity: (value: string) => void;
   onChangeClientId: (value: string) => void;
@@ -144,6 +150,16 @@ interface UserFormFieldsProps {
    * no futuro — hoje os dois modals usam `true`.
    */
   autoFocusName?: boolean;
+  /**
+   * Quando `true`, o campo "Senha inicial" não é renderizado. Usado
+   * pelo `EditUserModal` (Issue #79) — o `PUT /users/{id}` do backend
+   * não aceita `Password` no contrato, e o reset de senha é endpoint
+   * separado (`PUT /users/{id}/password`, sub-issue futura).
+   *
+   * Default `false` preserva o comportamento original (form de criação
+   * mostra o campo, espelhando o contrato de `POST /users`).
+   */
+  hidePassword?: boolean;
 }
 
 const UserFormFields: React.FC<UserFormFieldsProps> = ({
@@ -158,6 +174,7 @@ const UserFormFields: React.FC<UserFormFieldsProps> = ({
   onChangeActive,
   disabled = false,
   autoFocusName = true,
+  hidePassword = false,
 }) => {
   // `data-modal-initial-focus` no campo Name garante que o foco vá para
   // o primeiro input independente da ordem dos `querySelector`. Útil em
@@ -196,19 +213,21 @@ const UserFormFields: React.FC<UserFormFieldsProps> = ({
         disabled={disabled}
         data-testid={`${idPrefix}-email`}
       />
-      <Input
-        label="Senha inicial"
-        type="password"
-        placeholder="Senha temporária — o usuário poderá alterar depois."
-        value={values.password}
-        onChange={onChangePassword}
-        error={errors.password}
-        maxLength={PASSWORD_MAX}
-        autoComplete="new-password"
-        required
-        disabled={disabled}
-        data-testid={`${idPrefix}-password`}
-      />
+      {!hidePassword && (
+        <Input
+          label="Senha inicial"
+          type="password"
+          placeholder="Senha temporária — o usuário poderá alterar depois."
+          value={values.password}
+          onChange={onChangePassword}
+          error={errors.password}
+          maxLength={PASSWORD_MAX}
+          autoComplete="new-password"
+          required
+          disabled={disabled}
+          data-testid={`${idPrefix}-password`}
+        />
+      )}
       <Input
         label="Identity"
         type="number"
@@ -276,6 +295,11 @@ interface UserFormBodyProps {
   isSubmitting: boolean;
   /** Texto do botão de envio (ex.: "Criar usuário", "Salvar alterações"). */
   submitLabel: string;
+  /**
+   * Repassa para `UserFormFields` — quando `true`, o campo "Senha
+   * inicial" não é renderizado (Issue #79, edição). Default `false`.
+   */
+  hidePassword?: boolean;
 }
 
 /**
@@ -304,6 +328,7 @@ export const UserFormBody: React.FC<UserFormBodyProps> = ({
   onCancel,
   isSubmitting,
   submitLabel,
+  hidePassword = false,
 }) => (
   <UserFormShell onSubmit={onSubmit} noValidate data-testid={`${idPrefix}-form`}>
     {submitError && (
@@ -328,6 +353,7 @@ export const UserFormBody: React.FC<UserFormBodyProps> = ({
       onChangeClientId={onChangeClientId}
       onChangeActive={onChangeActive}
       disabled={isSubmitting}
+      hidePassword={hidePassword}
     />
     <SharedFormFooter
       idPrefix={idPrefix}

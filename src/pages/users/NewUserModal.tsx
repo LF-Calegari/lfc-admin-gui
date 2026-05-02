@@ -10,7 +10,7 @@ import {
   type UserFieldErrors,
   type UserSubmitErrorCopy,
 } from './userFormShared';
-import { useUserForm } from './useUserForm';
+import { useUserForm, useUserFormFieldProps } from './useUserForm';
 
 import type { ApiClient, CreateUserPayload } from '../../shared/api';
 
@@ -98,24 +98,16 @@ export const NewUserModal: React.FC<NewUserModalProps> = ({
   client,
 }) => {
   const { show } = useToast();
+  const userForm = useUserForm(INITIAL_USER_FORM_STATE);
   const {
-    formState,
-    fieldErrors,
-    submitError,
     isSubmitting,
     setFormState,
     setFieldErrors,
     setSubmitError,
     setIsSubmitting,
-    handleNameChange,
-    handleEmailChange,
-    handlePasswordChange,
-    handleIdentityChange,
-    handleClientIdChange,
-    handleActiveChange,
     prepareSubmit,
     applyBadRequest,
-  } = useUserForm(INITIAL_USER_FORM_STATE);
+  } = userForm;
 
   /**
    * Reseta tudo ao fechar — handler único para Esc, backdrop, X e
@@ -182,6 +174,14 @@ export const NewUserModal: React.FC<NewUserModalProps> = ({
     conflictField: 'email',
   });
 
+  // Props compartilhadas com `EditUserModal` consolidadas num único
+  // hook (`useUserFormFieldProps`) para evitar New Code Duplication
+  // ≥10 linhas com o caminho de edição — JSCPD/Sonar tokenizam blocos
+  // de props sequenciais como duplicação. Lição PR #134/#135 — o
+  // call-site dos helpers compartilhados também precisa ficar
+  // deduplicado, não só os helpers em si.
+  const fieldProps = useUserFormFieldProps(userForm, handleSubmit, handleClose);
+
   return (
     <Modal
       open={open}
@@ -191,22 +191,7 @@ export const NewUserModal: React.FC<NewUserModalProps> = ({
       closeOnEsc={!isSubmitting}
       closeOnBackdrop={!isSubmitting}
     >
-      <UserFormBody
-        idPrefix="new-user"
-        submitError={submitError}
-        values={formState}
-        errors={fieldErrors}
-        onChangeName={handleNameChange}
-        onChangeEmail={handleEmailChange}
-        onChangePassword={handlePasswordChange}
-        onChangeIdentity={handleIdentityChange}
-        onChangeClientId={handleClientIdChange}
-        onChangeActive={handleActiveChange}
-        onSubmit={handleSubmit}
-        onCancel={handleClose}
-        isSubmitting={isSubmitting}
-        submitLabel="Criar usuário"
-      />
+      <UserFormBody {...fieldProps} idPrefix="new-user" submitLabel="Criar usuário" />
     </Modal>
   );
 };

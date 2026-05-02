@@ -1,15 +1,18 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState, type FormEvent } from 'react';
 
 import { useFieldChangeHandlers } from '../../shared/forms';
 
 import {
+  buildCreateUserPayload,
+  buildUpdateUserPayload,
   decideUserBadRequestHandling,
   validateUserForm,
+  validateUserUpdateForm,
   type UserFieldErrors,
   type UserFormState,
 } from './userFormShared';
 
-import type { CreateUserPayload } from '../../shared/api';
+import type { CreateUserPayload, UpdateUserPayload } from '../../shared/api';
 
 /**
  * Lista fixa dos campos textuais do form de user, usada por
@@ -69,10 +72,10 @@ interface UseUserFormReturn {
   handleClientIdChange: (value: string) => void;
   handleActiveChange: (value: boolean) => void;
   /**
-   * Roda a validação client-side e, se passar, prepara o payload
-   * trimado + zera erros + marca `isSubmitting`. Devolve o payload
-   * pronto para envio quando válido, ou `null` quando não (já tendo
-   * populado `fieldErrors`).
+   * Roda a validação client-side de criação (com senha) e, se passar,
+   * prepara o `CreateUserPayload` trimado + zera erros + marca
+   * `isSubmitting`. Devolve o payload pronto para envio quando válido,
+   * ou `null` quando não (já tendo populado `fieldErrors`).
    *
    * O parse de `identity` (string -> int) acontece aqui com
    * `Number.parseInt` (radix 10) — `validateUserForm` já garantiu
@@ -81,12 +84,25 @@ interface UseUserFormReturn {
    * `clientId` vazio (após trim) é omitido do payload para que o
    * backend acione `LegacyClientFactory` e gere um cliente PF
    * derivado automaticamente (ver `UsersController.cs` linha 250).
-   *
-   * Centralizar essa rotina elimina ~18 linhas de boilerplate que
-   * apareceriam idênticas entre `NewUserModal` e o futuro
-   * `EditUserModal` (lição PR #127/#128).
    */
   prepareSubmit: () => CreateUserPayload | null;
+  /**
+   * Roda a validação client-side de edição (**sem senha**) e, se
+   * passar, prepara o `UpdateUserPayload` trimado + zera erros + marca
+   * `isSubmitting`. Devolve o payload pronto para envio quando válido,
+   * ou `null` quando não.
+   *
+   * Diferença essencial vs `prepareSubmit`:
+   * - Não exige `password` (campo é ignorado no estado e omitido do
+   *   payload) — reset de senha é endpoint separado.
+   * - `active` é sempre incluído (backend exige `[Required]` no PUT).
+   *
+   * Centralizar a versão de update no mesmo hook (em vez de duplicar
+   * `useUserUpdateForm`) preserva a lição PR #128 — o `EditUserModal`
+   * herda 100% do estado/handlers/parsing de `useUserForm` sem copiar
+   * uma linha sequer.
+   */
+  prepareUpdateSubmit: () => UpdateUserPayload | null;
   /**
    * Aplica o tratamento de uma resposta 400 do backend: distribui
    * erros por campo quando `ValidationProblemDetails` é mapeável, ou
@@ -140,33 +156,20 @@ export function useUserForm(initialState: UserFormState): UseUserFormReturn {
     setFieldErrors({});
     setSubmitError(null);
     setIsSubmitting(true);
+    return buildCreateUserPayload(formState);
+  }, [formState]);
 
-    // `identity` chega como string `"^-?\d+$"` (validado), parse com
-    // radix 10 explícito é defensivo contra ambientes onde o engine
-    // tenta detectar octal/hex.
-    const identityInt = Number.parseInt(formState.identity.trim(), 10);
-    const trimmedClientId = formState.clientId.trim();
-
-    const payload: CreateUserPayload = {
-      name: formState.name.trim(),
-      email: formState.email.trim(),
-      // Password preservada literal — espaços laterais podem ser
-      // intencionais para senhas de gerenciador.
-      password: formState.password,
-      identity: identityInt,
-    };
-
-    if (trimmedClientId.length > 0) {
-      payload.clientId = trimmedClientId;
+  const prepareUpdateSubmit = useCallback((): UpdateUserPayload | null => {
+    const clientErrors = validateUserUpdateForm(formState);
+    if (clientErrors) {
+      setFieldErrors(clientErrors);
+      setSubmitError(null);
+      return null;
     }
-
-    // `active` é sempre incluído — o estado inicial é `true`, então
-    // omitir só quando o usuário deliberadamente liga/desliga seria
-    // assimetria desnecessária. O backend trata `Active` como bool
-    // simples (`= true` quando ausente; aceita explícito).
-    payload.active = formState.active;
-
-    return payload;
+    setFieldErrors({});
+    setSubmitError(null);
+    setIsSubmitting(true);
+    return buildUpdateUserPayload(formState);
   }, [formState]);
 
   const applyBadRequest = useCallback((details: unknown, fallbackMessage: string): void => {
@@ -195,6 +198,93 @@ export function useUserForm(initialState: UserFormState): UseUserFormReturn {
     handleClientIdChange,
     handleActiveChange,
     prepareSubmit,
+    prepareUpdateSubmit,
     applyBadRequest,
   };
+}
+
+/**
+ * Tipo do conjunto de props consumido por `<UserFormBody>` —
+ * compartilhado entre `NewUserModal` e `EditUserModal`. Centralizar
+ * o tipo aqui (em vez de inferir inline em cada modal) elimina o
+ * bloco repetido de 13 linhas (`onChangeName/Email/Password/...`)
+ * que JSCPD/Sonar tokenizavam como `New Code Duplication` (lição
+ * PR #134/#135 — call-sites dos helpers também precisam ficar
+ * deduplicados, não só os helpers em si).
+ */
+export interface UserFormFieldProps {
+  submitError: string | null;
+  values: UserFormState;
+  errors: UserFieldErrors;
+  onChangeName: (value: string) => void;
+  onChangeEmail: (value: string) => void;
+  onChangePassword: (value: string) => void;
+  onChangeIdentity: (value: string) => void;
+  onChangeClientId: (value: string) => void;
+  onChangeActive: (value: boolean) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onCancel: () => void;
+  isSubmitting: boolean;
+}
+
+/**
+ * Constrói o objeto de props para `<UserFormBody>` a partir de uma
+ * instância de `useUserForm` + `handleSubmit` + `handleClose` do
+ * modal. Memoizado em `useMemo` para preservar identidade entre
+ * renders quando nada mudou — útil pra spread `{...fieldProps}` sem
+ * causar re-render desnecessário no body.
+ *
+ * Esse helper transforma o "objeto duplicado de 13 linhas" em uma
+ * única chamada `useUserFormFieldProps(userForm, handleSubmit,
+ * handleClose)` em cada modal — eliminando o BLOCKER de duplicação
+ * Sonar entre `NewUserModal` e `EditUserModal` na fonte.
+ */
+export function useUserFormFieldProps(
+  userForm: UseUserFormReturn,
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void,
+  onCancel: () => void,
+): UserFormFieldProps {
+  const {
+    formState,
+    fieldErrors,
+    submitError,
+    isSubmitting,
+    handleNameChange,
+    handleEmailChange,
+    handlePasswordChange,
+    handleIdentityChange,
+    handleClientIdChange,
+    handleActiveChange,
+  } = userForm;
+
+  return useMemo(
+    () => ({
+      submitError,
+      values: formState,
+      errors: fieldErrors,
+      onChangeName: handleNameChange,
+      onChangeEmail: handleEmailChange,
+      onChangePassword: handlePasswordChange,
+      onChangeIdentity: handleIdentityChange,
+      onChangeClientId: handleClientIdChange,
+      onChangeActive: handleActiveChange,
+      onSubmit,
+      onCancel,
+      isSubmitting,
+    }),
+    [
+      submitError,
+      formState,
+      fieldErrors,
+      handleNameChange,
+      handleEmailChange,
+      handlePasswordChange,
+      handleIdentityChange,
+      handleClientIdChange,
+      handleActiveChange,
+      onSubmit,
+      onCancel,
+      isSubmitting,
+    ],
+  );
 }
