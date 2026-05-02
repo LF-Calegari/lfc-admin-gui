@@ -18,6 +18,7 @@ import { SystemsPage } from '../pages/SystemsPage';
 import { UnauthorizedPage } from '../pages/UnauthorizedPage';
 import {
   UserDetailShellPage,
+  UserEffectivePermissionsShellPage,
   UserPermissionsShellPage,
   UserRolesShellPage,
   UsersListShellPage,
@@ -242,6 +243,28 @@ export const AppRoutes: React.FC = () => (
           <RequirePermission code="AUTH_V1_ROLES_LIST">
             <RequirePermission code="AUTH_V1_USERS_ROLES_ASSIGN">
               <UserRolesShellPage />
+            </RequirePermission>
+          </RequirePermission>
+        }
+      />
+      <Route
+        path="/usuarios/:id/permissoes-efetivas"
+        element={
+          // Issue #72: painel READ-ONLY com a união consolidada das
+          // permissões efetivas (diretas + via roles). Exige LER o
+          // catálogo de permissões (`Permissions.Read`, code
+          // `AUTH_V1_PERMISSIONS_LIST`) — para que o operador entenda
+          // os codes/nomes das permissões — E LER o usuário
+          // (`Users.Read`, code `AUTH_V1_USERS_GET_BY_ID`) — para que o
+          // backend autorize o `GET /users/{id}/effective-permissions`
+          // (mesma policy `UsersRead` aplicada ao endpoint). Aninhamos
+          // `RequirePermission` para validar ambas; começamos pelo
+          // `Permissions.Read` para que o erro mais comum (admin sem
+          // leitura do catálogo) fale primeiro, espelhando o padrão da
+          // Issue #70.
+          <RequirePermission code="AUTH_V1_PERMISSIONS_LIST">
+            <RequirePermission code="AUTH_V1_USERS_GET_BY_ID">
+              <UserEffectivePermissionsShellPage />
             </RequirePermission>
           </RequirePermission>
         }

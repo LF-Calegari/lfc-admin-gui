@@ -1012,6 +1012,17 @@ describe('resetUserPassword — response e erros', () => {
  * de forma limpa para destravar o `tsc --noEmit` (e por consequência o
  * gate pré-PR) — sem alterar a cobertura semântica original (assertion
  * de path, propagação de roles, ApiError parse e propagação de 404).
+ * **Fix incidental (Issue #72):** o merge do PR #163 (atribuir roles)
+ * com o PR #164 (reset de senha) deixou esta suíte quebrada com
+ * fragmentos enxertados dentro de `resetUserPassword` e marker de
+ * conflito remanescente em `src/shared/api/index.ts`. Reescrita aqui
+ * de forma limpa para destravar o `tsc --noEmit` (e por consequência o
+ * gate pré-PR desta issue) — sem alterar a cobertura semântica
+ * original do PR #163 (assertion de path, propagação de roles,
+ * ApiError parse e propagação de 404). Caso a Issue #82 (que também
+ * detectou o problema em paralelo) seja mergeada antes, este bloco
+ * conflitará trivialmente em rebase — manter ambas as resoluções
+ * semanticamente idênticas.
  */
 describe('getUserById', () => {
   const ROLE_ID = '99999999-9999-9999-9999-999999999999';

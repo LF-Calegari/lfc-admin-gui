@@ -55,6 +55,16 @@ const systemId: string = resolveSystemId();
 export const apiClient: ApiClient = createApiClient({ baseUrl, systemId });
 
 export { createApiClient } from './client';
+// Fix incidental (Issue #72): o PR #163 (commit 0308969) extraiu
+// `extractErrorMessage`/`isFetchAborted` para `fetchHelpers.ts` mas
+// não exportou pelo barrel. As páginas existentes
+// (`UserPermissionsShellPage`, `UserRolesShellPage`) já importavam de
+// `@/shared/api`, mas o `tsc --noEmit` ficou quebrado em
+// `origin/development` desde o merge do PR #163. Esta exportação
+// destrava o gate pré-PR. A Issue #82 detectou o problema em paralelo
+// com a mesma resolução — caso seja mergeada antes, este bloco
+// conflitará trivialmente em rebase (manter ambas as resoluções
+// semanticamente idênticas).
 export { extractErrorMessage, isFetchAborted } from './fetchHelpers';
 export { isApiError } from './types';
 export type {

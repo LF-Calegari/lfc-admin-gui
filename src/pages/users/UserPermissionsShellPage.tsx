@@ -25,11 +25,8 @@ import {
   AssignmentEmptyShell,
   AssignmentEmptyTitle,
   AssignmentGroupCard,
-  AssignmentGroupCode,
-  AssignmentGroupCount,
-  AssignmentGroupHeader,
+  AssignmentGroupHeaderRow,
   AssignmentGroupList,
-  AssignmentGroupName,
   AssignmentItemBadges,
   AssignmentItemCodeChip,
   AssignmentItemDescription,
@@ -478,15 +475,12 @@ const PermissionGroup: React.FC<PermissionGroupProps> = ({
   <AssignmentGroupCard
     data-testid={`user-permissions-group-${group.systemCode}`}
   >
-    <AssignmentGroupHeader>
-      <AssignmentGroupCode>{group.systemCode}</AssignmentGroupCode>
-      <AssignmentGroupName>{group.systemName}</AssignmentGroupName>
-      <AssignmentGroupCount
-        aria-label={`${group.permissions.length} permissões neste sistema`}
-      >
-        {group.permissions.length}
-      </AssignmentGroupCount>
-    </AssignmentGroupHeader>
+    <AssignmentGroupHeaderRow
+      systemCode={group.systemCode}
+      systemName={group.systemName}
+      count={group.permissions.length}
+      countAriaLabel={`${group.permissions.length} permissões neste sistema`}
+    />
     <AssignmentItemList>
       {group.permissions.map((perm) => {
         const isSelected = selectedDirect.has(perm.id);

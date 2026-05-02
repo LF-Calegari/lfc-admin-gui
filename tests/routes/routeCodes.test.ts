@@ -118,6 +118,23 @@ describe('resolveRouteCode — paths privados conhecidos', () => {
       ),
     ).toBe('AUTH_V1_ROLES_UPDATE');
   });
+
+  it('Issue #72: /usuarios/:id/permissoes-efetivas herda AUTH_V1_USERS_GET_BY_ID via subpath match', () => {
+    // Issue #72 — painel READ-ONLY de permissões efetivas. Como a
+    // policy do backend para `GET /users/{id}/effective-permissions` é
+    // a mesma `UsersRead` usada por `GET /users/{id}` (e ambas usam
+    // `AUTH_V1_USERS_GET_BY_ID` no `AuthenticatorRoutesSeeder`),
+    // intencionalmente NÃO criamos uma entrada nova em
+    // `ROUTE_CODE_ENTRIES`: deixamos `matchPath({ end: false })`
+    // resolver via subpath para `/usuarios/:id`. Adicionar uma entrada
+    // dedicada quebraria o invariante "não há routeCodes duplicados
+    // entre patterns" garantido pelos testes de sanidade abaixo.
+    expect(
+      resolveRouteCode(
+        '/usuarios/11111111-1111-1111-1111-111111111111/permissoes-efetivas',
+      ),
+    ).toBe('AUTH_V1_USERS_GET_BY_ID');
+  });
 });
 
 describe('resolveRouteCode — paths não privados ou desconhecidos', () => {
