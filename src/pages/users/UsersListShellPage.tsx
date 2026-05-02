@@ -1,4 +1,4 @@
-import { Pencil, Plus } from 'lucide-react';
+import { Pencil, Plus, Power } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { PageHeader } from '../../components/layout/PageHeader';
@@ -49,6 +49,7 @@ import {
 
 import { EditUserModal } from './EditUserModal';
 import { NewUserModal } from './NewUserModal';
+import { ToggleUserActiveConfirm } from './ToggleUserActiveConfirm';
 
 import type { TableColumn } from '../../components/ui';
 import type {
@@ -185,20 +186,41 @@ export const UsersListShellPage: React.FC<UsersListShellPageProps> = ({
     close: handleCloseEditModal,
   } = useListModalState<UserDto>();
 
+  // Usuário selecionado para toggle ativo/desativado (Issue #80). Igual
+  // ao `editingUser`, mantemos o objeto completo porque o
+  // `ToggleUserActiveConfirm` precisa de `name`/`email`/`identity`/
+  // `clientId` para reenviar o body completo do `PUT /users/{id}` —
+  // o backend exige todos os campos como `[Required]` mesmo para
+  // alternar apenas o `active`.
+  const {
+    selected: togglingUser,
+    open: handleOpenToggleConfirm,
+    close: handleCloseToggleConfirm,
+  } = useListModalState<UserDto>();
+
   /**
-   * Renderiza o bloco de ações dos cards mobile (espelho da coluna
-   * "Ações" do desktop). Centralizar aqui evita BLOCKER de duplicação
-   * Sonar/JSCPD com `RolesPage` (lição PR #134/#135 — bloco ≥10 linhas
-   * idêntico entre páginas é tokenizado como `New Code Duplication`).
+   * Renderiza o bloco de ações por linha (Editar + Desativar/Ativar)
+   * para uma linha de usuário. Reutilizado pelo desktop (coluna
+   * "Ações" da tabela) e pelo mobile (rodapé dos cards) — única
+   * diferença é o prefixo dos `data-testid` (`users-edit`/
+   * `users-toggle-active` no desktop vs `users-card-edit`/
+   * `users-card-toggle-active` no mobile, para que cada surface
+   * tenha seu próprio seletor sem colidir).
    *
-   * Retorna `null` quando o usuário não tem permissão ou a linha é
-   * soft-deletada — coerente com o gating da tabela desktop.
+   * Centralizar aqui em uma única função evita o BLOCKER de
+   * duplicação JSCPD/Sonar — o `<Button>` do toggle ativo (~11
+   * linhas) repetido entre a tabela e os cards mobile foi marcado
+   * como clone (lição PR #128/#134/#135 — bloco ≥10 linhas idêntico
+   * em 2 surfaces do mesmo arquivo é tokenizado como duplicação).
+   *
+   * Caller é responsável por filtrar quando NÃO chamar (gating de
+   * permissão e `deletedAt !== null`) — a função sempre devolve o
+   * `<RowActions>` populado.
    */
-  const renderMobileEditAction = useCallback(
-    (row: UserDto): React.ReactNode => {
-      if (!canUpdateUser || row.deletedAt !== null) {
-        return null;
-      }
+  const renderUserRowActions = useCallback(
+    (row: UserDto, testIdPrefix: 'users' | 'users-card'): React.ReactNode => {
+      const toggleLabel = row.active ? 'Desativar' : 'Ativar';
+      const toggleVariant = row.active ? 'danger' : 'primary';
       return (
         <RowActions>
           <Button
@@ -207,14 +229,40 @@ export const UsersListShellPage: React.FC<UsersListShellPageProps> = ({
             icon={<Pencil size={14} strokeWidth={1.5} />}
             onClick={() => handleOpenEditModal(row)}
             aria-label={`Editar usuário ${row.name}`}
-            data-testid={`users-card-edit-${row.id}`}
+            data-testid={`${testIdPrefix}-edit-${row.id}`}
           >
             Editar
+          </Button>
+          <Button
+            variant={toggleVariant}
+            size="sm"
+            icon={<Power size={14} strokeWidth={1.5} />}
+            onClick={() => handleOpenToggleConfirm(row)}
+            aria-label={`${toggleLabel} usuário ${row.name}`}
+            data-testid={`${testIdPrefix}-toggle-active-${row.id}`}
+          >
+            {toggleLabel}
           </Button>
         </RowActions>
       );
     },
-    [canUpdateUser, handleOpenEditModal],
+    [handleOpenEditModal, handleOpenToggleConfirm],
+  );
+
+  /**
+   * Renderiza o bloco de ações dos cards mobile (wrapper sobre
+   * `renderUserRowActions` aplicando o gating de permissão +
+   * `deletedAt`). Espelha a coluna "Ações" do desktop sem duplicar o
+   * JSX (ver comentário em `renderUserRowActions`).
+   */
+  const renderMobileRowActions = useCallback(
+    (row: UserDto): React.ReactNode => {
+      if (!canUpdateUser || row.deletedAt !== null) {
+        return null;
+      }
+      return renderUserRowActions(row, 'users-card');
+    },
+    [canUpdateUser, renderUserRowActions],
   );
 
   /**
@@ -420,41 +468,35 @@ export const UsersListShellPage: React.FC<UsersListShellPageProps> = ({
     ];
 
     // Coluna "Ações" só aparece quando o usuário tem alguma ação
-    // disponível. Hoje "Editar" (Issue #79); a paridade total com
-    // Sistemas/Roles (desativar/restaurar) fica para issues futuras
-    // da EPIC #49. Espelha a estratégia do `RolesPage`/`SystemsPage`.
+    // disponível. Issues #79 (Editar) e #80 (Ativar/Desativar) usam
+    // a mesma policy `Users.Update`; a paridade com soft-delete/
+    // restore (`Users.Delete`/`Users.Restore`) fica para issues
+    // futuras da EPIC #49. Espelha a estratégia do
+    // `RolesPage`/`SystemsPage`.
     if (canUpdateUser) {
       base.push({
         key: 'actions',
         label: 'Ações',
         isActions: true,
-        render: (row) => (
-          <RowActions>
-            {row.deletedAt === null && (
-              // "Editar" só faz sentido em usuários ativos. O backend
-              // devolve 404 ao tentar PUT em usuário soft-deletado
-              // (`Users.FirstOrDefaultAsync` cai no query filter
-              // global), mas esconder no UI alinha com a coluna
-              // Status. Espelha a estratégia de `RolesPage`/
-              // `SystemsPage`.
-              <Button
-                variant="ghost"
-                size="sm"
-                icon={<Pencil size={14} strokeWidth={1.5} />}
-                onClick={() => handleOpenEditModal(row)}
-                aria-label={`Editar usuário ${row.name}`}
-                data-testid={`users-edit-${row.id}`}
-              >
-                Editar
-              </Button>
-            )}
-          </RowActions>
-        ),
+        render: (row) => {
+          if (row.deletedAt !== null) {
+            // Linhas soft-deletadas não recebem ações (gating
+            // alinhado com a coluna Status). O backend devolve 404
+            // ao tentar PUT em usuário soft-deletado (query filter
+            // global), mas esconder no UI alinha com a UX.
+            return <RowActions />;
+          }
+          // "Desativar" em ativos / "Ativar" em inativos — Issue
+          // #80. Compartilha o JSX com os cards mobile via
+          // `renderUserRowActions` para evitar duplicação JSCPD/
+          // Sonar (lição PR #134/#135).
+          return renderUserRowActions(row, 'users');
+        },
       });
     }
 
     return base;
-  }, [canUpdateUser, clientsById, handleOpenEditModal]);
+  }, [canUpdateUser, clientsById, renderUserRowActions]);
 
   const showOverlay = isFetching && !isInitialLoading;
 
@@ -567,7 +609,7 @@ export const UsersListShellPage: React.FC<UsersListShellPageProps> = ({
                       {renderClientCell(user, clientsById)}
                     </CardMetaValue>
                   </CardMeta>
-                  {renderMobileEditAction(user)}
+                  {renderMobileRowActions(user)}
                 </EntityCard>
               );
             })}
@@ -606,6 +648,16 @@ export const UsersListShellPage: React.FC<UsersListShellPageProps> = ({
           user={editingUser}
           onClose={handleCloseEditModal}
           onUpdated={handleRefetch}
+          client={client}
+        />
+      )}
+
+      {canUpdateUser && (
+        <ToggleUserActiveConfirm
+          open={togglingUser !== null}
+          user={togglingUser}
+          onClose={handleCloseToggleConfirm}
+          onToggled={handleRefetch}
           client={client}
         />
       )}
