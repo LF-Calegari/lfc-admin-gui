@@ -13,7 +13,8 @@ import {
 } from '../../components/ui';
 import {
   assignPermissionToUser,
-  isApiError,
+  extractErrorMessage,
+  isFetchAborted,
   listEffectiveUserPermissions,
   listPermissions,
   MAX_PERMISSIONS_PAGE_SIZE,
@@ -548,37 +549,4 @@ const PermissionGroup: React.FC<PermissionGroupProps> = ({
   </AssignmentGroupCard>
 );
 
-/**
- * Distingue erros de cancelamento (esperados durante navegação rápida)
- * dos erros reais de UI. Espelha o pattern de `usePaginatedFetch`.
- */
-function isFetchAborted(error: unknown): boolean {
-  if (error instanceof DOMException && error.name === 'AbortError') {
-    return true;
-  }
-  if (
-    isApiError(error) &&
-    error.kind === 'network' &&
-    error.message === 'Requisição cancelada.'
-  ) {
-    return true;
-  }
-  return false;
-}
-
-/**
- * Extrai mensagem amigável de qualquer erro vindo da camada HTTP. Quando
- * o erro é um `ApiError`, devolvemos a `message` (o cliente já resolveu
- * fallbacks por status). Para erros arbitrários, usamos a `fallback` em
- * pt-BR específica do contexto. Centralizada aqui em vez de reusar do
- * `usePaginatedFetch` para evitar acoplamento desnecessário entre módulos
- * (lição PR #134 — duplicação client-side só é problema quando o trecho
- * vive em arquivos diferentes; aqui é um único arquivo).
- */
-function extractErrorMessage(error: unknown, fallback: string): string {
-  if (isApiError(error)) {
-    return error.message;
-  }
-  return fallback;
-}
 

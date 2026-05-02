@@ -19,6 +19,7 @@ import { UnauthorizedPage } from '../pages/UnauthorizedPage';
 import {
   UserDetailShellPage,
   UserPermissionsShellPage,
+  UserRolesShellPage,
   UsersListShellPage,
 } from '../pages/users';
 import { RequireAuth, RequirePermission } from '../shared/auth';
@@ -223,6 +224,24 @@ export const AppRoutes: React.FC = () => (
           <RequirePermission code="AUTH_V1_PERMISSIONS_LIST">
             <RequirePermission code="AUTH_V1_USERS_PERMISSIONS_ASSIGN">
               <UserPermissionsShellPage />
+            </RequirePermission>
+          </RequirePermission>
+        }
+      />
+      <Route
+        path="/usuarios/:id/roles"
+        element={
+          // Issue #71: tela de atribuição de roles ao usuário. Mesmo
+          // padrão de gating duplo da Issue #70 — exige LER o catálogo
+          // de roles (`Roles.Read`, code `AUTH_V1_ROLES_LIST`) E
+          // VINCULAR a um usuário (`Users.Update`, code
+          // `AUTH_V1_USERS_ROLES_ASSIGN`). Começamos pelo `Roles.Read`
+          // para que o erro mais comum (admin sem leitura do catálogo)
+          // fale primeiro — sem o catálogo a tela não pode nem ser
+          // exibida com sentido.
+          <RequirePermission code="AUTH_V1_ROLES_LIST">
+            <RequirePermission code="AUTH_V1_USERS_ROLES_ASSIGN">
+              <UserRolesShellPage />
             </RequirePermission>
           </RequirePermission>
         }

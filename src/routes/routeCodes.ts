@@ -101,6 +101,13 @@ const ROUTE_CODES: ReadonlyArray<RouteCodeEntry> = [
   // ativo das EPICs.
   { pattern: '/permissoes', routeCode: 'AUTH_V1_PERMISSIONS_LIST' },
   { pattern: '/usuarios/:id/permissoes', routeCode: 'AUTH_V1_USERS_PERMISSIONS_ASSIGN' },
+  // Issue #71 (EPIC #48): tela de atribuição de roles a um usuário.
+  // Sub-rota mais específica precede a edição `/usuarios/:id` no
+  // `matchPath`. O backend (`UsersController.AssignRole`) exige policy
+  // `UsersUpdate` mapeada para o code `AUTH_V1_USERS_ROLES_ASSIGN`
+  // pelo `AuthenticatorRoutesSeeder`. Espelha a estratégia de
+  // `/usuarios/:id/permissoes` (Issue #70).
+  { pattern: '/usuarios/:id/roles', routeCode: 'AUTH_V1_USERS_ROLES_ASSIGN' },
   { pattern: '/usuarios/:id', routeCode: 'AUTH_V1_USERS_GET_BY_ID' },
   { pattern: '/usuarios', routeCode: 'AUTH_V1_USERS_LIST' },
   { pattern: '/clientes/:id', routeCode: 'AUTH_V1_CLIENTS_GET_BY_ID' },
