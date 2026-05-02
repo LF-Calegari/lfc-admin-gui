@@ -152,3 +152,22 @@ export type {
   ClientLookupDto,
   ListClientsParams,
 } from './clients';
+export {
+  assignPermissionToUser,
+  DEFAULT_PERMISSIONS_INCLUDE_DELETED,
+  DEFAULT_PERMISSIONS_PAGE,
+  DEFAULT_PERMISSIONS_PAGE_SIZE,
+  isPagedPermissionsResponse,
+  isPermissionDto,
+  listEffectiveUserPermissions,
+  listPermissions,
+  MAX_PERMISSIONS_PAGE_SIZE,
+  removePermissionFromUser,
+} from './permissions';
+export type {
+  EffectivePermissionDto,
+  EffectivePermissionSource,
+  ListPermissionsParams,
+  PermissionDto,
+  UserPermissionLinkDto,
+} from './permissions';
