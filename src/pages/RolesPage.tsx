@@ -39,6 +39,10 @@ import {
 
 import { EditRoleModal } from "./roles/EditRoleModal";
 import { NewRoleModal } from "./roles/NewRoleModal";
+import {
+  renderRoleDescription as renderDescription,
+  renderRoleCount as renderCount,
+} from "./roles/rolesRenderHelpers";
 
 import type { TableColumn } from "../components/ui";
 import type { ApiClient, RoleDto, SafeRequestOptions } from "../shared/api";
@@ -94,14 +98,6 @@ interface RolesPageProps {
 function isProbablyValidSystemId(value: string | undefined): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
-
-// `renderDescription`/`renderCount` extraídos para
-// `src/pages/roles/rolesRenderHelpers.tsx` — compartilhados com
-// `RolesGlobalListShellPage` (lição PR #134/#135 — duplicação Sonar).
-import {
-  renderRoleDescription as renderDescription,
-  renderRoleCount as renderCount,
-} from './roles/rolesRenderHelpers';
 
 export const RolesPage: React.FC<RolesPageProps> = ({ client }) => {
   // `useParams` devolve `string | undefined` — nunca lançamos: rota

@@ -1,3 +1,4 @@
+import { isNameCodeDescriptionDto } from './nameCodeDescriptionDto';
 import { isPagedResponseEnvelope } from './pagedResponse';
 
 import { apiClient } from './index';
@@ -73,23 +74,10 @@ export interface SystemDto {
  * compartilhado").
  */
 export function isSystemDto(value: unknown): value is SystemDto {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-  const record = value as Record<string, unknown>;
-  return (
-    typeof record.id === 'string' &&
-    typeof record.name === 'string' &&
-    typeof record.code === 'string' &&
-    typeof record.createdAt === 'string' &&
-    typeof record.updatedAt === 'string' &&
-    (record.description === null ||
-      record.description === undefined ||
-      typeof record.description === 'string') &&
-    (record.deletedAt === null ||
-      record.deletedAt === undefined ||
-      typeof record.deletedAt === 'string')
-  );
+  // Delegação para `isNameCodeDescriptionDto` — `SystemDto` e
+  // `TokenTypeDto` compartilham exatamente o mesmo shape (Issue #175).
+  // JSCPD detectou ~20 linhas idênticas; extração eliminou na raiz.
+  return isNameCodeDescriptionDto(value);
 }
 
 /**

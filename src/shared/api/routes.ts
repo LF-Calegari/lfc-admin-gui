@@ -1,3 +1,4 @@
+import { isNameCodeDescriptionDto } from './nameCodeDescriptionDto';
 import { isPagedResponseEnvelope } from './pagedResponse';
 
 import { apiClient } from './index';
@@ -69,26 +70,21 @@ export interface RouteDto {
  * diferentes precisam de helper compartilhado").
  */
 export function isRouteDto(value: unknown): value is RouteDto {
-  if (!value || typeof value !== 'object') {
+  // Delega ao helper genérico a checagem dos campos compartilhados
+  // com `SystemDto`/`TokenTypeDto` (id, name, code, description,
+  // createdAt, updatedAt, deletedAt) — `RouteDto` adiciona `systemId`
+  // e a tripla `systemTokenType*` que validamos abaixo. Lição PR
+  // #134/#135 reforçada (Issue #175): centralizar elimina ~11 linhas
+  // de duplicação entre wrappers de DTO.
+  if (!isNameCodeDescriptionDto(value)) {
     return false;
   }
   const record = value as Record<string, unknown>;
   return (
-    typeof record.id === 'string' &&
     typeof record.systemId === 'string' &&
-    typeof record.name === 'string' &&
-    typeof record.code === 'string' &&
     typeof record.systemTokenTypeId === 'string' &&
     typeof record.systemTokenTypeCode === 'string' &&
-    typeof record.systemTokenTypeName === 'string' &&
-    typeof record.createdAt === 'string' &&
-    typeof record.updatedAt === 'string' &&
-    (record.description === null ||
-      record.description === undefined ||
-      typeof record.description === 'string') &&
-    (record.deletedAt === null ||
-      record.deletedAt === undefined ||
-      typeof record.deletedAt === 'string')
+    typeof record.systemTokenTypeName === 'string'
   );
 }
 

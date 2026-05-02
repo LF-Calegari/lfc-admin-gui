@@ -16,6 +16,7 @@ import { RoutesPage } from '../pages/RoutesPage';
 import { SettingsPage } from '../pages/SettingsPage';
 import { ShowcasePage } from '../pages/ShowcasePage';
 import { SystemsPage } from '../pages/SystemsPage';
+import { TokensListShellPage } from '../pages/tokens';
 import { UnauthorizedPage } from '../pages/UnauthorizedPage';
 import {
   UserDetailShellPage,
@@ -269,12 +270,14 @@ export const AppRoutes: React.FC = () => (
       <Route
         path="/tokens"
         element={
+          // Issue #175: substitui o `<PlaceholderPage>` mockado por
+          // CRUD funcional de tipos de token JWT. O título da página
+          // ("Tipos de token JWT") é renderizado pelo
+          // `TokensListShellPage` via `<PageHeader>` — o label
+          // "Tokens" da Sidebar permanece inalterado por economia de
+          // espaço (decisão da Issue #175).
           <RequirePermission code="AUTH_V1_TOKEN_TYPES_LIST">
-            <PlaceholderPage
-              eyebrow="08 Tokens"
-              title="Tokens JWT"
-              desc="Tokens emitidos por sistema. tokenVersion atual: 12. Revogar um token invalida a sessão do usuário imediatamente."
-            />
+            <TokensListShellPage />
           </RequirePermission>
         }
       />

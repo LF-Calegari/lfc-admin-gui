@@ -2,13 +2,9 @@ import React from "react";
 
 import {
   NameCodeDescriptionFormBody,
+  type NameCodeDescriptionFormBodyProps,
   type NameCodeDescriptionFormCopy,
 } from "../../shared/forms";
-
-import {
-  type SystemFieldErrors,
-  type SystemFormState,
-} from "./systemFormShared";
 
 /**
  * Wrapper fino do `NameCodeDescriptionFormBody` parametrizado com
@@ -28,6 +24,13 @@ import {
  * (`SystemFormBody` continua sendo importado de
  * `./SystemFormFields`) para que `NewSystemModal`/`EditSystemModal`
  * não precisem mudar.
+ *
+ * **Lição PR #134/#135 reforçada (Issue #175):** as props internas
+ * (`SystemFormBodyProps`) duplicavam ~15 linhas com
+ * `NameCodeDescriptionFormBodyProps` (visíveis no exported type após
+ * o Issue #175). Substituídas por
+ * `Omit<NameCodeDescriptionFormBodyProps, 'copy'>` — `copy` é
+ * injetado pelo wrapper e não é prop pública.
  */
 
 /* ─── Cópia textual (placeholders) específica de sistemas ─── */
@@ -40,32 +43,13 @@ const SYSTEM_FORM_COPY: NameCodeDescriptionFormCopy = {
 
 /* ─── Form body ──────────────────────────────────────────── */
 
-interface SystemFormBodyProps {
-  /**
-   * Prefixo dos `data-testid` do form e dos campos. Em produção,
-   * `new-system` ou `edit-system` — preserva os testIds estáveis
-   * das suítes `SystemsPage.create.test.tsx` (#58/#127) e
-   * `SystemsPage.edit.test.tsx` (#59).
-   */
-  idPrefix: string;
-  /** Erro genérico de submissão exibido em `Alert` no topo do form. */
-  submitError: string | null;
-  /** Estado controlado dos campos. */
-  values: SystemFormState;
-  /** Erros inline por campo. */
-  errors: SystemFieldErrors;
-  onChangeName: (value: string) => void;
-  onChangeCode: (value: string) => void;
-  onChangeDescription: (value: string) => void;
-  /** Handler do submit do form. */
-  onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
-  /** Handler do botão Cancelar (bloqueado durante submit). */
-  onCancel: () => void;
-  /** Flag de submissão em andamento. */
-  isSubmitting: boolean;
-  /** Texto do botão de envio (ex.: "Criar sistema", "Salvar alterações"). */
-  submitLabel: string;
-}
+/**
+ * Props do `<SystemFormBody>` — alias estrutural das props do
+ * `NameCodeDescriptionFormBody` excluindo `copy` (injetado
+ * internamente). Centralizar via `Omit<...Props, 'copy'>` elimina
+ * duplicação cross-recurso (lição PR #134/#135).
+ */
+type SystemFormBodyProps = Omit<NameCodeDescriptionFormBodyProps, "copy">;
 
 export const SystemFormBody: React.FC<SystemFormBodyProps> = (props) => (
   <NameCodeDescriptionFormBody {...props} copy={SYSTEM_FORM_COPY} />

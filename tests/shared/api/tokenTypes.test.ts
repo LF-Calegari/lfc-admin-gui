@@ -2,7 +2,15 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { ApiClient, TokenTypeDto } from '@/shared/api';
 
-import { isTokenTypeArray, isTokenTypeDto, listTokenTypes } from '@/shared/api';
+import {
+  createTokenType,
+  deleteTokenType,
+  isTokenTypeArray,
+  isTokenTypeDto,
+  listTokenTypes,
+  restoreTokenType,
+  updateTokenType,
+} from '@/shared/api';
 
 /**
  * Suíte do módulo `src/shared/api/tokenTypes.ts` (Issue #63, EPIC
@@ -170,6 +178,281 @@ describe('listTokenTypes', () => {
     await expect(listTokenTypes(undefined, stub as unknown as ApiClient)).rejects.toMatchObject({
       kind: 'http',
       status: 401,
+    });
+  });
+});
+
+/**
+ * Suítes de mutação do recurso "token types" (Issue #175). Espelham
+ * `tests/shared/api/systems.test.ts` — cada wrapper valida path, body
+ * trimado, omissão de `description` quando vazia, type guards e
+ * propagação de `ApiError`. Não bate em `fetch` — cobertura de
+ * transporte HTTP é responsabilidade dos testes em `client.test.ts`.
+ */
+
+describe('createTokenType', () => {
+  it('chama POST /tokens/types com payload trimado e devolve o DTO', async () => {
+    const stub = createStub();
+    const created = makeTokenTypeDto({ id: 'id-novo', name: 'Acesso padrão' });
+    stub.post.mockResolvedValueOnce(created);
+
+    const result = await createTokenType(
+      { name: '  Acesso padrão  ', code: '  default  ', description: '  Token clássico  ' },
+      undefined,
+      stub as unknown as ApiClient,
+    );
+
+    expect(stub.post).toHaveBeenCalledWith(
+      '/tokens/types',
+      { name: 'Acesso padrão', code: 'default', description: 'Token clássico' },
+      undefined,
+    );
+    expect(result).toEqual(created);
+  });
+
+  it('omite description quando string vazia ou apenas espaços', async () => {
+    const stub = createStub();
+    stub.post.mockResolvedValueOnce(makeTokenTypeDto());
+
+    await createTokenType(
+      { name: 'Padrão', code: 'default', description: '   ' },
+      undefined,
+      stub as unknown as ApiClient,
+    );
+
+    expect(stub.post).toHaveBeenCalledWith(
+      '/tokens/types',
+      { name: 'Padrão', code: 'default' },
+      undefined,
+    );
+  });
+
+  it('omite description quando undefined', async () => {
+    const stub = createStub();
+    stub.post.mockResolvedValueOnce(makeTokenTypeDto());
+
+    await createTokenType(
+      { name: 'Padrão', code: 'default' },
+      undefined,
+      stub as unknown as ApiClient,
+    );
+
+    expect(stub.post).toHaveBeenCalledWith(
+      '/tokens/types',
+      { name: 'Padrão', code: 'default' },
+      undefined,
+    );
+  });
+
+  it('lança ApiError(parse) quando a resposta não bate com o shape esperado', async () => {
+    const stub = createStub();
+    stub.post.mockResolvedValueOnce({ foo: 'bar' });
+
+    await expect(
+      createTokenType(
+        { name: 'Padrão', code: 'default' },
+        undefined,
+        stub as unknown as ApiClient,
+      ),
+    ).rejects.toMatchObject({
+      kind: 'parse',
+      message: expect.stringContaining('inválida'),
+    });
+  });
+
+  it('propaga ApiError do cliente em conflito 409 sem reembrulhar', async () => {
+    const stub = createStub();
+    stub.post.mockRejectedValueOnce({
+      kind: 'http',
+      status: 409,
+      message: 'Já existe um token type com este Code.',
+    });
+
+    await expect(
+      createTokenType(
+        { name: 'Padrão', code: 'default' },
+        undefined,
+        stub as unknown as ApiClient,
+      ),
+    ).rejects.toMatchObject({
+      kind: 'http',
+      status: 409,
+    });
+  });
+});
+
+describe('updateTokenType', () => {
+  it('chama PUT /tokens/types/{id} com payload trimado e devolve o DTO', async () => {
+    const stub = createStub();
+    const updated = makeTokenTypeDto({ name: 'Renovação rápida' });
+    stub.put.mockResolvedValueOnce(updated);
+
+    const result = await updateTokenType(
+      TOKEN_TYPE_ID,
+      { name: '  Renovação rápida  ', code: '  refresh  ', description: '  desc  ' },
+      undefined,
+      stub as unknown as ApiClient,
+    );
+
+    expect(stub.put).toHaveBeenCalledWith(
+      `/tokens/types/${TOKEN_TYPE_ID}`,
+      { name: 'Renovação rápida', code: 'refresh', description: 'desc' },
+      undefined,
+    );
+    expect(result).toEqual(updated);
+  });
+
+  it('omite description quando vazia após trim', async () => {
+    const stub = createStub();
+    stub.put.mockResolvedValueOnce(makeTokenTypeDto());
+
+    await updateTokenType(
+      TOKEN_TYPE_ID,
+      { name: 'Renovação', code: 'refresh', description: '' },
+      undefined,
+      stub as unknown as ApiClient,
+    );
+
+    expect(stub.put).toHaveBeenCalledWith(
+      `/tokens/types/${TOKEN_TYPE_ID}`,
+      { name: 'Renovação', code: 'refresh' },
+      undefined,
+    );
+  });
+
+  it('lança ApiError(parse) quando a resposta não bate com o shape esperado', async () => {
+    const stub = createStub();
+    stub.put.mockResolvedValueOnce(null);
+
+    await expect(
+      updateTokenType(
+        TOKEN_TYPE_ID,
+        { name: 'X', code: 'y' },
+        undefined,
+        stub as unknown as ApiClient,
+      ),
+    ).rejects.toMatchObject({
+      kind: 'parse',
+    });
+  });
+
+  it('propaga ApiError 404 sem reembrulhar', async () => {
+    const stub = createStub();
+    stub.put.mockRejectedValueOnce({
+      kind: 'http',
+      status: 404,
+      message: 'Token type não encontrado.',
+    });
+
+    await expect(
+      updateTokenType(
+        TOKEN_TYPE_ID,
+        { name: 'X', code: 'y' },
+        undefined,
+        stub as unknown as ApiClient,
+      ),
+    ).rejects.toMatchObject({
+      kind: 'http',
+      status: 404,
+    });
+  });
+});
+
+describe('deleteTokenType', () => {
+  it('chama DELETE /tokens/types/{id} e resolve void', async () => {
+    const stub = createStub();
+    stub.delete.mockResolvedValueOnce(undefined);
+
+    await expect(
+      deleteTokenType(TOKEN_TYPE_ID, undefined, stub as unknown as ApiClient),
+    ).resolves.toBeUndefined();
+
+    expect(stub.delete).toHaveBeenCalledWith(
+      `/tokens/types/${TOKEN_TYPE_ID}`,
+      undefined,
+    );
+  });
+
+  it('repassa as options (signal) para o cliente', async () => {
+    const stub = createStub();
+    const controller = new AbortController();
+    stub.delete.mockResolvedValueOnce(undefined);
+
+    await deleteTokenType(
+      TOKEN_TYPE_ID,
+      { signal: controller.signal },
+      stub as unknown as ApiClient,
+    );
+
+    expect(stub.delete).toHaveBeenCalledWith(`/tokens/types/${TOKEN_TYPE_ID}`, {
+      signal: controller.signal,
+    });
+  });
+
+  it('propaga ApiError 404 do cliente sem reembrulhar', async () => {
+    const stub = createStub();
+    stub.delete.mockRejectedValueOnce({
+      kind: 'http',
+      status: 404,
+      message: 'Token type não encontrado.',
+    });
+
+    await expect(
+      deleteTokenType(TOKEN_TYPE_ID, undefined, stub as unknown as ApiClient),
+    ).rejects.toMatchObject({
+      kind: 'http',
+      status: 404,
+    });
+  });
+});
+
+describe('restoreTokenType', () => {
+  it('chama POST /tokens/types/{id}/restore com body undefined e resolve void', async () => {
+    const stub = createStub();
+    stub.post.mockResolvedValueOnce(undefined);
+
+    await expect(
+      restoreTokenType(TOKEN_TYPE_ID, undefined, stub as unknown as ApiClient),
+    ).resolves.toBeUndefined();
+
+    expect(stub.post).toHaveBeenCalledWith(
+      `/tokens/types/${TOKEN_TYPE_ID}/restore`,
+      undefined,
+      undefined,
+    );
+  });
+
+  it('repassa as options (signal) para o cliente', async () => {
+    const stub = createStub();
+    const controller = new AbortController();
+    stub.post.mockResolvedValueOnce(undefined);
+
+    await restoreTokenType(
+      TOKEN_TYPE_ID,
+      { signal: controller.signal },
+      stub as unknown as ApiClient,
+    );
+
+    expect(stub.post).toHaveBeenCalledWith(
+      `/tokens/types/${TOKEN_TYPE_ID}/restore`,
+      undefined,
+      { signal: controller.signal },
+    );
+  });
+
+  it('propaga ApiError 404 do cliente sem reembrulhar', async () => {
+    const stub = createStub();
+    stub.post.mockRejectedValueOnce({
+      kind: 'http',
+      status: 404,
+      message: 'Token type não encontrado ou não está deletado.',
+    });
+
+    await expect(
+      restoreTokenType(TOKEN_TYPE_ID, undefined, stub as unknown as ApiClient),
+    ).rejects.toMatchObject({
+      kind: 'http',
+      status: 404,
     });
   });
 });

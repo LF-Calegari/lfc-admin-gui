@@ -1,6 +1,8 @@
+import { isNameCodeDescriptionDto } from './nameCodeDescriptionDto';
+
 import { apiClient } from './index';
 
-import type { ApiClient, ApiError, SafeRequestOptions } from './types';
+import type { ApiClient, ApiError, BodyRequestOptions, SafeRequestOptions } from './types';
 
 /**
  * Cria um `ApiError(parse)` baseado em `Error` real (com stack/`name`)
@@ -46,34 +48,24 @@ export interface TokenTypeDto {
 }
 
 /**
- * Type guard para `TokenTypeDto`. Tolera `description`/`deletedAt`
- * ausentes (tratados como `null`) — outros campos são obrigatórios e
- * checados em runtime.
+ * Type guard para `TokenTypeDto`. Delegação direta para
+ * `isNameCodeDescriptionDto` — o shape de `TokenTypeDto` é
+ * estruturalmente idêntico ao `SystemDto` (mesmos campos `id`/`name`/
+ * `code`/`description`/`createdAt`/`updatedAt`/`deletedAt`).
  *
- * Mantemos a validação aqui em vez de delegar a um runtime schema
- * library (Zod/Yup) porque o cliente HTTP intencionalmente não tem
- * dependência de validação — cada wrapper é dono da própria checagem,
- * coerente com `isSystemDto`/`isRouteDto`. Para listas de tokens, isso
- * evita um ~40 KB de payload extra no bundle de produção.
+ * **Lição PR #134/#135 reforçada (Issue #175):** antes da extração,
+ * o corpo desta função duplicava ~20 linhas com `isSystemDto`. JSCPD
+ * tokenizou como `New Code Duplication` entre `systems.ts`,
+ * `routes.ts` e `tokenTypes.ts`. Centralizar em
+ * `nameCodeDescriptionDto.ts` colapsou todos os call sites.
+ *
+ * Mantemos a função local (em vez de re-export) para preservar a
+ * type predicate `value is TokenTypeDto` — o helper genérico devolve
+ * `boolean` (não pode prometer `value is X` para `X` que ele não
+ * conhece). Esta envoltura adiciona apenas o predicate.
  */
 export function isTokenTypeDto(value: unknown): value is TokenTypeDto {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-  const record = value as Record<string, unknown>;
-  return (
-    typeof record.id === 'string' &&
-    typeof record.name === 'string' &&
-    typeof record.code === 'string' &&
-    typeof record.createdAt === 'string' &&
-    typeof record.updatedAt === 'string' &&
-    (record.description === null ||
-      record.description === undefined ||
-      typeof record.description === 'string') &&
-    (record.deletedAt === null ||
-      record.deletedAt === undefined ||
-      typeof record.deletedAt === 'string')
-  );
+  return isNameCodeDescriptionDto(value);
 }
 
 /**
@@ -121,4 +113,223 @@ export async function listTokenTypes(
     throw makeParseError();
   }
   return data;
+}
+
+/**
+ * Body aceito pelo `POST /tokens/types` no `lfc-authenticator`
+ * (`TokenTypesController.CreateTokenTypeRequest`).
+ *
+ * - `name` (obrigatório, máx. 80 chars) — nome amigável do tipo de
+ *   token (ex.: "Acesso padrão", "Renovação").
+ * - `code` (obrigatório, máx. 50 chars) — identificador único usado
+ *   por rotas via `SystemTokenTypeId`. Backend valida unicidade
+ *   ignorando filtro de soft-delete (409 caso já exista, mesmo que
+ *   removido).
+ * - `description` (opcional, máx. 500 chars) — descrição livre.
+ *
+ * O backend faz `Trim()` em `Name`/`Code` e converte `Description`
+ * vazia (após trim) em `null`. Mantemos os campos como `string` aqui —
+ * a UI já trima antes de enviar para preservar simetria com o que é
+ * persistido (e evita 400 por "Code é obrigatório e não pode ser apenas
+ * espaços" quando o usuário digita só whitespace). Espelha o desenho
+ * de `CreateSystemPayload` (lição PR #128 — projetar contratos
+ * simétricos entre recursos similares).
+ */
+export interface CreateTokenTypePayload {
+  name: string;
+  code: string;
+  description?: string;
+}
+
+/**
+ * Cria um novo tipo de token via `POST /tokens/types` (Issue #175).
+ *
+ * Retorna o `TokenTypeDto` recém-criado (`201 Created` com
+ * `TokenTypeResponse` no corpo). Lança `ApiError` em qualquer falha —
+ * o caller tipicamente trata:
+ *
+ * - `kind: 'http'` com `status === 409` → conflito de `code` único; a
+ *   UI exibe mensagem inline no campo `code` ("Já existe um token type
+ *   com este Code." vinda do backend).
+ * - `kind: 'http'` com `status === 400` → erros de validação por campo
+ *   no payload de `details` (formato `ValidationProblemDetails` do
+ *   ASP.NET — `details.errors[campo] = string[]`).
+ * - `kind: 'http'` com `status === 401` → cliente HTTP já lidou com
+ *   `onUnauthorized`; a UI não precisa fazer nada além de não tentar
+ *   re-renderizar.
+ * - `kind: 'http'` com `status === 403` → falta permissão
+ *   `AUTH_V1_TOKEN_TYPES_CREATE`; toast vermelho com mensagem do
+ *   backend.
+ * - Outros erros → toast vermelho genérico.
+ *
+ * O parâmetro `client` é injetável para isolar testes (passa-se um stub
+ * tipado como `ApiClient`); em produção usa-se o singleton `apiClient`.
+ */
+export async function createTokenType(
+  payload: CreateTokenTypePayload,
+  options?: BodyRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<TokenTypeDto> {
+  const body = buildTokenTypeMutationBody(payload);
+  const data = await client.post<unknown>('/tokens/types', body, options);
+  if (!isTokenTypeDto(data)) {
+    throw makeParseError();
+  }
+  return data;
+}
+
+/**
+ * Body aceito pelo `PUT /tokens/types/{id}` no `lfc-authenticator`
+ * (`TokenTypesController.UpdateTokenTypeRequest`).
+ *
+ * O backend declara um `UpdateTokenTypeRequest` separado, mas com o
+ * mesmo shape do `CreateTokenTypeRequest` (Name obrigatório/máx. 80,
+ * Code obrigatório/máx. 50, Description opcional/máx. 500). Para evitar
+ * divergência silenciosa entre os dois tipos no frontend e replicar
+ * fielmente a simetria do backend, declaramos o payload de update como
+ * alias do de create — qualquer ajuste no contrato pega os dois call
+ * sites de uma só vez (espelha `UpdateSystemPayload`).
+ */
+export type UpdateTokenTypePayload = CreateTokenTypePayload;
+
+/**
+ * Atualiza um tipo de token existente via `PUT /tokens/types/{id}`
+ * (Issue #175).
+ *
+ * Retorna o `TokenTypeDto` atualizado (`200 OK` com `TokenTypeResponse`
+ * no corpo). Lança `ApiError` em qualquer falha — o caller tipicamente
+ * trata:
+ *
+ * - `kind: 'http'` com `status === 409` → conflito de `code` único
+ *   (outro token type já usa o code informado); a UI exibe mensagem
+ *   inline no campo `code` ("Já existe outro token type com este Code.").
+ * - `kind: 'http'` com `status === 404` → token type não encontrado ou
+ *   soft-deleted; a UI fecha o modal, dispara toast e força refetch.
+ * - `kind: 'http'` com `status === 400` → erros de validação por campo
+ *   em `details` (mesmo shape de `ValidationProblemDetails` do create).
+ * - `kind: 'http'` com `status === 401` → cliente HTTP já lidou com
+ *   `onUnauthorized`; a UI não precisa fazer nada extra.
+ * - `kind: 'http'` com `status === 403` → falta permissão
+ *   `AUTH_V1_TOKEN_TYPES_UPDATE`; toast vermelho com mensagem do
+ *   backend.
+ * - Outros erros → toast vermelho genérico.
+ *
+ * O parâmetro `client` é injetável para isolar testes (passa-se um stub
+ * tipado como `ApiClient`); em produção usa-se o singleton `apiClient`.
+ */
+export async function updateTokenType(
+  id: string,
+  payload: UpdateTokenTypePayload,
+  options?: BodyRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<TokenTypeDto> {
+  const body = buildTokenTypeMutationBody(payload);
+  const data = await client.put<unknown>(`/tokens/types/${id}`, body, options);
+  if (!isTokenTypeDto(data)) {
+    throw makeParseError();
+  }
+  return data;
+}
+
+/**
+ * Desativa (soft-delete) um tipo de token via `DELETE /tokens/types/{id}`
+ * (Issue #175).
+ *
+ * O backend (`TokenTypesController.DeleteById`) seta
+ * `DeletedAt = UtcNow` e responde `204 No Content` em sucesso. O método
+ * não devolve corpo — a função resolve `void` e a UI faz refetch para
+ * sincronizar a lista.
+ *
+ * Lança `ApiError` em qualquer falha:
+ *
+ * - `kind: 'http'` com `status === 404` → token type inexistente (já
+ *   soft-deleted ou nunca existiu); a UI fecha o modal, dispara toast
+ *   e força refetch.
+ * - `kind: 'http'` com `status === 401` → sessão expirada; cliente HTTP
+ *   já lidou com `onUnauthorized`. UI mantém-se silenciosa além do
+ *   toast.
+ * - `kind: 'http'` com `status === 403` → falta permissão
+ *   `AUTH_V1_TOKEN_TYPES_DELETE`; toast vermelho com mensagem do
+ *   backend.
+ * - `kind: 'network'`/outros → toast vermelho genérico.
+ *
+ * Diferente de `createTokenType`/`updateTokenType`, não há type guard
+ * de resposta porque `204` não tem corpo — `client.delete<void>`
+ * resolve `undefined` e descartamos. Espelha a estratégia de
+ * `deleteSystem`.
+ */
+export async function deleteTokenType(
+  id: string,
+  options?: SafeRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<void> {
+  await client.delete<void>(`/tokens/types/${id}`, options);
+}
+
+/**
+ * Restaura (desfaz soft-delete) um tipo de token via
+ * `POST /tokens/types/{id}/restore` (Issue #175).
+ *
+ * O backend (`TokenTypesController.RestoreById`) limpa `DeletedAt` via
+ * `IgnoreQueryFilters()` e responde `200 OK` com
+ * `{ message: "Token type restaurado com sucesso." }`. Diferente de
+ * `createTokenType`/`updateTokenType`, o corpo da resposta **não** é
+ * um `TokenTypeDto` — é um envelope simples `{ message }` que
+ * descartamos. A UI faz refetch para sincronizar a lista (idêntico ao
+ * padrão do `deleteTokenType` e ao `restoreSystem`), então retornamos
+ * `void`.
+ *
+ * Lança `ApiError` em qualquer falha:
+ *
+ * - `kind: 'http'` com `status === 404` → token type inexistente **ou**
+ *   já ativo (o backend devolve 404 em ambos os casos: filtro
+ *   `DeletedAt != null`). A UI fecha o modal, dispara toast e força
+ *   refetch — o registro foi mexido por outra sessão entre a abertura
+ *   do modal e o submit, ou nem existe.
+ * - `kind: 'http'` com `status === 401` → sessão expirada; cliente HTTP
+ *   já lidou com `onUnauthorized`. UI mantém-se silenciosa além do
+ *   toast.
+ * - `kind: 'http'` com `status === 403` → falta permissão
+ *   `AUTH_V1_TOKEN_TYPES_RESTORE`; toast vermelho com mensagem do
+ *   backend.
+ * - `kind: 'network'`/outros → toast vermelho genérico.
+ *
+ * Não há type guard de resposta porque `{ message }` é descartado —
+ * `client.post<void>` resolve com o body como `unknown` e ignoramos.
+ *
+ * Recebe `BodyRequestOptions` (com `signal`) por simetria com
+ * `createTokenType`/`updateTokenType` — `POST` é tratado como mutação
+ * com corpo no cliente HTTP, ainda que aqui não enviemos payload.
+ * Passamos `undefined` como body para que o backend receba uma
+ * requisição vazia.
+ */
+export async function restoreTokenType(
+  id: string,
+  options?: BodyRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<void> {
+  await client.post<void>(`/tokens/types/${id}/restore`, undefined, options);
+}
+
+/**
+ * Constrói o body para `POST /tokens/types` e `PUT /tokens/types/{id}`
+ * aplicando trim defensivo nos campos. Description vazia depois de
+ * trim vira `undefined` para que o serializador omita o campo (backend
+ * converte para `null`). Centralizar essa montagem garante que create
+ * e update enviem exatamente o mesmo payload — qualquer divergência
+ * futura no shape (ex.: backend aceitando `tags`) ajusta um único
+ * helper. Espelha `buildSystemMutationBody`.
+ */
+function buildTokenTypeMutationBody(
+  payload: CreateTokenTypePayload | UpdateTokenTypePayload,
+): CreateTokenTypePayload {
+  const body: CreateTokenTypePayload = {
+    name: payload.name.trim(),
+    code: payload.code.trim(),
+  };
+  const trimmedDescription = payload.description?.trim();
+  if (trimmedDescription && trimmedDescription.length > 0) {
+    body.description = trimmedDescription;
+  }
+  return body;
 }
