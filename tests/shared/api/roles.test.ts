@@ -209,13 +209,35 @@ describe("isPagedRolesResponse", () => {
   });
 });
 
-describe("listRoles — endpoint atual /roles (GET cru, adapter client-side)", () => {
-  it("emite GET /roles e devolve envelope paginado quando backend devolve array", async () => {
+/**
+ * Helper para o envelope paginado server-side. Após
+ * `lfc-authenticator#163`/`#164`, o backend devolve
+ * `PagedResponse<RoleResponse>` nativo — `listRoles` valida e
+ * propaga sem adapter cliente.
+ */
+function makePagedRolesEnvelope(
+  data: ReadonlyArray<RoleDto>,
+  overrides: Partial<{
+    page: number;
+    pageSize: number;
+    total: number;
+  }> = {},
+) {
+  return {
+    data,
+    page: overrides.page ?? 1,
+    pageSize: overrides.pageSize ?? 20,
+    total: overrides.total ?? data.length,
+  };
+}
+
+describe("listRoles — envelope paginado server-side", () => {
+  it("emite GET /roles com querystring vazia quando todos os params são default", async () => {
     const client = createStub();
-    client.get.mockResolvedValueOnce([makeRoleDto()]);
+    client.get.mockResolvedValueOnce(makePagedRolesEnvelope([makeRoleDto()]));
 
     const result = await listRoles(
-      { systemId: SYS_ID },
+      {},
       undefined,
       client as unknown as ApiClient,
     );
@@ -228,9 +250,63 @@ describe("listRoles — endpoint atual /roles (GET cru, adapter client-side)", (
     expect(result.total).toBe(1);
   });
 
+  it("inclui systemId na querystring quando informado", async () => {
+    const client = createStub();
+    client.get.mockResolvedValueOnce(makePagedRolesEnvelope([makeRoleDto()]));
+
+    await listRoles(
+      { systemId: SYS_ID },
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.get.mock.calls[0][0]).toBe(`/roles?systemId=${SYS_ID}`);
+  });
+
+  it("inclui q após trim quando informado", async () => {
+    const client = createStub();
+    client.get.mockResolvedValueOnce(makePagedRolesEnvelope([]));
+
+    await listRoles(
+      { q: "  admin  " },
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.get.mock.calls[0][0]).toBe("/roles?q=admin");
+  });
+
+  it("omite q vazio após trim", async () => {
+    const client = createStub();
+    client.get.mockResolvedValueOnce(makePagedRolesEnvelope([]));
+
+    await listRoles(
+      { q: "   " },
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.get.mock.calls[0][0]).toBe("/roles");
+  });
+
+  it("inclui page/pageSize/includeDeleted quando diferentes do default", async () => {
+    const client = createStub();
+    client.get.mockResolvedValueOnce(makePagedRolesEnvelope([]));
+
+    await listRoles(
+      { page: 2, pageSize: 50, includeDeleted: true },
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.get.mock.calls[0][0]).toBe(
+      "/roles?page=2&pageSize=50&includeDeleted=true",
+    );
+  });
+
   it("passa signal/options adiante para o cliente", async () => {
     const client = createStub();
-    client.get.mockResolvedValueOnce([makeRoleDto()]);
+    client.get.mockResolvedValueOnce(makePagedRolesEnvelope([makeRoleDto()]));
     const controller = new AbortController();
 
     await listRoles(
@@ -242,7 +318,7 @@ describe("listRoles — endpoint atual /roles (GET cru, adapter client-side)", (
     expect(client.get.mock.calls[0][1]).toEqual({ signal: controller.signal });
   });
 
-  it("lança ApiError(parse) quando o backend devolve payload inválido (não-array)", async () => {
+  it("lança ApiError(parse) quando o backend devolve payload inválido", async () => {
     const client = createStub();
     client.get.mockResolvedValueOnce({ malformed: true });
 
@@ -258,9 +334,14 @@ describe("listRoles — endpoint atual /roles (GET cru, adapter client-side)", (
     });
   });
 
-  it("lança ApiError(parse) quando algum item do array não é RoleDto", async () => {
+  it("lança ApiError(parse) quando algum item do envelope não é RoleDto", async () => {
     const client = createStub();
-    client.get.mockResolvedValueOnce([makeRoleDto(), { broken: true }]);
+    client.get.mockResolvedValueOnce({
+      data: [makeRoleDto(), { broken: true }],
+      page: 1,
+      pageSize: 20,
+      total: 2,
+    });
 
     await expect(
       listRoles(
@@ -284,116 +365,18 @@ describe("listRoles — endpoint atual /roles (GET cru, adapter client-side)", (
       ),
     ).rejects.toEqual(apiError);
   });
-});
 
-describe("listRoles — adapter client-side (filtros/ordem/paginação)", () => {
-  it("filtra deletedAt quando includeDeleted=false (default)", async () => {
+  it("respeita o page/pageSize/total devolvidos pelo backend (sem reaplicar paginação)", async () => {
     const client = createStub();
-    client.get.mockResolvedValueOnce([
-      makeRoleDto({ id: "a", code: "aroot" }),
-      makeRoleDto({
-        id: "b",
-        code: "bdeleted",
-        deletedAt: "2026-02-01T00:00:00Z",
-      }),
-    ]);
-
-    const result = await listRoles(
-      { systemId: SYS_ID },
-      undefined,
-      client as unknown as ApiClient,
-    );
-
-    expect(result.data).toHaveLength(1);
-    expect(result.data[0].id).toBe("a");
-    expect(result.total).toBe(1);
-  });
-
-  it("inclui deletedAt quando includeDeleted=true", async () => {
-    const client = createStub();
-    client.get.mockResolvedValueOnce([
-      makeRoleDto({ id: "a", code: "aroot" }),
-      makeRoleDto({
-        id: "b",
-        code: "bdeleted",
-        deletedAt: "2026-02-01T00:00:00Z",
-      }),
-    ]);
-
-    const result = await listRoles(
-      { systemId: SYS_ID, includeDeleted: true },
-      undefined,
-      client as unknown as ApiClient,
-    );
-
-    expect(result.data).toHaveLength(2);
-    expect(result.total).toBe(2);
-  });
-
-  it("filtra por q (case-insensitive em name e code) após trim", async () => {
-    const client = createStub();
-    client.get.mockResolvedValueOnce([
-      makeRoleDto({ id: "a", name: "Root", code: "root" }),
-      makeRoleDto({ id: "b", name: "Admin", code: "admin" }),
-      makeRoleDto({ id: "c", name: "Viewer", code: "viewer" }),
-    ]);
-
-    const result = await listRoles(
-      { systemId: SYS_ID, q: "  ROO  " },
-      undefined,
-      client as unknown as ApiClient,
-    );
-
-    expect(result.data.map((r) => r.id)).toEqual(["a"]);
-    expect(result.total).toBe(1);
-  });
-
-  it("q vazio após trim devolve todos os resultados", async () => {
-    const client = createStub();
-    client.get.mockResolvedValueOnce([
-      makeRoleDto({ id: "a", code: "a" }),
-      makeRoleDto({ id: "b", code: "b" }),
-    ]);
-
-    const result = await listRoles(
-      { systemId: SYS_ID, q: "   " },
-      undefined,
-      client as unknown as ApiClient,
-    );
-
-    expect(result.total).toBe(2);
-  });
-
-  it("ordena por code (estabilidade visual entre refetches)", async () => {
-    const client = createStub();
-    client.get.mockResolvedValueOnce([
-      makeRoleDto({ id: "c", code: "charlie" }),
-      makeRoleDto({ id: "a", code: "alpha" }),
-      makeRoleDto({ id: "b", code: "bravo" }),
-    ]);
-
-    const result = await listRoles(
-      { systemId: SYS_ID },
-      undefined,
-      client as unknown as ApiClient,
-    );
-
-    expect(result.data.map((r) => r.code)).toEqual([
-      "alpha",
-      "bravo",
-      "charlie",
-    ]);
-  });
-
-  it("aplica page/pageSize em memória; total reflete o conjunto após filtros", async () => {
-    const client = createStub();
-    const rows = Array.from({ length: 25 }, (_, i) =>
+    const data = Array.from({ length: 10 }, (_, i) =>
       makeRoleDto({ id: `id-${i}`, code: `r${String(i).padStart(2, "0")}` }),
     );
-    client.get.mockResolvedValueOnce(rows);
+    client.get.mockResolvedValueOnce(
+      makePagedRolesEnvelope(data, { page: 2, pageSize: 10, total: 25 }),
+    );
 
     const result = await listRoles(
-      { systemId: SYS_ID, page: 2, pageSize: 10 },
+      { page: 2, pageSize: 10 },
       undefined,
       client as unknown as ApiClient,
     );
@@ -402,7 +385,6 @@ describe("listRoles — adapter client-side (filtros/ordem/paginação)", () => 
     expect(result.pageSize).toBe(10);
     expect(result.total).toBe(25);
     expect(result.data).toHaveLength(10);
-    expect(result.data[0].code).toBe("r10");
   });
 });
 
