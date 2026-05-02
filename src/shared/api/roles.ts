@@ -67,6 +67,14 @@ function makeParseError(): ApiError {
  */
 export interface RoleDto {
   id: string;
+  /**
+   * UUID do sistema dono da role. Após `lfc-authenticator#163` é
+   * obrigatório no model `AppRole`. Tipo `string | null` preserva
+   * compatibilidade com fixtures de teste históricas e payloads de
+   * servidores menos atualizados — quando ausente, a UI cai no grupo
+   * "Sem sistema" do agrupamento por sistema.
+   */
+  systemId: string | null;
   name: string;
   code: string;
   /**
@@ -114,6 +122,9 @@ export function isRoleDto(value: unknown): value is RoleDto {
     typeof record.code === "string" &&
     typeof record.createdAt === "string" &&
     typeof record.updatedAt === "string" &&
+    (record.systemId === null ||
+      record.systemId === undefined ||
+      typeof record.systemId === "string") &&
     (record.description === null ||
       record.description === undefined ||
       typeof record.description === "string") &&
