@@ -2,7 +2,7 @@ import React from 'react';
 import { Navigate, Route, Routes, useParams } from 'react-router-dom';
 
 import { AppLayout } from '../layouts/AppLayout';
-import { ClientDetailShellPage, ClientsListShellPage } from '../pages/clients';
+import { ClientEditPage, ClientsListShellPage } from '../pages/clients';
 import { ForbiddenPage } from '../pages/ForbiddenPage';
 import { InternalErrorPage } from '../pages/InternalErrorPage';
 import { LoginPage } from '../pages/LoginPage';
@@ -169,7 +169,7 @@ export const AppRoutes: React.FC = () => (
         path="/clientes/:id"
         element={
           <RequirePermission code="AUTH_V1_CLIENTS_GET_BY_ID">
-            <ClientDetailShellPage />
+            <ClientEditPage />
           </RequirePermission>
         }
       />

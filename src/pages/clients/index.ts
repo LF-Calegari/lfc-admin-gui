@@ -1,2 +1,2 @@
 export { ClientsListShellPage } from './ClientsListShellPage';
-export { ClientDetailShellPage } from './ClientDetailShellPage';
+export { ClientEditPage } from './ClientEditPage';
