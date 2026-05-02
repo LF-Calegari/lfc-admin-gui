@@ -192,8 +192,18 @@ export const AppRoutes: React.FC = () => (
       <Route
         path="/usuarios/:id/permissoes"
         element={
-          <RequirePermission code="AUTH_V1_USERS_PERMISSIONS_ASSIGN">
-            <UserPermissionsShellPage />
+          // Issue #70: a tela exige LER o catálogo (Permissions.Read,
+          // code `AUTH_V1_PERMISSIONS_LIST`) E ATUALIZAR o usuário
+          // (Users.Update, code `AUTH_V1_USERS_PERMISSIONS_ASSIGN`).
+          // Aninhamos `RequirePermission` para validar ambas — ordem é
+          // irrelevante visualmente, mas começamos pela leitura para
+          // que o erro mais comum (admin sem `Permissions.Read`) fale
+          // primeiro. Se o catálogo não pode nem ser carregado, salvar
+          // não faz sentido.
+          <RequirePermission code="AUTH_V1_PERMISSIONS_LIST">
+            <RequirePermission code="AUTH_V1_USERS_PERMISSIONS_ASSIGN">
+              <UserPermissionsShellPage />
+            </RequirePermission>
           </RequirePermission>
         }
       />

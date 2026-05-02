@@ -4,10 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import { ClientDetailShellPage, ClientsListShellPage } from '@/pages/clients';
 import { PermissionsListShellPage } from '@/pages/permissions';
-import {
-  UserDetailShellPage,
-  UserPermissionsShellPage,
-} from '@/pages/users';
+import { UserDetailShellPage } from '@/pages/users';
 
 /**
  * Suíte agregada para as páginas-shell introduzidas pela Issue #145.
@@ -24,7 +21,10 @@ import {
  * (`tests/pages/<recurso>/<Pagina>.test.tsx`). Issue #77 promoveu a
  * `UsersListShellPage` a listagem real (com tabela/busca/paginação),
  * então a entrada respectiva foi removida — a cobertura migrou para
- * `tests/pages/UsersListShellPage.test.tsx`.
+ * `tests/pages/UsersListShellPage.test.tsx`. Issue #70 promoveu a
+ * `UserPermissionsShellPage` a tela funcional (matriz de checkbox por
+ * permissão), com cobertura em
+ * `tests/pages/users/UserPermissionsPage.test.tsx`.
  *
  * As asserts cobrem:
  * - Renderização sem warning/exception (cada shell é um componente
@@ -68,12 +68,10 @@ const SHELL_CASES: ReadonlyArray<ShellCase> = [
     eyebrow: '06 Usuários · Detalhe',
     title: 'Detalhe do usuário',
   },
-  {
-    name: 'UserPermissionsShellPage',
-    Component: UserPermissionsShellPage,
-    eyebrow: '06 Usuários · Permissões',
-    title: 'Permissões do usuário',
-  },
+  // Nota: `UserPermissionsShellPage` foi promovida pela Issue #70 a
+  // tela funcional (deixou de delegar ao `PlaceholderPage`). Por isso
+  // não aparece mais nesta tabela — sua cobertura vive em
+  // `tests/pages/users/UserPermissionsPage.test.tsx`.
 ];
 
 describe('Shell pages — contrato visual mínimo (Issue #145)', () => {
