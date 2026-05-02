@@ -161,8 +161,14 @@ export {
   isPagedUsersResponse,
   isUserDto,
   listUsers,
+  updateUser,
 } from './users';
-export type { CreateUserPayload, ListUsersParams, UserDto } from './users';
+export type {
+  CreateUserPayload,
+  ListUsersParams,
+  UpdateUserPayload,
+  UserDto,
+} from './users';
 export {
   assignPermissionToUser,
   DEFAULT_PERMISSIONS_INCLUDE_DELETED,

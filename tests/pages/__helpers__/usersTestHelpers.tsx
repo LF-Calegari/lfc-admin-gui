@@ -237,9 +237,9 @@ export async function submitNewUserForm(
 
 /**
  * Caso de teste declarativo para os cenários `it.each(ERROR_CASES)`
- * da suíte de criação. Cada caso descreve o `ApiError` retornado pelo
- * backend e o texto que deve aparecer em algum lugar visível do UI
- * após o submit.
+ * da suíte de criação ou edição. Cada caso descreve o `ApiError`
+ * retornado pelo backend e o texto que deve aparecer em algum lugar
+ * visível do UI após o submit.
  */
 export interface UsersErrorCase {
   /** Descrição usada como `it.each($name)`. */
@@ -248,6 +248,8 @@ export interface UsersErrorCase {
   error: ApiError;
   /** Texto visível no UI após o submit (string vira regex case-insensitive). */
   expectedText: RegExp | string;
+  /** Default `true` — quando `false`, o modal fecha após o erro (ex.: 404 no edit). */
+  modalStaysOpen?: boolean;
 }
 
 /**
@@ -261,4 +263,187 @@ export function toCaseInsensitiveMatcher(text: RegExp | string): RegExp {
     return text;
   }
   return new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`), 'i');
+}
+
+/* ─── Helpers para suíte de edição (Issue #79) ──────────────── */
+
+/**
+ * Mocka a resposta inicial (listagem com o usuário-alvo), renderiza a
+ * `UsersListShellPage`, espera a lista carregar e clica no botão
+ * "Editar" da linha do usuário informado. Aguarda a presença do form
+ * do modal (`edit-user-form`) para garantir que o efeito de
+ * sincronização já populou os campos.
+ *
+ * Espelha `openEditRoleModal`/`openEditModal` (sistemas) — pré-
+ * fabricado para evitar duplicação entre as suítes de edição
+ * (lição PR #128). Quem precisar de mocks diferentes pode chamar
+ * `client.get.mockImplementation(...)` antes de invocar este helper
+ * — a detecção de mocks pré-existentes preserva o caso "fila
+ * customizada de respostas" (ex.: cenários de erro 404 com refetch).
+ */
+export async function openEditUserModal(
+  client: ApiClientStub,
+  options: { user?: UserDto } = {},
+): Promise<void> {
+  const user = options.user ?? makeUser();
+  if (
+    client.get.getMockImplementation() === undefined &&
+    client.get.mock.calls.length === 0 &&
+    client.get.mock.results.length === 0
+  ) {
+    client.get.mockImplementation((path: string) => {
+      if (typeof path === 'string' && path.startsWith('/users')) {
+        return Promise.resolve(makeUsersPagedResponse([user]));
+      }
+      if (typeof path === 'string' && path.startsWith('/clients/')) {
+        return Promise.resolve(null);
+      }
+      return Promise.reject(new Error(`unexpected path: ${String(path)}`));
+    });
+  }
+  renderUsersPage(client);
+  await waitForInitialList(client);
+  fireEvent.click(screen.getByTestId(`users-edit-${user.id}`));
+  // Garante que o efeito do modal terminou — a presença do form
+  // indica que o `useEffect` de sincronização já rodou.
+  await waitFor(() => {
+    expect(screen.getByTestId('edit-user-form')).toBeInTheDocument();
+  });
+}
+
+/**
+ * Preenche os campos do form do `EditUserModal`. Cada chave é
+ * opcional — testes que validam só `name` e `email` deixam os demais
+ * ausentes. Os valores são entregues diretamente ao `fireEvent.change`;
+ * trim é responsabilidade do componente (`updateUser`/
+ * `validateUserUpdateForm`).
+ *
+ * **Sem `password`** — o modal de edição esconde o campo via
+ * `hidePassword`; reset de senha é endpoint separado.
+ *
+ * `active` usa `fireEvent.click` no Switch (não `fireEvent.change`)
+ * porque o `<Switch>` interno é um `<input type="checkbox">`.
+ */
+export function fillEditUserForm(values: {
+  name?: string;
+  email?: string;
+  identity?: string;
+  clientId?: string;
+  active?: boolean;
+}): void {
+  if (values.name !== undefined) {
+    fireEvent.change(screen.getByTestId('edit-user-name'), {
+      target: { value: values.name },
+    });
+  }
+  if (values.email !== undefined) {
+    fireEvent.change(screen.getByTestId('edit-user-email'), {
+      target: { value: values.email },
+    });
+  }
+  if (values.identity !== undefined) {
+    fireEvent.change(screen.getByTestId('edit-user-identity'), {
+      target: { value: values.identity },
+    });
+  }
+  if (values.clientId !== undefined) {
+    fireEvent.change(screen.getByTestId('edit-user-client-id'), {
+      target: { value: values.clientId },
+    });
+  }
+  if (values.active !== undefined) {
+    const switchEl = screen.getByTestId('edit-user-active') as HTMLInputElement;
+    if (switchEl.checked !== values.active) {
+      fireEvent.click(switchEl);
+    }
+  }
+}
+
+/**
+ * Submete o form do `EditUserModal` e aguarda o `client.put` ser
+ * chamado pelo menos `expectedPutCalls` vezes (default `1`).
+ * Espelha `submitEditRoleForm`/`submitEditSystemForm` — `act` +
+ * `waitFor` para flushar a microtask do submit antes do assert.
+ */
+export async function submitEditUserForm(
+  client: ApiClientStub,
+  expectedPutCalls = 1,
+): Promise<void> {
+  await act(async () => {
+    fireEvent.submit(screen.getByTestId('edit-user-form'));
+    await Promise.resolve();
+  });
+  await waitFor(() => expect(client.put).toHaveBeenCalledTimes(expectedPutCalls));
+}
+
+/**
+ * Constrói os 3 cenários de fechamento sem persistência (Esc,
+ * Cancelar, backdrop) usando o `cancelTestId` da suíte chamadora.
+ * Espelha `buildRolesCloseCases`/`buildCloseCases` — pré-fabricado
+ * para que as suítes de criação e edição reusem a mesma fila de
+ * `it.each` sem duplicação (lição PR #127/#128).
+ */
+export interface UsersModalCloseCase {
+  name: string;
+  close: () => void;
+}
+
+export function buildUsersCloseCases(
+  cancelTestId: string,
+): ReadonlyArray<UsersModalCloseCase> {
+  return [
+    {
+      name: 'Esc',
+      // eslint-disable-next-line no-restricted-globals
+      close: () => fireEvent.keyDown(window, { key: 'Escape' }),
+    },
+    {
+      name: 'botão Cancelar',
+      close: () => fireEvent.click(screen.getByTestId(cancelTestId)),
+    },
+    {
+      name: 'clique no backdrop',
+      close: () => fireEvent.mouseDown(screen.getByTestId('modal-backdrop')),
+    },
+  ];
+}
+
+/**
+ * Constrói os cenários de erro 401/403/network compartilhados entre
+ * as suítes de criação (#78) e edição (#79). Diferem **apenas** no
+ * verbo (`criar` vs `atualizar`) — copy genérica do toast vermelho
+ * vinda de `SUBMIT_ERROR_COPY.genericFallback` em cada modal.
+ *
+ * Pré-fabricar antes do segundo call site previne a recorrência de
+ * `New Code Duplication` no Sonar (lição PR #128 — projetar shared
+ * helpers desde o primeiro PR do recurso).
+ */
+export function buildSharedUserSubmitErrorCases(
+  verb: 'criar' | 'atualizar',
+): ReadonlyArray<UsersErrorCase> {
+  return [
+    {
+      name: '401 dispara toast vermelho com mensagem do backend',
+      error: {
+        kind: 'http',
+        status: 401,
+        message: 'Sessão expirada. Faça login novamente.',
+      },
+      expectedText: 'Sessão expirada. Faça login novamente.',
+    },
+    {
+      name: '403 dispara toast vermelho com mensagem do backend',
+      error: {
+        kind: 'http',
+        status: 403,
+        message: 'Você não tem permissão para esta ação.',
+      },
+      expectedText: 'Você não tem permissão para esta ação.',
+    },
+    {
+      name: 'erro genérico de rede dispara toast vermelho genérico',
+      error: { kind: 'network', message: 'Falha de conexão.' },
+      expectedText: `Não foi possível ${verb} o usuário. Tente novamente.`,
+    },
+  ];
 }

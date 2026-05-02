@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { ApiClient, CreateUserPayload, UserDto } from '@/shared/api';
+import type {
+  ApiClient,
+  CreateUserPayload,
+  UpdateUserPayload,
+  UserDto,
+} from '@/shared/api';
 
 import {
   createUser,
@@ -8,6 +13,7 @@ import {
   isPagedUsersResponse,
   isUserDto,
   listUsers,
+  updateUser,
 } from '@/shared/api';
 
 /**
@@ -603,6 +609,228 @@ describe('createUser — response e erros', () => {
 
     await expect(
       createUser(buildBasicPayload(), undefined, client as unknown as ApiClient),
+    ).rejects.toMatchObject({ kind: 'http', status: 403 });
+  });
+});
+
+/**
+ * Suíte do `updateUser` (Issue #79). Cobre serialização do body
+ * (trim/omit defensivo, sem `password`, com `active` obrigatório),
+ * validação do response via `isUserDto` e propagação de erros
+ * tipados (`ApiError`).
+ *
+ * Espelha o padrão de `updateRole`/`updateSystem` — validar o
+ * caminho HTTP unitariamente sem precisar de fetch real.
+ */
+describe('updateUser — body', () => {
+  function buildBasicPayload(
+    overrides: Partial<UpdateUserPayload> = {},
+  ): UpdateUserPayload {
+    return {
+      name: 'Alice Admin',
+      email: 'alice@example.com',
+      identity: 1,
+      active: true,
+      ...overrides,
+    };
+  }
+
+  it('emite PUT /users/{id} com body trimado nos campos texto', async () => {
+    const client = createStub();
+    client.put.mockResolvedValueOnce(makeUserDto());
+
+    await updateUser(
+      USER_ID,
+      buildBasicPayload({
+        name: '  Alice Admin  ',
+        email: '  alice@example.com  ',
+      }),
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.put).toHaveBeenCalledTimes(1);
+    expect(client.put.mock.calls[0][0]).toBe(`/users/${USER_ID}`);
+    expect(client.put.mock.calls[0][1]).toEqual({
+      name: 'Alice Admin',
+      email: 'alice@example.com',
+      identity: 1,
+      active: true,
+    });
+  });
+
+  it('omite clientId quando vazio (string vazia ou só espaços)', async () => {
+    const client = createStub();
+    client.put.mockResolvedValueOnce(makeUserDto());
+
+    await updateUser(
+      USER_ID,
+      buildBasicPayload({ clientId: '   ' }),
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    const body = client.put.mock.calls[0][1] as Record<string, unknown>;
+    expect(body).not.toHaveProperty('clientId');
+  });
+
+  it('inclui clientId quando informado e trima', async () => {
+    const client = createStub();
+    client.put.mockResolvedValueOnce(makeUserDto());
+
+    await updateUser(
+      USER_ID,
+      buildBasicPayload({ clientId: '  ' + CLIENT_ID + '  ' }),
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.put.mock.calls[0][1]).toMatchObject({ clientId: CLIENT_ID });
+  });
+
+  it('inclui active explicitamente (true ou false)', async () => {
+    const client = createStub();
+    client.put.mockResolvedValue(makeUserDto());
+
+    await updateUser(
+      USER_ID,
+      buildBasicPayload({ active: true }),
+      undefined,
+      client as unknown as ApiClient,
+    );
+    expect(client.put.mock.calls[0][1]).toMatchObject({ active: true });
+
+    await updateUser(
+      USER_ID,
+      buildBasicPayload({ active: false }),
+      undefined,
+      client as unknown as ApiClient,
+    );
+    expect(client.put.mock.calls[1][1]).toMatchObject({ active: false });
+  });
+
+  it('nunca inclui password no body do update', async () => {
+    const client = createStub();
+    client.put.mockResolvedValueOnce(makeUserDto());
+
+    await updateUser(
+      USER_ID,
+      buildBasicPayload(),
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    const body = client.put.mock.calls[0][1] as Record<string, unknown>;
+    expect(body).not.toHaveProperty('password');
+  });
+});
+
+describe('updateUser — response e erros', () => {
+  function buildBasicPayload(): UpdateUserPayload {
+    return {
+      name: 'Alice Admin',
+      email: 'alice@example.com',
+      identity: 1,
+      active: true,
+    };
+  }
+
+  it('devolve UserDto atualizado quando o response é válido', async () => {
+    const client = createStub();
+    const updated = makeUserDto({ name: 'Alice v2' });
+    client.put.mockResolvedValueOnce(updated);
+
+    const result = await updateUser(
+      USER_ID,
+      buildBasicPayload(),
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(result).toEqual(updated);
+  });
+
+  it('lança ApiError(parse) quando o response não é UserDto', async () => {
+    const client = createStub();
+    client.put.mockResolvedValueOnce({ malformed: true });
+
+    await expect(
+      updateUser(USER_ID, buildBasicPayload(), undefined, client as unknown as ApiClient),
+    ).rejects.toMatchObject({ kind: 'parse' });
+  });
+
+  it('propaga 409 do backend (email duplicado) sem traduzir', async () => {
+    const client = createStub();
+    const apiError = {
+      kind: 'http',
+      status: 409,
+      message: 'Já existe outro usuário com este Email.',
+    };
+    client.put.mockRejectedValueOnce(apiError);
+
+    await expect(
+      updateUser(USER_ID, buildBasicPayload(), undefined, client as unknown as ApiClient),
+    ).rejects.toEqual(apiError);
+  });
+
+  it('propaga 404 do backend (usuário removido) sem traduzir', async () => {
+    const client = createStub();
+    const apiError = {
+      kind: 'http',
+      status: 404,
+      message: 'Usuário não encontrado.',
+    };
+    client.put.mockRejectedValueOnce(apiError);
+
+    await expect(
+      updateUser(USER_ID, buildBasicPayload(), undefined, client as unknown as ApiClient),
+    ).rejects.toEqual(apiError);
+  });
+
+  it('propaga 400 com errors (validação de campo) sem traduzir', async () => {
+    const client = createStub();
+    const apiError = {
+      kind: 'http',
+      status: 400,
+      message: 'Erro de validação.',
+      details: {
+        errors: {
+          Email: ['Email inválido.'],
+          Identity: ['The Identity field is required.'],
+        },
+      },
+    };
+    client.put.mockRejectedValueOnce(apiError);
+
+    await expect(
+      updateUser(USER_ID, buildBasicPayload(), undefined, client as unknown as ApiClient),
+    ).rejects.toEqual(apiError);
+  });
+
+  it('propaga 400 sem errors (caso ClientId inexistente) sem traduzir', async () => {
+    const client = createStub();
+    const apiError = {
+      kind: 'http',
+      status: 400,
+      message: 'ClientId informado não existe.',
+    };
+    client.put.mockRejectedValueOnce(apiError);
+
+    await expect(
+      updateUser(USER_ID, buildBasicPayload(), undefined, client as unknown as ApiClient),
+    ).rejects.toEqual(apiError);
+  });
+
+  it('propaga 401/403 sem traduzir', async () => {
+    const client = createStub();
+    client.put.mockRejectedValueOnce({
+      kind: 'http',
+      status: 403,
+      message: 'Sem permissão.',
+    });
+
+    await expect(
+      updateUser(USER_ID, buildBasicPayload(), undefined, client as unknown as ApiClient),
     ).rejects.toMatchObject({ kind: 'http', status: 403 });
   });
 });
