@@ -1,13 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { ApiClient, RoleDto } from "@/shared/api";
+import type { ApiClient, RoleDto, RolePermissionLinkDto } from "@/shared/api";
 
 import {
+  assignPermissionToRole,
   createRole,
   deleteRole,
   isPagedRolesResponse,
   isRoleDto,
+  isRolePermissionLinkDto,
+  listRolePermissions,
   listRoles,
+  removePermissionFromRole,
   updateRole,
 } from "@/shared/api";
 
@@ -77,11 +81,19 @@ function createStub(): ClientStub {
  * Constrói um `RoleDto` válido — testes só sobrescrevem o que
  * importa para o cenário sem repetir todos os campos. Campos
  * opcionais (`description`/`permissionsCount`/`usersCount`) ficam
- * `null` por default para refletir o estado **atual** do backend.
+ * `null` por default para refletir mocks que datam de antes da
+ * evolução do backend; testes que querem o caminho "campo presente"
+ * sobrescrevem.
+ *
+ * `systemId` é incluído por default casando com o contrato pós-
+ * `lfc-authenticator#163` (campo passou a ser obrigatório no model);
+ * testes que precisam exercer o cenário "fixture legado sem
+ * systemId" sobrescrevem para `null`.
  */
 function makeRoleDto(overrides: Partial<RoleDto> = {}): RoleDto {
   return {
     id: ROLE_ID,
+    systemId: SYS_ID,
     name: "Root",
     code: "root",
     description: null,
@@ -532,3 +544,221 @@ describe("deleteRole", () => {
     ).rejects.toEqual(apiError);
   });
 });
+
+const PERM_ID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+
+function makeRolePermissionLinkDto(
+  overrides: Partial<RolePermissionLinkDto> = {},
+): RolePermissionLinkDto {
+  return {
+    id: "link-uuid",
+    roleId: ROLE_ID,
+    permissionId: PERM_ID,
+    createdAt: "2026-05-01T10:00:00Z",
+    updatedAt: "2026-05-01T10:00:00Z",
+    deletedAt: null,
+    ...overrides,
+  };
+}
+
+describe("isRolePermissionLinkDto", () => {
+  it("aceita payload válido com deletedAt null", () => {
+    expect(isRolePermissionLinkDto(makeRolePermissionLinkDto())).toBe(true);
+  });
+
+  it("aceita deletedAt ausente (tratado como null)", () => {
+    const { deletedAt: _omit, ...withoutDeleted } = makeRolePermissionLinkDto();
+    expect(isRolePermissionLinkDto(withoutDeleted)).toBe(true);
+  });
+
+  it("rejeita objetos sem campos obrigatórios", () => {
+    expect(isRolePermissionLinkDto(null)).toBe(false);
+    expect(isRolePermissionLinkDto({})).toBe(false);
+    expect(
+      isRolePermissionLinkDto({ id: "x", roleId: "y", permissionId: 1 }),
+    ).toBe(false);
+  });
+});
+
+describe("listRolePermissions", () => {
+  it("emite GET /roles/{roleId}/permissions e devolve array de ids quando backend retorna string[]", async () => {
+    const client = createStub();
+    client.get.mockResolvedValueOnce([PERM_ID, "outra-perm"]);
+
+    const result = await listRolePermissions(
+      ROLE_ID,
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.get).toHaveBeenCalledTimes(1);
+    expect(client.get.mock.calls[0][0]).toBe(`/roles/${ROLE_ID}/permissions`);
+    expect(result).toEqual([PERM_ID, "outra-perm"]);
+  });
+
+  it("aceita formato RolePermissionLinkDto[] e extrai os ids", async () => {
+    const client = createStub();
+    client.get.mockResolvedValueOnce([
+      makeRolePermissionLinkDto({ permissionId: PERM_ID }),
+      makeRolePermissionLinkDto({
+        id: "link-2",
+        permissionId: "outra-perm",
+      }),
+    ]);
+
+    const result = await listRolePermissions(
+      ROLE_ID,
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(result).toEqual([PERM_ID, "outra-perm"]);
+  });
+
+  it("aceita array vazio", async () => {
+    const client = createStub();
+    client.get.mockResolvedValueOnce([]);
+
+    const result = await listRolePermissions(
+      ROLE_ID,
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(result).toEqual([]);
+  });
+
+  it("passa signal/options adiante para o cliente", async () => {
+    const client = createStub();
+    client.get.mockResolvedValueOnce([]);
+    const controller = new AbortController();
+
+    await listRolePermissions(
+      ROLE_ID,
+      { signal: controller.signal },
+      client as unknown as ApiClient,
+    );
+
+    expect(client.get.mock.calls[0][1]).toEqual({ signal: controller.signal });
+  });
+
+  it("lança ApiError(parse) quando resposta não é array", async () => {
+    const client = createStub();
+    client.get.mockResolvedValueOnce({ malformed: true });
+
+    await expect(
+      listRolePermissions(
+        ROLE_ID,
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toMatchObject({ kind: "parse" });
+  });
+
+  it("lança ApiError(parse) quando itens têm shape inválido", async () => {
+    const client = createStub();
+    client.get.mockResolvedValueOnce([{ broken: true }]);
+
+    await expect(
+      listRolePermissions(
+        ROLE_ID,
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toMatchObject({ kind: "parse" });
+  });
+});
+
+describe("assignPermissionToRole", () => {
+  it("emite POST /roles/{roleId}/permissions com body { permissionId }", async () => {
+    const client = createStub();
+    const link = makeRolePermissionLinkDto();
+    client.post.mockResolvedValueOnce(link);
+
+    const result = await assignPermissionToRole(
+      ROLE_ID,
+      PERM_ID,
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.post).toHaveBeenCalledTimes(1);
+    const [path, body] = client.post.mock.calls[0];
+    expect(path).toBe(`/roles/${ROLE_ID}/permissions`);
+    expect(body).toEqual({ permissionId: PERM_ID });
+    expect(result).toEqual(link);
+  });
+
+  it("lança ApiError(parse) quando resposta não é RolePermissionLinkDto", async () => {
+    const client = createStub();
+    client.post.mockResolvedValueOnce({ malformed: true });
+
+    await expect(
+      assignPermissionToRole(
+        ROLE_ID,
+        PERM_ID,
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toMatchObject({ kind: "parse" });
+  });
+
+  it("propaga rejeições do cliente sem traduzir", async () => {
+    const client = createStub();
+    const apiError = {
+      kind: "http",
+      status: 400,
+      message: "PermissionId inválido.",
+    };
+    client.post.mockRejectedValueOnce(apiError);
+
+    await expect(
+      assignPermissionToRole(
+        ROLE_ID,
+        PERM_ID,
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toEqual(apiError);
+  });
+});
+
+describe("removePermissionFromRole", () => {
+  it("emite DELETE /roles/{roleId}/permissions/{permissionId} e resolve void", async () => {
+    const client = createStub();
+    client.delete.mockResolvedValueOnce(undefined);
+
+    await expect(
+      removePermissionFromRole(
+        ROLE_ID,
+        PERM_ID,
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).resolves.toBeUndefined();
+    expect(client.delete).toHaveBeenCalledTimes(1);
+    expect(client.delete.mock.calls[0][0]).toBe(
+      `/roles/${ROLE_ID}/permissions/${PERM_ID}`,
+    );
+  });
+
+  it("propaga rejeições do cliente sem traduzir", async () => {
+    const client = createStub();
+    const apiError = {
+      kind: "http",
+      status: 404,
+      message: "Vínculo não encontrado.",
+    };
+    client.delete.mockRejectedValueOnce(apiError);
+
+    await expect(
+      removePermissionFromRole(
+        ROLE_ID,
+        PERM_ID,
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toEqual(apiError);
+  });
+});
+

@@ -31,6 +31,14 @@ const POSITIVE_CASES: ReadonlyArray<ResolveCase> = [
     pathname: '/systems/11111111-1111-1111-1111-111111111111/roles',
     expected: 'AUTH_V1_ROLES_LIST',
   },
+  // Issue #69: associar permissões a uma role específica do sistema.
+  // Sub-rota mais específica vence `/systems/:id/roles` no `matchPath`
+  // — backend exige policy `RolesUpdate`, code `AUTH_V1_ROLES_UPDATE`.
+  {
+    pathname:
+      '/systems/11111111-1111-1111-1111-111111111111/roles/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/permissoes',
+    expected: 'AUTH_V1_ROLES_UPDATE',
+  },
   // Issue #145: rotas em PT introduzidas pelas EPICs #48/#49.
   { pathname: '/permissoes', expected: 'AUTH_V1_PERMISSIONS_LIST' },
   { pathname: '/clientes', expected: 'AUTH_V1_CLIENTS_LIST' },
@@ -90,6 +98,21 @@ describe('resolveRouteCode — paths privados conhecidos', () => {
     expect(resolveRouteCode('/usuarios/42/permissoes')).toBe(
       'AUTH_V1_USERS_PERMISSIONS_ASSIGN',
     );
+  });
+
+  it('precedência: /systems/:id/roles/:roleId/permissoes vence /systems/:id/roles', () => {
+    // Issue #69 — a tela de associação de permissões a uma role
+    // específica precisa vencer a listagem de roles do sistema. A
+    // ordem em `ROUTE_CODE_ENTRIES` coloca o pattern mais específico
+    // primeiro; sem isso, `matchPath({ end: false })` casaria com
+    // `/systems/:id/roles` antes e a UI bateria em `verify-token`
+    // com o code de listagem (e o backend negaria 401/403 já que o
+    // recurso real é o assign).
+    expect(
+      resolveRouteCode(
+        '/systems/11111111-1111-1111-1111-111111111111/roles/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/permissoes',
+      ),
+    ).toBe('AUTH_V1_ROLES_UPDATE');
   });
 });
 

@@ -455,3 +455,180 @@ function buildRoleMutationBody(
   }
   return body;
 }
+
+/**
+ * Espelho do `RolePermissionResponse` do `lfc-authenticator`
+ * (`RolesController.RolePermissionResponse`) — devolvido em
+ * `POST /roles/{roleId}/permissions`. A UI da Issue #69 não consome
+ * os campos individualmente (refetch de `listRolePermissions`
+ * sincroniza o estado pós-mutação), mas tipamos o retorno para
+ * preservar contrato — qualquer evolução do backend é capturada pelo
+ * type guard.
+ *
+ * Backend é idempotente (mesmo padrão de `UserPermission`):
+ *
+ * - Vínculo inexistente → cria novo `RolePermission` (`201 Created`).
+ * - Vínculo soft-deletado → reativa (`DeletedAt = null`, `200 OK`).
+ * - Vínculo já ativo → devolve o existente (`200 OK`).
+ */
+export interface RolePermissionLinkDto {
+  id: string;
+  roleId: string;
+  permissionId: string;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+/**
+ * Type guard para `RolePermissionLinkDto`. Tolera `deletedAt` ausente
+ * (tratado como `null`); demais campos obrigatórios e checados em
+ * runtime. Espelha `isUserPermissionLinkDto` em `permissions.ts`.
+ */
+export function isRolePermissionLinkDto(
+  value: unknown,
+): value is RolePermissionLinkDto {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.id === "string" &&
+    typeof record.roleId === "string" &&
+    typeof record.permissionId === "string" &&
+    typeof record.createdAt === "string" &&
+    typeof record.updatedAt === "string" &&
+    (record.deletedAt === null ||
+      record.deletedAt === undefined ||
+      typeof record.deletedAt === "string")
+  );
+}
+
+/**
+ * Lista as permissões atualmente vinculadas a uma role via
+ * `GET /roles/{roleId}/permissions` (lfc-authenticator —
+ * `RolesController.GetRolePermissions`).
+ *
+ * Devolve **apenas os ids** das permissões ativas vinculadas — a UI
+ * da Issue #69 cruza com o catálogo (`listPermissions(systemId)`)
+ * para construir a matriz de checkboxes. Backend devolve um array
+ * cru de `permissionId` (ou de objetos `{ permissionId }`); aceitamos
+ * ambos os formatos para tolerar evoluções pequenas no contrato (já
+ * vimos esse padrão de evolução em `tokenTypes.ts`).
+ *
+ * Lança `ApiError` em qualquer falha (404 quando a role não existe,
+ * parse quando o shape diverge). Cancelamento via `signal` em
+ * `options` é propagado para o cliente.
+ *
+ * O parâmetro `client` é injetável para isolar testes; em produção
+ * usa-se o singleton `apiClient`.
+ */
+export async function listRolePermissions(
+  roleId: string,
+  options?: SafeRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<ReadonlyArray<string>> {
+  const data = await client.get<unknown>(
+    `/roles/${roleId}/permissions`,
+    options,
+  );
+  return parseRolePermissionIds(data);
+}
+
+/**
+ * Normaliza a resposta do backend para um array imutável de
+ * `permissionId`. Aceita tanto o formato cru `string[]` (mais
+ * comum em endpoints "leves" no `lfc-authenticator`) quanto o
+ * formato `RolePermissionLinkDto[]` (mais simétrico com `assign`/
+ * `remove`); a UI só precisa do conjunto de ids para o checkbox.
+ *
+ * Lança `ApiError(parse)` em qualquer outro shape — protege contra
+ * divergência silenciosa de versão.
+ */
+function parseRolePermissionIds(data: unknown): ReadonlyArray<string> {
+  if (!Array.isArray(data)) {
+    throw makeParseError();
+  }
+  if (data.length === 0) {
+    return [];
+  }
+  if (data.every((item) => typeof item === "string")) {
+    return data;
+  }
+  if (data.every(isRolePermissionLinkDto)) {
+    return data.map((link) => link.permissionId);
+  }
+  throw makeParseError();
+}
+
+/**
+ * Vincula uma permissão a uma role via
+ * `POST /roles/{roleId}/permissions` (lfc-authenticator —
+ * `RolesController.AssignPermission`).
+ *
+ * Backend é idempotente:
+ *
+ * - Vínculo inexistente → cria novo `RolePermission` (`201 Created`).
+ * - Vínculo soft-deletado → reativa (`DeletedAt = null`, `200 OK`).
+ * - Vínculo já ativo → devolve o existente (`200 OK`).
+ *
+ * A UI trata todos como sucesso. Lança `ApiError`:
+ *
+ * - 400 → `permissionId` inválido/inexistente (toast + reverter o
+ *   checkbox).
+ * - 404 → role não encontrada (fechar a tela e voltar).
+ * - 401/403 → cliente HTTP já lidou com `onUnauthorized`/falta de
+ *   permissão; UI exibe toast.
+ *
+ * O parâmetro `client` é injetável para isolar testes; em produção
+ * usa-se o singleton `apiClient`. Espelha
+ * `assignPermissionToUser` em `permissions.ts`.
+ */
+export async function assignPermissionToRole(
+  roleId: string,
+  permissionId: string,
+  options?: BodyRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<RolePermissionLinkDto> {
+  const data = await client.post<unknown>(
+    `/roles/${roleId}/permissions`,
+    { permissionId },
+    options,
+  );
+  if (!isRolePermissionLinkDto(data)) {
+    throw makeParseError();
+  }
+  return data;
+}
+
+/**
+ * Remove o vínculo de uma permissão com a role via
+ * `DELETE /roles/{roleId}/permissions/{permissionId}` (lfc-authenticator
+ * — `RolesController.RemovePermission`).
+ *
+ * Backend faz soft-delete do vínculo (`DeletedAt = UtcNow`, `204 No
+ * Content`). Permissões vinculadas a outras roles **não** são
+ * afetadas — a remoção só zera o vínculo desta role.
+ *
+ * Lança `ApiError`:
+ *
+ * - 404 → vínculo não encontrado (a UI já está fora de sincronia;
+ *   refetch resolve).
+ * - 401/403 → cliente HTTP já lidou; UI exibe toast.
+ *
+ * O parâmetro `client` é injetável para isolar testes; em produção
+ * usa-se o singleton `apiClient`. Espelha
+ * `removePermissionFromUser` em `permissions.ts`.
+ */
+export async function removePermissionFromRole(
+  roleId: string,
+  permissionId: string,
+  options?: SafeRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<void> {
+  await client.delete<void>(
+    `/roles/${roleId}/permissions/${permissionId}`,
+    options,
+  );
+}
+

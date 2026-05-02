@@ -9,6 +9,7 @@ import { LoginPage } from '../pages/LoginPage';
 import { NotFoundPage } from '../pages/NotFoundPage';
 import { PermissionsListShellPage } from '../pages/permissions';
 import { PlaceholderPage } from '../pages/PlaceholderPage';
+import { RolePermissionsShellPage } from '../pages/roles/RolePermissionsShellPage';
 import { RolesPage } from '../pages/RolesPage';
 import { RoutesPage } from '../pages/RoutesPage';
 import { SettingsPage } from '../pages/SettingsPage';
@@ -122,6 +123,25 @@ export const AppRoutes: React.FC = () => (
         element={
           <RequirePermission code="AUTH_V1_ROLES_LIST">
             <RolesPage />
+          </RequirePermission>
+        }
+      />
+      <Route
+        path="/systems/:systemId/roles/:roleId/permissoes"
+        element={
+          // Issue #69: a tela exige LER o catálogo de permissões
+          // (`AUTH_V1_PERMISSIONS_LIST`) E ATUALIZAR a role
+          // (`AUTH_V1_ROLES_UPDATE`). Aninhamos `RequirePermission`
+          // para validar ambas — ordem é irrelevante visualmente, mas
+          // começamos pela leitura para que o erro mais comum (admin
+          // sem `Permissions.Read`) fale primeiro: se o catálogo não
+          // pode nem ser carregado, salvar não faz sentido. Espelha
+          // o padrão estabelecido em `/usuarios/:id/permissoes` para
+          // `UserPermissionsShellPage` (Issue #70).
+          <RequirePermission code="AUTH_V1_PERMISSIONS_LIST">
+            <RequirePermission code="AUTH_V1_ROLES_UPDATE">
+              <RolePermissionsShellPage />
+            </RequirePermission>
           </RequirePermission>
         }
       />

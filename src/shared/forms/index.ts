@@ -21,6 +21,11 @@ export {
   type ApiSubmitErrorCopy,
 } from "./classifySubmitError";
 export {
+  computeIdSetDiff,
+  idSetDiffHasChanges,
+  type IdSetDiff,
+} from "./computeIdSetDiff";
+export {
   useFieldChangeHandlers,
   type FieldChangeHandlers,
 } from "./createFieldChangeHandler";
