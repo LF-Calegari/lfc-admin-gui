@@ -30,6 +30,7 @@ export {
   type ApplyBadRequestDecision,
   type ApplyBadRequestDispatchers,
 } from "./createApplyBadRequest";
+export { isValidEmailSyntax } from "./emailSyntax";
 export { extractValidationErrorsByField } from "./extractValidationErrors";
 export { FormFooter } from "./FormFooter";
 export {

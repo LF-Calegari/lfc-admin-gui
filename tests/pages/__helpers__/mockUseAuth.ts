@@ -1,4 +1,4 @@
-import { vi } from 'vitest';
+import { afterEach, beforeEach, vi } from 'vitest';
 
 /**
  * Shape mínimo do `User` consumido por componentes que diferenciam o
@@ -75,4 +75,38 @@ export function buildAuthMock(
       verifyRoute: vi.fn().mockResolvedValue(true),
     }),
   };
+}
+
+/**
+ * Setup `beforeEach`/`afterEach` que zera/restaura mocks entre
+ * testes — concentra o boilerplate `permissionsMock = [...]; vi.
+ * restoreAllMocks();` que se repetia em cada suíte de teste das
+ * abas de cliente (`ClientDataTab.test.tsx`,
+ * `ClientExtraEmailsTab.test.tsx`).
+ *
+ * O caller declara `let permissionsMock` e o `vi.mock` no escopo do
+ * próprio arquivo (Vitest exige que `vi.mock` seja estático), mas
+ * delega o reset/restore a este helper passando o setter da
+ * variável. Mantém o boilerplate enxuto e previne `New Code
+ * Duplication` no JSCPD/Sonar (lição PR #134/#135).
+ *
+ * Uso:
+ *
+ * ```ts
+ * let permissionsMock: ReadonlyArray<string> = [];
+ * vi.mock('@/shared/auth', () => buildAuthMock(() => permissionsMock));
+ * setupPermissionLifecycle((perms) => { permissionsMock = perms; },
+ *   ['AUTH_V1_CLIENTS_UPDATE']);
+ * ```
+ */
+export function setupPermissionLifecycle(
+  setPermissions: (perms: ReadonlyArray<string>) => void,
+  defaultPermissions: ReadonlyArray<string>,
+): void {
+  beforeEach(() => {
+    setPermissions(defaultPermissions);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
 }

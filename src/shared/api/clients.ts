@@ -770,6 +770,111 @@ export async function restoreClient(
 }
 
 /**
+ * Limite máximo de emails extras por cliente — espelha a regra
+ * `if (count >= 3)` do `ClientsController.AddEmail` no
+ * `lfc-authenticator`. Centralizado para que a UI possa desabilitar
+ * o botão "Adicionar email" antes do round-trip e o teste use a
+ * mesma fonte da verdade da função (lição PR #128 — projetar
+ * shared helpers desde o primeiro PR do recurso).
+ */
+export const MAX_CLIENT_EXTRA_EMAILS = 3;
+
+/**
+ * Adiciona um email extra a um cliente via
+ * `POST /clients/{id}/emails` (Issue #146).
+ *
+ * Retorna o `ClientEmailDto` recém-criado (`200 OK` com
+ * `ClientEmailResponse` no corpo). Lança `ApiError` em qualquer
+ * falha — caller tipicamente trata:
+ *
+ * - `kind: 'http'` com `status === 400` →
+ *   - `"Limite de 3 emails extras por cliente."` quando o cliente já tem
+ *     o teto. UI desabilita o botão "Adicionar" preventivamente
+ *     (`MAX_CLIENT_EXTRA_EMAILS`), mas o branch fica defensivo para
+ *     race entre abertura do form e submit por outra sessão.
+ *   - `"Email extra inválido."` quando o backend rejeita o formato. A
+ *     UI já valida client-side, então este é caso de borda raro.
+ * - `kind: 'http'` com `status === 409` →
+ *   - `"Este email está sendo usado como username e não pode ser email
+ *     extra."` quando o email coincide com `Users.Email` de qualquer
+ *     usuário (mesmo de outro cliente). UI exibe a mensagem do backend
+ *     inline orientando o operador.
+ *   - `"Email extra já cadastrado para este cliente."` quando o email
+ *     já existe na lista deste cliente. Mensagem inline.
+ * - `kind: 'http'` com `status === 404` → cliente não encontrado
+ *   (soft-deletado entre carregamento da página e submit). UI dispara
+ *   toast vermelho e força refetch.
+ * - `kind: 'http'` com `status === 401`/`403` → toast vermelho com
+ *   mensagem do backend (cliente HTTP cuida do redirect 401).
+ * - Demais → toast vermelho com mensagem genérica.
+ *
+ * O backend **trima** + **lowercaseia** o email no servidor (`Email.Trim().
+ * ToLowerInvariant()`); a UI envia literal — preservar o que o operador
+ * digitou simplifica `expect.objectContaining({ email: '<literal>' })` em
+ * testes e mantém paridade com o que o input mostra ao operador. O
+ * resultado lowercased volta no `ClientEmailResponse` e a UI consome
+ * direto.
+ *
+ * O parâmetro `client` é injetável para isolar testes (passa-se um
+ * stub tipado como `ApiClient`); em produção usa-se o singleton
+ * `apiClient`.
+ */
+export async function addClientExtraEmail(
+  clientId: string,
+  email: string,
+  options?: BodyRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<ClientEmailDto> {
+  const data = await client.post<unknown>(
+    `/clients/${clientId}/emails`,
+    { email },
+    options,
+  );
+  if (!isClientEmailDto(data)) {
+    throw makeParseError();
+  }
+  return data;
+}
+
+/**
+ * Remove um email extra de um cliente via
+ * `DELETE /clients/{id}/emails/{emailId}` (Issue #146).
+ *
+ * Retorna `void` (`204 No Content`). Lança `ApiError` em qualquer
+ * falha — caller tipicamente trata:
+ *
+ * - `kind: 'http'` com `status === 400` →
+ *   `"Não é permitido remover email que esteja sendo usado como
+ *   username."` quando o email extra coincide com `Users.Email` de
+ *   algum usuário (cenário onde o email foi promovido a username
+ *   após cadastro como extra). UI dispara toast vermelho com
+ *   mensagem orientando o operador a remover o vínculo do usuário
+ *   antes.
+ * - `kind: 'http'` com `status === 404` → email extra não pertence
+ *   ao cliente (id já removido por outra sessão entre abertura e
+ *   submit). UI dispara toast vermelho e força refetch para
+ *   sincronizar a lista.
+ * - `kind: 'http'` com `status === 401`/`403` → toast vermelho com
+ *   mensagem do backend.
+ * - Demais → toast vermelho com mensagem genérica.
+ *
+ * O parâmetro `client` é injetável para isolar testes (passa-se um
+ * stub tipado como `ApiClient`); em produção usa-se o singleton
+ * `apiClient`.
+ */
+export async function removeClientExtraEmail(
+  clientId: string,
+  emailId: string,
+  options?: SafeRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<void> {
+  await client.delete<void>(
+    `/clients/${clientId}/emails/${emailId}`,
+    options,
+  );
+}
+
+/**
  * Constrói o body para `POST /clients` e `PUT /clients/{id}`
  * aplicando trim defensivo e o filtro de campos por tipo (PF/PJ).
  * Centralizar essa montagem garante que nenhum call site inclua

@@ -1,10 +1,13 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 /* eslint-disable import/order */
-import { buildAuthMock } from '../__helpers__/mockUseAuth';
+import {
+  buildAuthMock,
+  setupPermissionLifecycle,
+} from '../__helpers__/mockUseAuth';
 import {
   buildClientsEditSubmitErrorCases,
   createClientsClientStub,
@@ -65,13 +68,9 @@ vi.mock('@/shared/auth', () => buildAuthMock(() => permissionsMock));
 
 const CLIENTS_UPDATE_PERMISSION = 'AUTH_V1_CLIENTS_UPDATE';
 
-beforeEach(() => {
-  permissionsMock = [CLIENTS_UPDATE_PERMISSION];
-});
-
-afterEach(() => {
-  vi.restoreAllMocks();
-});
+setupPermissionLifecycle((perms) => {
+  permissionsMock = perms;
+}, [CLIENTS_UPDATE_PERMISSION]);
 
 /**
  * Componente que captura o pathname atual do `MemoryRouter` para
