@@ -1,0 +1,1101 @@
+import { isPagedResponseEnvelope } from './pagedResponse';
+
+import { apiClient } from './index';
+
+import type { PagedResponse } from './systems';
+import type { ApiClient, ApiError, BodyRequestOptions, SafeRequestOptions } from './types';
+
+/**
+ * Cria um `ApiError(parse)` baseado em `Error` real (com stack/`name`)
+ * em vez de um literal `{ kind, message }`. Sonar marca `throw` de
+ * objeto não-Error como improvement (`Expected an error object to be
+ * thrown`); estendê-lo com `Object.assign` preserva a interface
+ * `ApiError` consumida por `isApiError` sem perder o stack trace.
+ *
+ * Centralizado para evitar repetir `Object.assign(new Error(...), { kind })`
+ * em múltiplos call sites — Sonar contaria a repetição como duplicação.
+ * Espelha o padrão de `systems.ts`/`routes.ts`/`roles.ts`/`users.ts`
+ * (lição PR #128 — projetar shared helpers desde o primeiro PR do
+ * recurso).
+ */
+function makeParseError(): ApiError {
+  return Object.assign(new Error('Resposta inválida do servidor.'), {
+    kind: 'parse' as const,
+  });
+}
+
+/**
+ * Tipo discriminador de cliente. Espelha o `Type` do `ClientResponse`
+ * do `lfc-authenticator`
+ * (`AuthService.Controllers.Clients.ClientsController.ClientResponse`),
+ * que aceita apenas `"PF"` (pessoa física) ou `"PJ"` (pessoa jurídica).
+ *
+ * O backend valida e normaliza (uppercase + trim) na criação/edição
+ * (`NormalizeRequest`/`ValidateClientByType`), e a listagem rejeita
+ * `type` ≠ PF/PJ com 400. Do lado do frontend, manter o tipo restrito
+ * via união de string-literais elimina checagens redundantes em
+ * runtime e garante que filtros/badges não recebam valores espúrios.
+ */
+export type ClientType = 'PF' | 'PJ';
+
+/**
+ * Espelho do `ClientEmailResponse` do `lfc-authenticator`
+ * (`AuthService.Controllers.Clients.ClientsController.ClientEmailResponse`).
+ *
+ * Email extra de um cliente (até 3 por cliente, com regras
+ * anti-username — ver Issue #146). A listagem (Issue #73) **não**
+ * consome esses campos visualmente, mas o type guard do `ClientDto`
+ * valida o shape porque o backend devolve sempre — incluir aqui
+ * evita refatoração destrutiva nas próximas sub-issues (#74/#75/
+ * #146 — lição PR #128).
+ */
+export interface ClientEmailDto {
+  id: string;
+  email: string;
+  createdAt: string;
+}
+
+/**
+ * Espelho do `ClientPhoneResponse` do `lfc-authenticator`
+ * (`AuthService.Controllers.Clients.ClientsController.ClientPhoneResponse`).
+ *
+ * Telefone vinculado a um cliente. Ambos os arrays `mobilePhones` e
+ * `landlinePhones` no `ClientDto` usam este shape — o discriminador
+ * `Type` (mobile/phone) é representado pela posição no array do
+ * `ClientResponse`, não como campo do registro. Mantido aqui pelo
+ * mesmo motivo de `ClientEmailDto` (lição PR #128).
+ */
+export interface ClientPhoneDto {
+  id: string;
+  number: string;
+  createdAt: string;
+}
+
+/**
+ * Espelho do `ClientResponse` do `lfc-authenticator`
+ * (`AuthService.Controllers.Clients.ClientsController.ClientResponse`).
+ *
+ * Issue #73 (EPIC #49) — listagem completa de clientes.
+ *
+ * **Modelagem PF/PJ:** o backend usa um único shape com campos
+ * mutuamente exclusivos por tipo:
+ *
+ * - `type === 'PF'` → `cpf` + `fullName` preenchidos; `cnpj`/
+ *   `corporateName` `null`.
+ * - `type === 'PJ'` → `cnpj` + `corporateName` preenchidos; `cpf`/
+ *   `fullName` `null`.
+ *
+ * A UI da listagem **renderiza** com base em `type` para escolher
+ * qual coluna exibir (Nome = `fullName ?? corporateName`, Documento
+ * = `cpf ?? cnpj`). Isso replica fielmente o contrato do backend e
+ * evita branching duplicado em call sites.
+ *
+ * **Datas:** o backend serializa em ISO 8601 (UTC) — mantemos como
+ * `string` porque a UI consome via `Intl.DateTimeFormat`/`new Date()`
+ * quando precisar exibir; converter no boundary do cliente HTTP
+ * traria custo sem benefício. `deletedAt !== null` indica
+ * soft-delete.
+ *
+ * **Coleções (`userIds`, `extraEmails`, `mobilePhones`,
+ * `landlinePhones`):** o backend devolve sempre arrays (vazios
+ * quando não há vínculos). Mantidas como opcionais no type para
+ * tolerar fixtures de teste minimalistas (Issue #77 consome só
+ * `id`/`type`/nomes via `clientDisplayName` e seu fixture
+ * `getClientsByIds` retorna o que o backend produzir); call sites
+ * que precisem ler emails/telefones (`#74`/`#75`/`#146`/`#147`)
+ * devem tratar `?? []` no acesso.
+ */
+export interface ClientDto {
+  id: string;
+  type: ClientType;
+  cpf: string | null;
+  fullName: string | null;
+  cnpj: string | null;
+  corporateName: string | null;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+  userIds?: ReadonlyArray<string>;
+  extraEmails?: ReadonlyArray<ClientEmailDto>;
+  mobilePhones?: ReadonlyArray<ClientPhoneDto>;
+  landlinePhones?: ReadonlyArray<ClientPhoneDto>;
+}
+
+/**
+ * Type guard interno para `ClientEmailDto`. Centralizado para que o
+ * guard externo (`isClientDto`) não inline o mesmo shape — Sonar
+ * marca blocos de validação repetidos em arquivos diferentes como
+ * duplicação (lição PR #123).
+ */
+function isClientEmailDto(value: unknown): value is ClientEmailDto {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.id === 'string' &&
+    typeof record.email === 'string' &&
+    typeof record.createdAt === 'string'
+  );
+}
+
+/**
+ * Type guard interno para `ClientPhoneDto`. Mesma motivação de
+ * `isClientEmailDto` — centralizar para evitar duplicação visual e
+ * permitir reuso pelo `isClientDto` para `mobilePhones` e
+ * `landlinePhones` (mesmo shape, posições diferentes no envelope).
+ */
+function isClientPhoneDto(value: unknown): value is ClientPhoneDto {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.id === 'string' &&
+    typeof record.number === 'string' &&
+    typeof record.createdAt === 'string'
+  );
+}
+
+/**
+ * Type guard para `ClientDto`. Aceita os dois caminhos de PF e PJ
+ * (sem forçar combinação) e tolera campos opcionais ausentes
+ * (`cpf`/`fullName`/`cnpj`/`corporateName`/`deletedAt` e as 4
+ * coleções).
+ *
+ * Quando as coleções estão presentes, são validadas item-a-item
+ * pelos guards internos. Isso preserva a tolerância de fixtures
+ * minimalistas (Issue #77 consome só `id`/`type`/labels) sem perder
+ * a validação de shape quando o backend devolve o response real
+ * completo.
+ *
+ * Exportado para que outros call sites (ex.: `getClientsByIds` para
+ * lookup batch da `UsersListShellPage`, futuros wrappers
+ * `createClient`/`updateClient` da EPIC #49) reusem a mesma fonte
+ * de verdade — evita duplicação de validação de shape (lição PR
+ * #123).
+ */
+export function isClientDto(value: unknown): value is ClientDto {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  if (
+    typeof record.id !== 'string' ||
+    typeof record.createdAt !== 'string' ||
+    typeof record.updatedAt !== 'string'
+  ) {
+    return false;
+  }
+  if (record.type !== 'PF' && record.type !== 'PJ') {
+    return false;
+  }
+  if (
+    !isNullableString(record.cpf) ||
+    !isNullableString(record.fullName) ||
+    !isNullableString(record.cnpj) ||
+    !isNullableString(record.corporateName) ||
+    !isNullableString(record.deletedAt)
+  ) {
+    return false;
+  }
+  if (!isOptionalArray(record.userIds, (id) => typeof id === 'string')) {
+    return false;
+  }
+  if (!isOptionalArray(record.extraEmails, isClientEmailDto)) {
+    return false;
+  }
+  if (!isOptionalArray(record.mobilePhones, isClientPhoneDto)) {
+    return false;
+  }
+  if (!isOptionalArray(record.landlinePhones, isClientPhoneDto)) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Ajuda os checks de campos `string | null`. Aceita `undefined`
+ * como `null` para tolerar payloads onde o backend omitiu o campo
+ * (`deletedAt` em registros ativos é o caso comum).
+ */
+function isNullableString(value: unknown): value is string | null | undefined {
+  return value === null || value === undefined || typeof value === 'string';
+}
+
+/**
+ * Aceita `undefined` ou um array onde **todos** os itens passam no
+ * predicado `isItem`. Usado pelo `isClientDto` para validar as
+ * coleções (`userIds`/`extraEmails`/`mobilePhones`/`landlinePhones`)
+ * sem rejeitar fixtures minimalistas que omitem o campo.
+ */
+function isOptionalArray(
+  value: unknown,
+  isItem: (item: unknown) => boolean,
+): boolean {
+  if (value === undefined) {
+    return true;
+  }
+  return Array.isArray(value) && value.every((item) => isItem(item));
+}
+
+/**
+ * Type guard para `PagedResponse<ClientDto>`. Valida o envelope
+ * antes de confiar no payload — protege contra divergência
+ * silenciosa de versão entre frontend e backend (proxy intermediário
+ * cortando campos, deploy desalinhado). Reusa
+ * `isPagedResponseEnvelope` para evitar repetir a checagem fixa de
+ * `page`/`pageSize`/`total`/`data` que já existe em outros recursos
+ * (lição PR #134/#135 — JSCPD/Sonar tokenizam blocos de ~14 linhas
+ * idênticos como duplicação).
+ */
+export function isPagedClientsResponse(value: unknown): value is PagedResponse<ClientDto> {
+  return isPagedResponseEnvelope(value, isClientDto);
+}
+
+/**
+ * Defaults usados pela `listClients` para omitir parâmetros que
+ * coincidem com o backend — preserva a URL "limpa" no caminho
+ * default (`GET /clients` em vez de
+ * `GET /clients?page=1&pageSize=20&includeDeleted=false`).
+ *
+ * `DEFAULT_CLIENTS_PAGE_SIZE = 20` espelha
+ * `ClientsController.DefaultPageSize` no `lfc-authenticator` —
+ * manter um único limite reduz surpresas para o admin que alterna
+ * entre listas. `MaxPageSize = 100` no backend; respeitar via UI
+ * para evitar 400 inesperado.
+ */
+export const DEFAULT_CLIENTS_PAGE = 1;
+export const DEFAULT_CLIENTS_PAGE_SIZE = 20;
+export const DEFAULT_CLIENTS_INCLUDE_DELETED = false;
+
+/**
+ * Parâmetros aceitos por `listClients`. Todos opcionais — quando
+ * omitidos (ou iguais aos defaults), são removidos da querystring.
+ *
+ * - `q` — termo de busca textual (case-insensitive em `fullName`,
+ *   `corporateName`, `cpf`, `cnpj`). Backend escapa wildcards de
+ *   `ILIKE` (`%`/`_`/`\`) antes de aplicar.
+ * - `type` — filtra por discriminador (`PF`/`PJ`). Validado no
+ *   backend; valor inválido gera 400 (`type deve ser PF ou PJ.`).
+ * - `active` — filtra por status (`true` = só ativos, `false` = só
+ *   soft-deletados, ausente = comportamento default da query). É
+ *   **mutuamente exclusivo** com `includeDeleted=true` (backend
+ *   rejeita combinação com 400).
+ * - `page` — página 1-based. Default: 1.
+ * - `pageSize` — itens por página. Default: 20. Backend rejeita
+ *   `> 100` ou `<= 0` com 400.
+ * - `includeDeleted` — quando `true`, inclui também soft-deletados
+ *   (`active` ausente nesse caso). Mutuamente exclusivo com
+ *   `active`.
+ */
+export interface ListClientsParams {
+  q?: string;
+  type?: ClientType;
+  active?: boolean;
+  page?: number;
+  pageSize?: number;
+  includeDeleted?: boolean;
+}
+
+/**
+ * Constrói a querystring omitindo parâmetros default — mantém a URL
+ * canônica para o caminho mais comum e simplifica logs/cache de
+ * proxy. `q` é trimado e omitido quando vazio para evitar `?q=`
+ * literal (que o backend trataria como busca por string vazia, mas
+ * a UI sinalizaria estado de "busca ativa" no `q`). Espelha
+ * `buildQueryString` de `systems.ts`.
+ */
+function buildQueryString(params: ListClientsParams): string {
+  const search = new URLSearchParams();
+
+  const q = params.q?.trim();
+  if (q && q.length > 0) {
+    search.set('q', q);
+  }
+
+  if (params.type === 'PF' || params.type === 'PJ') {
+    search.set('type', params.type);
+  }
+
+  if (typeof params.active === 'boolean') {
+    search.set('active', String(params.active));
+  }
+
+  if (typeof params.page === 'number' && params.page !== DEFAULT_CLIENTS_PAGE) {
+    search.set('page', String(params.page));
+  }
+
+  if (typeof params.pageSize === 'number' && params.pageSize !== DEFAULT_CLIENTS_PAGE_SIZE) {
+    search.set('pageSize', String(params.pageSize));
+  }
+
+  if (
+    typeof params.includeDeleted === 'boolean' &&
+    params.includeDeleted !== DEFAULT_CLIENTS_INCLUDE_DELETED
+  ) {
+    search.set('includeDeleted', String(params.includeDeleted));
+  }
+
+  const serialized = search.toString();
+  return serialized.length > 0 ? `?${serialized}` : '';
+}
+
+/**
+ * Lista clientes via `GET /clients` (lfc-authenticator#169) com
+ * busca, paginação e filtros server-side.
+ *
+ * Retorna o envelope tipado `PagedResponse<ClientDto>`. Lança
+ * `ApiError` em falhas (rede, parse, HTTP); o caller deve tratar
+ * com try/catch.
+ *
+ * Cancelamento: aceita `signal` em `options` (via AbortController)
+ * — em navegações rápidas, o caller cancela a request anterior
+ * antes de disparar a nova, evitando race em `setState`.
+ *
+ * O parâmetro `client` é injetável para isolar testes (passa-se um
+ * stub tipado como `ApiClient`); o default usa o singleton
+ * `apiClient` configurado com `baseUrl` + `systemId` reais.
+ *
+ * Issue #73 — primeira sub-issue da EPIC #49 (CRUD de Clientes).
+ * As próximas issues (#74 criar, #75 editar, #76 desativar, #146/
+ * #147 gerenciar emails/telefones) reutilizam o mesmo módulo
+ * seguindo o padrão de `systems.ts` (lição PR #128 — projetar
+ * shared helpers desde o primeiro PR do recurso).
+ */
+export async function listClients(
+  params: ListClientsParams = {},
+  options?: SafeRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<PagedResponse<ClientDto>> {
+  const path = `/clients${buildQueryString(params)}`;
+  const data = await client.get<unknown>(path, options);
+  if (!isPagedClientsResponse(data)) {
+    throw makeParseError();
+  }
+  return data;
+}
+
+/**
+ * Resposta minimalista usada pelo lookup batch (`GET /clients?ids=...`).
+ *
+ * **Estado atual do backend:** o controller real de Clientes ainda
+ * não expõe um endpoint batch — a UI consome via `getClientsByIds`
+ * que itera `GET /clients/{id}` por id. Mantemos este tipo
+ * declarado para que, quando o backend ganhar
+ * `ClientsMinimalResponse(Id, Name)` (paridade com
+ * `UserMinimalResponse`), a UI consuma sem refatoração destrutiva
+ * (lição PR #128).
+ */
+export interface ClientLookupDto {
+  id: string;
+  /** Rótulo apresentável: `fullName` (PF) ou `corporateName` (PJ). */
+  name: string;
+}
+
+/**
+ * Reduz um `ClientDto` ao label apresentável usado em colunas/UIs
+ * do frontend. Para PF, prioriza `fullName`; para PJ,
+ * `corporateName`. Quando ambos vêm `null` (cenário improvável mas
+ * possível em dados legados), cai no `id` curto para que a UI nunca
+ * exiba string vazia.
+ *
+ * Exportado e centralizado aqui para que cada caller (UsersList,
+ * future ClientsList, futuros relatórios) use exatamente o mesmo
+ * critério — Sonar marca lógica equivalente repetida em arquivos
+ * diferentes como duplicação (lição PR #127).
+ */
+export function clientDisplayName(client: ClientDto): string {
+  const fullName = client.fullName?.trim();
+  if (fullName && fullName.length > 0) {
+    return fullName;
+  }
+  const corporateName = client.corporateName?.trim();
+  if (corporateName && corporateName.length > 0) {
+    return corporateName;
+  }
+  return client.id;
+}
+
+/**
+ * Lookup batch de clientes por `ids` — devolve um
+ * `Map<id, ClientDto>` para que o caller resolva cada `clientId`
+ * em O(1) ao montar a tabela. **Hoje** o backend não implementa
+ * filtro `ids` em `GET /clients`, então este helper itera fazendo
+ * `GET /clients/{id}` por cliente e devolve o mapa.
+ *
+ * Quando o backend for evoluído (issue dedicada da EPIC #49),
+ * basta trocar a implementação interna por uma única chamada
+ * `listClients` com novo param `ids` — a assinatura pública desta
+ * função (e os call sites) ficam intactos. Conserva a lição
+ * "shared helpers projetados desde o primeiro PR" (PR #128).
+ *
+ * **Limite prático:** chamadas em série fazem 1 request por id, o
+ * que é aceitável para uma página de até `pageSize` usuários
+ * (default 20). Quando o backend ganhar batch real, a otimização
+ * vem grátis.
+ *
+ * Cancelamento via `signal` é propagado; deduplicação é
+ * responsabilidade do caller (passar `Set<string>` evita id
+ * repetido).
+ */
+export async function getClientsByIds(
+  ids: ReadonlyArray<string>,
+  options?: SafeRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<ReadonlyMap<string, ClientDto>> {
+  const result = new Map<string, ClientDto>();
+  if (ids.length === 0) {
+    return result;
+  }
+
+  // Itera serialmente — evita rajada de N requests paralelas que
+  // sobrecarregaria o backend para listagens grandes. Em prática a
+  // página sempre passa <= pageSize ids, então a latência fica
+  // aceitável.
+  for (const id of ids) {
+    if (result.has(id)) {
+      // Caller deveria ter deduplicado, mas defensivamente skipamos.
+      continue;
+    }
+    try {
+      const dto = await fetchClientById(id, options, client);
+      if (dto !== null) {
+        result.set(id, dto);
+      }
+    } catch (error) {
+      // Lookup falho não derruba a página: simplesmente o cliente
+      // não aparece no map e a UI mostra "—" como fallback. Erros
+      // críticos (401/403/network) já são propagados pelo
+      // `listClients` original via `usePaginatedFetch`; este
+      // helper é "best-effort" para enriquecer a tabela.
+      if (isAbortError(error)) {
+        // Cancelamento explícito: re-throw para que o caller pare.
+        throw error;
+      }
+      // Outros erros: silenciosamente skipar este id.
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Tenta carregar um cliente individual via `GET /clients/{id}`.
+ * Retorna `null` quando o backend devolve corpo vazio; lança
+ * `ApiError(parse)` quando o JSON não casa com `isClientDto`.
+ *
+ * Mantemos como helper interno para que o `getClientsByIds` continue
+ * podendo skipar resultados vazios silenciosamente. O caller público
+ * (`getClientById` abaixo) trata `null`/`undefined` como erro de parse
+ * porque o backend nunca devolve corpo vazio em `200 OK` — apenas em
+ * `404 Not Found` (que já vira `ApiError` antes de chegar aqui).
+ */
+async function fetchClientById(
+  id: string,
+  options: SafeRequestOptions | undefined,
+  client: ApiClient,
+): Promise<ClientDto | null> {
+  const data = await client.get<unknown>(`/clients/${id}`, options);
+  if (data === null || data === undefined) {
+    return null;
+  }
+  if (!isClientDto(data)) {
+    throw makeParseError();
+  }
+  return data;
+}
+
+/**
+ * Carrega um cliente individual via `GET /clients/{id}` (Issue #75).
+ *
+ * Endpoint público usado pela aba "Dados" do `ClientEditPage` para
+ * pré-popular o form de edição. Diferente do helper interno
+ * `fetchClientById` (consumido por `getClientsByIds`), este wrapper
+ * trata corpo vazio como erro de parse — o backend nunca responde
+ * `200 OK` com body `null` em `GET /clients/{id}`; `null` indicaria
+ * proxy malformado ou contrato divergente.
+ *
+ * Retorna o `ClientDto` em sucesso; lança `ApiError` em qualquer
+ * falha. Caller tipicamente trata:
+ *
+ * - 404 → cliente removido entre navegação e fetch (`onAfterNotFound`).
+ * - 401/403 → redirect ou toast (gating de permissão).
+ * - parse → drift de contrato (toast genérico).
+ *
+ * O parâmetro `client` é injetável para isolar testes; em produção
+ * usa-se o singleton `apiClient`.
+ */
+export async function getClientById(
+  id: string,
+  options?: SafeRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<ClientDto> {
+  const dto = await fetchClientById(id, options, client);
+  if (dto === null) {
+    throw makeParseError();
+  }
+  return dto;
+}
+
+/**
+ * Body aceito pelo `POST /clients` no `lfc-authenticator`
+ * (`ClientsController.CreateClientRequest`).
+ *
+ * **Modelagem PF/PJ (Issue #74):** o backend usa um único `Type`
+ * discriminador + campos mutuamente exclusivos. A UI envia
+ * exatamente o conjunto correspondente ao tipo selecionado:
+ *
+ * - `type === 'PF'` → `cpf` + `fullName` preenchidos; `cnpj` e
+ *   `corporateName` ausentes (não enviados como `null` para evitar
+ *   o validador backend `cnpj is not null` rejeitar com 400 "CNPJ
+ *   não deve ser informado para cliente PF.").
+ * - `type === 'PJ'` → `cnpj` + `corporateName` preenchidos; `cpf`
+ *   e `fullName` ausentes (mesma lógica inversa — backend rejeita
+ *   "CPF não deve ser informado para cliente PJ.").
+ *
+ * **Trim/normalização:** o backend já normaliza (`NormalizeRequest`)
+ * `Type` (uppercase + trim), `Cpf`/`Cnpj` (apenas dígitos via
+ * `NormalizeDigits`) e `FullName`/`CorporateName` (`Trim()`). A UI
+ * envia já normalizado para reduzir round-trips e simplificar
+ * asserts em testes.
+ *
+ * **MaxLength:** o backend valida `Type` (2), `Cpf` (11),
+ * `FullName` (140), `Cnpj` (14), `CorporateName` (180). O
+ * `clientsFormShared.ts` espelha esses limites na validação
+ * client-side.
+ */
+export interface CreateClientPayload {
+  type: ClientType;
+  cpf?: string;
+  fullName?: string;
+  cnpj?: string;
+  corporateName?: string;
+}
+
+/**
+ * Cria um novo cliente via `POST /clients` (Issue #74).
+ *
+ * Retorna o `ClientDto` recém-criado (`201 Created` com
+ * `ClientResponse` no corpo). Lança `ApiError` em qualquer falha:
+ *
+ * - `kind: 'http'` com `status === 409` → conflito de unicidade
+ *   global de `cpf` ou `cnpj`. Backend devolve mensagens distintas
+ *   ("Já existe cliente com este CPF." / "Já existe cliente com
+ *   este CNPJ."); o caller exibe inline no campo correspondente
+ *   ao tipo do cliente que está sendo criado.
+ * - `kind: 'http'` com `status === 400` → erros de validação por
+ *   campo em `details` (mesmo shape de `ValidationProblemDetails`
+ *   usado pelos demais recursos).
+ * - `kind: 'http'` com `status === 401` → cliente HTTP já lidou
+ *   com `onUnauthorized`; a UI não precisa fazer nada extra.
+ * - Outros erros → toast vermelho genérico.
+ *
+ * O parâmetro `client` é injetável para isolar testes (passa-se
+ * um stub tipado como `ApiClient`); em produção usa-se o
+ * singleton `apiClient`.
+ */
+export async function createClient(
+  payload: CreateClientPayload,
+  options?: BodyRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<ClientDto> {
+  const body = buildClientMutationBody(payload);
+  const data = await client.post<unknown>('/clients', body, options);
+  if (!isClientDto(data)) {
+    throw makeParseError();
+  }
+  return data;
+}
+
+/**
+ * Body aceito pelo `PUT /clients/{id}` no `lfc-authenticator`
+ * (`ClientsController.UpdateById` linha 358). O backend reaproveita
+ * o `CreateClientRequest` no PUT, então o shape é idêntico ao do
+ * create. Mantemos um alias dedicado por dois motivos:
+ *
+ * 1. Tipos discriminados no call-site (`updateClient` aceita
+ *    `UpdateClientPayload`, `createClient` aceita `CreateClientPayload`)
+ *    — preserva clareza ao ler o código sem desambiguar pela
+ *    assinatura da função.
+ * 2. Espelho do `UserUpdatePayload`/`UpdateUserPayload` (`users.ts`),
+ *    onde o shape diverge do create (sem `password`) — manter o
+ *    alias hoje, mesmo igual ao create, evita refator destrutivo
+ *    se o backend vier a divergir os dois requests no futuro.
+ *
+ * **Imutabilidade do `type` (Issue #75):** o backend rejeita com 400
+ * `"Tipo do cliente não pode ser alterado após a criação."` quando
+ * o `Type` enviado difere do `Type` persistido. A UI espelha
+ * desabilitando o `<Select>` de tipo no modo edit (`typeDisabled`
+ * em `ClientFormBody`); o body envia o `type` atual do cliente para
+ * que o backend rode a comparação esperada e devolva 200, não 400.
+ */
+export type UpdateClientPayload = CreateClientPayload;
+
+/**
+ * Atualiza um cliente existente via `PUT /clients/{id}` (Issue #75).
+ *
+ * Retorna o `ClientDto` atualizado (`200 OK` com `ClientResponse` no
+ * corpo). Lança `ApiError` em qualquer falha — caller tipicamente
+ * trata:
+ *
+ * - 409 → conflito de unicidade global de `cpf` ou `cnpj`. Backend
+ *   devolve mensagens distintas ("Já existe cliente com este CPF."
+ *   / "Já existe cliente com este CNPJ."); o caller exibe inline no
+ *   campo correspondente ao tipo do cliente.
+ * - 400 → erros de validação por campo em `details` (mesmo shape de
+ *   `ValidationProblemDetails` usado pelos demais recursos) **ou**
+ *   `{ message: "Tipo do cliente não pode ser alterado após a
+ *   criação." }` quando o `type` enviado difere do persistido. O
+ *   segundo caso não tem `details.errors` mapeáveis, então cai no
+ *   fallback do `applyBadRequest` (Alert no topo do form). A UI já
+ *   evita esse cenário desabilitando o `<Select>` de tipo, mas
+ *   preserva o tratamento defensivo.
+ * - 404 → cliente não encontrado (soft-deletado concorrentemente
+ *   entre abertura e submit). UI fecha o tab/redireciona, dispara
+ *   toast e força refetch.
+ * - 401/403 → toast vermelho (gating de permissão).
+ *
+ * O parâmetro `client` é injetável para isolar testes (passa-se um
+ * stub tipado como `ApiClient`); em produção usa-se o singleton
+ * `apiClient`.
+ *
+ * O response é validado contra `isClientDto` para detectar drift de
+ * contrato precocemente — backend retornando shape inesperado
+ * dispara `ApiError(parse)` em vez de propagar shape inválido para
+ * a UI.
+ */
+export async function updateClient(
+  id: string,
+  payload: UpdateClientPayload,
+  options?: BodyRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<ClientDto> {
+  const body = buildClientMutationBody(payload);
+  const data = await client.put<unknown>(`/clients/${id}`, body, options);
+  if (!isClientDto(data)) {
+    throw makeParseError();
+  }
+  return data;
+}
+
+/**
+ * Desativa (soft-delete) um cliente via `DELETE /clients/{id}` (Issue #76).
+ *
+ * O backend (`ClientsController.DeleteById`) seta `DeletedAt = UtcNow` e
+ * responde `204 No Content` em sucesso. O método não devolve corpo — a
+ * função resolve `void` e a UI faz refetch para sincronizar a lista.
+ *
+ * Lança `ApiError` em qualquer falha:
+ *
+ * - `kind: 'http'` com `status === 404` → cliente inexistente ou já
+ *   soft-deletado (o backend filtra por `DeletedAt == null` por padrão
+ *   via global query filter); a UI fecha o modal, dispara toast e força
+ *   refetch (paridade com `deleteSystem`).
+ * - `kind: 'http'` com `status === 409` → conflito por usuários ativos
+ *   vinculados (defensivo). Hoje o backend não devolve esse status no
+ *   `DELETE /clients/{id}` (apenas soft-delete), mas o `MutationConfirmModal`
+ *   já tem o slot `errorCopy.conflictMessage` reservado para quando o
+ *   contrato evoluir. A UI mostra a mensagem do backend ou o fallback
+ *   da `errorCopy`. Critério de aceite #76 — "Tratamento de erro caso o
+ *   cliente tenha usuários ativos vinculados.".
+ * - `kind: 'http'` com `status === 401` → sessão expirada; cliente HTTP
+ *   já lidou com `onUnauthorized`. UI mantém-se silenciosa além do toast.
+ * - `kind: 'http'` com `status === 403` → falta permissão
+ *   `AUTH_V1_CLIENTS_DELETE`; toast vermelho com mensagem do backend.
+ * - `kind: 'network'`/outros → toast vermelho genérico.
+ *
+ * Diferente de `createClient`/`updateClient`, não há type guard de
+ * resposta porque `204` não tem corpo — `client.delete<void>` resolve
+ * `undefined` e descartamos.
+ *
+ * O parâmetro `client` é injetável para isolar testes (passa-se um stub
+ * tipado como `ApiClient`); em produção usa-se o singleton `apiClient`.
+ */
+export async function deleteClient(
+  id: string,
+  options?: SafeRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<void> {
+  await client.delete<void>(`/clients/${id}`, options);
+}
+
+/**
+ * Restaura (desfaz soft-delete) um cliente via
+ * `POST /clients/{id}/restore` (Issue #76, EPIC #49 — fecha o CRUD básico
+ * de clientes junto com o delete).
+ *
+ * O backend (`ClientsController.RestoreById`) limpa `DeletedAt` via
+ * `IgnoreQueryFilters()` e responde `200 OK` com
+ * `{ message: "Cliente restaurado com sucesso." }`. Diferente de
+ * `createClient`/`updateClient`, o corpo da resposta **não** é um
+ * `ClientDto` — é um envelope simples `{ message }` que descartamos.
+ * A UI faz refetch para sincronizar a lista (idêntico ao padrão do
+ * `deleteClient`/`restoreSystem`), então retornamos `void`.
+ *
+ * Lança `ApiError` em qualquer falha:
+ *
+ * - `kind: 'http'` com `status === 404` → cliente inexistente **ou** já
+ *   ativo (o backend devolve 404 com mensagem específica em ambos os
+ *   casos: filtro `DeletedAt != null` no `WHERE`). A UI fecha o modal,
+ *   dispara toast e força refetch — o registro foi mexido por outra
+ *   sessão entre a abertura do modal e o submit, ou nem existe.
+ * - `kind: 'http'` com `status === 401` → sessão expirada; cliente HTTP
+ *   já lidou com `onUnauthorized`. UI mantém-se silenciosa além do toast.
+ * - `kind: 'http'` com `status === 403` → falta permissão
+ *   `AUTH_V1_CLIENTS_RESTORE`; toast vermelho com mensagem do backend.
+ * - `kind: 'network'`/outros → toast vermelho genérico.
+ *
+ * Não há type guard de resposta porque `{ message }` é descartado —
+ * `client.post<void>` resolve com o body como `unknown` e ignoramos.
+ * Caso o backend evolua para devolver `ClientResponse` no futuro, basta
+ * ajustar este wrapper para validar com `isClientDto` e atualizar o
+ * tipo de retorno.
+ *
+ * Recebe `BodyRequestOptions` (com `signal`) por simetria com
+ * `createClient`/`updateClient` e `restoreSystem` — `POST` é tratado
+ * como mutação com corpo no cliente HTTP, ainda que aqui não enviemos
+ * payload. Passamos `undefined` como body para que o backend receba
+ * uma requisição vazia.
+ *
+ * O parâmetro `client` é injetável para isolar testes (passa-se um stub
+ * tipado como `ApiClient`); em produção usa-se o singleton `apiClient`.
+ */
+export async function restoreClient(
+  id: string,
+  options?: BodyRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<void> {
+  await client.post<void>(`/clients/${id}/restore`, undefined, options);
+}
+
+/**
+ * Limite máximo de emails extras por cliente — espelha a regra
+ * `if (count >= 3)` do `ClientsController.AddEmail` no
+ * `lfc-authenticator`. Centralizado para que a UI possa desabilitar
+ * o botão "Adicionar email" antes do round-trip e o teste use a
+ * mesma fonte da verdade da função (lição PR #128 — projetar
+ * shared helpers desde o primeiro PR do recurso).
+ */
+export const MAX_CLIENT_EXTRA_EMAILS = 3;
+
+/**
+ * Adiciona um email extra a um cliente via
+ * `POST /clients/{id}/emails` (Issue #146).
+ *
+ * Retorna o `ClientEmailDto` recém-criado (`200 OK` com
+ * `ClientEmailResponse` no corpo). Lança `ApiError` em qualquer
+ * falha — caller tipicamente trata:
+ *
+ * - `kind: 'http'` com `status === 400` →
+ *   - `"Limite de 3 emails extras por cliente."` quando o cliente já tem
+ *     o teto. UI desabilita o botão "Adicionar" preventivamente
+ *     (`MAX_CLIENT_EXTRA_EMAILS`), mas o branch fica defensivo para
+ *     race entre abertura do form e submit por outra sessão.
+ *   - `"Email extra inválido."` quando o backend rejeita o formato. A
+ *     UI já valida client-side, então este é caso de borda raro.
+ * - `kind: 'http'` com `status === 409` →
+ *   - `"Este email está sendo usado como username e não pode ser email
+ *     extra."` quando o email coincide com `Users.Email` de qualquer
+ *     usuário (mesmo de outro cliente). UI exibe a mensagem do backend
+ *     inline orientando o operador.
+ *   - `"Email extra já cadastrado para este cliente."` quando o email
+ *     já existe na lista deste cliente. Mensagem inline.
+ * - `kind: 'http'` com `status === 404` → cliente não encontrado
+ *   (soft-deletado entre carregamento da página e submit). UI dispara
+ *   toast vermelho e força refetch.
+ * - `kind: 'http'` com `status === 401`/`403` → toast vermelho com
+ *   mensagem do backend (cliente HTTP cuida do redirect 401).
+ * - Demais → toast vermelho com mensagem genérica.
+ *
+ * O backend **trima** + **lowercaseia** o email no servidor (`Email.Trim().
+ * ToLowerInvariant()`); a UI envia literal — preservar o que o operador
+ * digitou simplifica `expect.objectContaining({ email: '<literal>' })` em
+ * testes e mantém paridade com o que o input mostra ao operador. O
+ * resultado lowercased volta no `ClientEmailResponse` e a UI consome
+ * direto.
+ *
+ * O parâmetro `client` é injetável para isolar testes (passa-se um
+ * stub tipado como `ApiClient`); em produção usa-se o singleton
+ * `apiClient`.
+ */
+export async function addClientExtraEmail(
+  clientId: string,
+  email: string,
+  options?: BodyRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<ClientEmailDto> {
+  const data = await client.post<unknown>(
+    `/clients/${clientId}/emails`,
+    { email },
+    options,
+  );
+  if (!isClientEmailDto(data)) {
+    throw makeParseError();
+  }
+  return data;
+}
+
+/**
+ * Limite máximo de telefones (celular **ou** fixo) por cliente —
+ * espelha a regra `if (count >= 3)` do
+ * `ClientsController.AddPhoneInternal` no `lfc-authenticator`. O backend
+ * valida a regra **por tipo** (3 celulares + 3 fixos por cliente),
+ * então este teto é compartilhado pelas duas abas (mobiles/landlines)
+ * — `ClientPhonesTab` injeta o tipo e o limite vale isoladamente em
+ * cada lista. Centralizar evita literais mágicos e mantém a UI alinhada
+ * com a fonte da verdade do backend (lição PR #128 — projetar shared
+ * helpers desde o primeiro PR do recurso).
+ */
+export const MAX_CLIENT_PHONES_PER_TYPE = 3;
+
+/**
+ * Adiciona um celular ao cliente via `POST /clients/{id}/mobiles`
+ * (Issue #147).
+ *
+ * Retorna o `ClientPhoneDto` recém-criado (`200 OK` com
+ * `ClientPhoneResponse` no corpo). Lança `ApiError` em qualquer
+ * falha — caller tipicamente trata:
+ *
+ * - `kind: 'http'` com `status === 400` →
+ *   - `"Telefone inválido. Use o formato internacional com DDI e
+ *     DDD, ex.: +5518981789845."` quando o backend rejeita o formato
+ *     E.164. A UI já valida client-side com a mesma regex, então
+ *     este caso é defensivo.
+ *   - `"Limite de 3 celulares por cliente."` quando o cliente já tem
+ *     o teto. UI desabilita o botão "Adicionar" preventivamente
+ *     (`MAX_CLIENT_PHONES_PER_TYPE`); o branch fica defensivo para
+ *     race entre abertura do form e submit por outra sessão.
+ * - `kind: 'http'` com `status === 409` →
+ *   `"Contato já cadastrado para este cliente."` quando o número já
+ *   existe na lista deste cliente para o mesmo tipo. Mensagem inline.
+ * - `kind: 'http'` com `status === 404` → cliente não encontrado
+ *   (soft-deletado entre carregamento da página e submit). UI dispara
+ *   toast vermelho e força refetch.
+ * - `kind: 'http'` com `status === 401`/`403` → toast vermelho com
+ *   mensagem do backend (cliente HTTP cuida do redirect 401).
+ * - Demais → toast vermelho com mensagem genérica.
+ *
+ * O backend **trima** o número no servidor (`Number.Trim()`); a UI
+ * envia já trimado para que asserts em testes consumam o literal sem
+ * espaços e o feedback visual coincida com o que o servidor persistiu.
+ *
+ * O parâmetro `client` é injetável para isolar testes (passa-se um
+ * stub tipado como `ApiClient`); em produção usa-se o singleton
+ * `apiClient`.
+ */
+export async function addClientMobilePhone(
+  clientId: string,
+  number: string,
+  options?: BodyRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<ClientPhoneDto> {
+  const data = await client.post<unknown>(
+    `/clients/${clientId}/mobiles`,
+    { number },
+    options,
+  );
+  if (!isClientPhoneDto(data)) {
+    throw makeParseError();
+  }
+  return data;
+}
+
+/**
+ * Remove um celular do cliente via
+ * `DELETE /clients/{id}/mobiles/{phoneId}` (Issue #147).
+ *
+ * Retorna `void` (`204 No Content`). Lança `ApiError` em qualquer
+ * falha — caller tipicamente trata:
+ *
+ * - `kind: 'http'` com `status === 404` → contato não pertence ao
+ *   cliente (id já removido por outra sessão entre abertura e submit,
+ *   ou tipo divergente). UI dispara toast vermelho e força refetch
+ *   para sincronizar a lista.
+ * - `kind: 'http'` com `status === 401`/`403` → toast vermelho com
+ *   mensagem do backend.
+ * - Demais → toast vermelho com mensagem genérica.
+ *
+ * O parâmetro `client` é injetável para isolar testes (passa-se um
+ * stub tipado como `ApiClient`); em produção usa-se o singleton
+ * `apiClient`.
+ */
+export async function removeClientMobilePhone(
+  clientId: string,
+  phoneId: string,
+  options?: SafeRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<void> {
+  await client.delete<void>(
+    `/clients/${clientId}/mobiles/${phoneId}`,
+    options,
+  );
+}
+
+/**
+ * Adiciona um telefone fixo ao cliente via `POST /clients/{id}/phones`
+ * (Issue #147).
+ *
+ * Espelha exatamente o contrato de `addClientMobilePhone` — o backend
+ * usa o mesmo `AddPhoneRequest` (`{ number }`) e dispara o mesmo
+ * `AddPhoneInternal`, divergindo apenas no `Type` (mobile vs landline)
+ * registrado no banco e na mensagem de limite (`"Limite de 3 telefones
+ * por cliente."` em vez de `celulares`). Manter wrappers separados em
+ * vez de parametrizar pelo tipo torna o call site mais legível
+ * (`addClientLandlinePhone` deixa explícito o que está sendo feito) e
+ * evita acoplar todos os call sites a uma string literal "mobile" /
+ * "phone" que poderia variar com o backend.
+ *
+ * Tratamento de erros idêntico ao `addClientMobilePhone`. Ver doc
+ * naquele helper para detalhes; aqui resumimos:
+ *
+ * - 400 `"Telefone inválido..."` ou `"Limite de 3 telefones por
+ *   cliente."` (defensivo).
+ * - 409 `"Contato já cadastrado para este cliente."`.
+ * - 404 cliente removido.
+ * - 401/403 sessão/permissão.
+ *
+ * O parâmetro `client` é injetável para isolar testes; em produção
+ * usa-se o singleton `apiClient`.
+ */
+export async function addClientLandlinePhone(
+  clientId: string,
+  number: string,
+  options?: BodyRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<ClientPhoneDto> {
+  const data = await client.post<unknown>(
+    `/clients/${clientId}/phones`,
+    { number },
+    options,
+  );
+  if (!isClientPhoneDto(data)) {
+    throw makeParseError();
+  }
+  return data;
+}
+
+/**
+ * Remove um telefone fixo do cliente via
+ * `DELETE /clients/{id}/phones/{phoneId}` (Issue #147).
+ *
+ * Espelha exatamente o contrato de `removeClientMobilePhone` — o
+ * backend usa o mesmo `RemovePhoneInternal`, divergindo apenas no
+ * filtro `Type` aplicado ao buscar o registro. Tratamento de erros
+ * idêntico.
+ *
+ * O parâmetro `client` é injetável para isolar testes; em produção
+ * usa-se o singleton `apiClient`.
+ */
+export async function removeClientLandlinePhone(
+  clientId: string,
+  phoneId: string,
+  options?: SafeRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<void> {
+  await client.delete<void>(
+    `/clients/${clientId}/phones/${phoneId}`,
+    options,
+  );
+}
+
+/**
+ * Remove um email extra de um cliente via
+ * `DELETE /clients/{id}/emails/{emailId}` (Issue #146).
+ *
+ * Retorna `void` (`204 No Content`). Lança `ApiError` em qualquer
+ * falha — caller tipicamente trata:
+ *
+ * - `kind: 'http'` com `status === 400` →
+ *   `"Não é permitido remover email que esteja sendo usado como
+ *   username."` quando o email extra coincide com `Users.Email` de
+ *   algum usuário (cenário onde o email foi promovido a username
+ *   após cadastro como extra). UI dispara toast vermelho com
+ *   mensagem orientando o operador a remover o vínculo do usuário
+ *   antes.
+ * - `kind: 'http'` com `status === 404` → email extra não pertence
+ *   ao cliente (id já removido por outra sessão entre abertura e
+ *   submit). UI dispara toast vermelho e força refetch para
+ *   sincronizar a lista.
+ * - `kind: 'http'` com `status === 401`/`403` → toast vermelho com
+ *   mensagem do backend.
+ * - Demais → toast vermelho com mensagem genérica.
+ *
+ * O parâmetro `client` é injetável para isolar testes (passa-se um
+ * stub tipado como `ApiClient`); em produção usa-se o singleton
+ * `apiClient`.
+ */
+export async function removeClientExtraEmail(
+  clientId: string,
+  emailId: string,
+  options?: SafeRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<void> {
+  await client.delete<void>(
+    `/clients/${clientId}/emails/${emailId}`,
+    options,
+  );
+}
+
+/**
+ * Constrói o body para `POST /clients` e `PUT /clients/{id}`
+ * aplicando trim defensivo e o filtro de campos por tipo (PF/PJ).
+ * Centralizar essa montagem garante que nenhum call site inclua
+ * acidentalmente o campo do tipo oposto (que o backend rejeitaria
+ * com 400). Compartilhado entre `createClient` (Issue #74) e
+ * `updateClient` (Issue #75) — o backend reaproveita o
+ * `CreateClientRequest` no PUT, então o build do body é idêntico.
+ *
+ * Para PF: envia `type`, `cpf`, `fullName`. Para PJ: envia `type`,
+ * `cnpj`, `corporateName`. Em ambos, qualquer campo whitespace-only
+ * vira `undefined` (omitido do JSON) para que o backend trate como
+ * ausente — evita round-trip por "FullName é obrigatório" quando o
+ * usuário digita só espaços (a validação client-side em
+ * `clientsFormShared.ts` já cobre isso, mas defendemos aqui também).
+ */
+function buildClientMutationBody(payload: CreateClientPayload): CreateClientPayload {
+  const body: CreateClientPayload = { type: payload.type };
+  if (payload.type === 'PF') {
+    const cpf = payload.cpf?.trim();
+    if (cpf && cpf.length > 0) {
+      body.cpf = cpf;
+    }
+    const fullName = payload.fullName?.trim();
+    if (fullName && fullName.length > 0) {
+      body.fullName = fullName;
+    }
+  } else {
+    const cnpj = payload.cnpj?.trim();
+    if (cnpj && cnpj.length > 0) {
+      body.cnpj = cnpj;
+    }
+    const corporateName = payload.corporateName?.trim();
+    if (corporateName && corporateName.length > 0) {
+      body.corporateName = corporateName;
+    }
+  }
+  return body;
+}
+
+/**
+ * Detecta se o erro é um `AbortError` (DOMException) ou um
+ * `ApiError` de rede com a mensagem dedicada de cancelamento.
+ * Mantido local em vez de exportado porque é detalhe de
+ * implementação do `getClientsByIds`.
+ */
+function isAbortError(error: unknown): boolean {
+  if (error instanceof DOMException && error.name === 'AbortError') {
+    return true;
+  }
+  if (
+    error !== null &&
+    typeof error === 'object' &&
+    'kind' in error &&
+    (error as { kind: unknown }).kind === 'network' &&
+    'message' in error &&
+    (error as { message: unknown }).message === 'Requisição cancelada.'
+  ) {
+    return true;
+  }
+  return false;
+}

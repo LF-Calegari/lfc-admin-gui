@@ -43,7 +43,7 @@ import { STORAGE_KEYS } from '@/shared/auth/storage';
  */
 beforeEach(() => {
   installFakeIndexedDB();
-  window.localStorage.clear();
+  globalThis.localStorage.clear();
 });
 
 afterEach(() => {
@@ -89,14 +89,14 @@ describe('AuthProvider — estado inicial', () => {
   });
 
   test('migração: clearLegacyKeys remove lfc-admin-auth-user no boot', () => {
-    window.localStorage.setItem(
+    globalThis.localStorage.setItem(
       STORAGE_KEYS.legacyUser,
       JSON.stringify({ user: SAMPLE_USER, permissions: [] }),
     );
     const client = createAuthClientStub();
     renderHook(() => useAuth(), { wrapper: makeAuthWrapper(client) });
 
-    expect(window.localStorage.getItem(STORAGE_KEYS.legacyUser)).toBeNull();
+    expect(globalThis.localStorage.getItem(STORAGE_KEYS.legacyUser)).toBeNull();
   });
 });
 
@@ -122,22 +122,21 @@ describe('AuthProvider — login (Issue #122)', () => {
   });
 
   test('login persiste catálogo em IndexedDB', async () => {
-    const { result: _ } = await setupLoggedInProvider();
+    await setupLoggedInProvider();
 
-    // Aguarda o `void permissionsCache.save(...)` resolver.
+    // Aguarda o `permissionsCache.save(...)` resolver.
     await waitFor(async () => {
       const cached = await permissionsCache.load();
       expect(cached?.user.email).toBe('ada@lfc.com.br');
     });
     const cached = await permissionsCache.load();
     expect(cached?.routes).toEqual(SAMPLE_PERMISSIONS.routes);
-    void _;
   });
 
   test('login persiste token em localStorage', async () => {
     await setupLoggedInProvider();
 
-    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBe('jwt-xyz');
+    expect(globalThis.localStorage.getItem(STORAGE_KEYS.token)).toBe('jwt-xyz');
   });
 
   test('tokenRef é setado ANTES do /auth/permissions (header Authorization presente)', async () => {
@@ -202,7 +201,7 @@ describe('AuthProvider — login (Issue #122)', () => {
     expect(result.current.isLoading).toBe(false);
 
     // Storage limpo — a sessão parcial foi descartada.
-    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
+    expect(globalThis.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
 
     // Token injetado no client também foi zerado.
     const latest = lastCall(client.setAuth.mock.calls)?.[0];
@@ -254,7 +253,7 @@ describe('AuthProvider — login (Issue #122)', () => {
 
     expect(captured).toMatchObject({ kind: 'parse' });
     expect(result.current.isAuthenticated).toBe(false);
-    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
+    expect(globalThis.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
   });
 });
 
@@ -297,7 +296,7 @@ describe('AuthProvider — logout', () => {
     expect(client.get).toHaveBeenLastCalledWith('/auth/logout');
     expect(result.current.isAuthenticated).toBe(false);
     expect(result.current.user).toBeNull();
-    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
+    expect(globalThis.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
     if (expectsWarning) {
       expect(warnSpy).toHaveBeenCalled();
     } else {
@@ -342,7 +341,7 @@ describe('AuthProvider — logout', () => {
 
     expect(client.get).toHaveBeenLastCalledWith('/auth/logout');
     expect(result.current.isAuthenticated).toBe(false);
-    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
+    expect(globalThis.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
     expect(warnSpy).not.toHaveBeenCalled();
 
     warnSpy.mockRestore();
@@ -402,7 +401,7 @@ describe('AuthProvider — logout', () => {
 
     await waitFor(() => expect(capturedPath).toBe('/login'));
     expect(client.get).toHaveBeenLastCalledWith('/auth/logout');
-    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
+    expect(globalThis.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
   });
 });
 
@@ -457,7 +456,7 @@ describe('AuthProvider — hidratação (Issue #122)', () => {
   });
 
   test('com cache vazio mas token presente, dispara /auth/permissions', async () => {
-    window.localStorage.setItem(STORAGE_KEYS.token, 'jwt-persistido');
+    globalThis.localStorage.setItem(STORAGE_KEYS.token, 'jwt-persistido');
     const client = createAuthClientStub();
     client.get.mockResolvedValueOnce(SAMPLE_PERMISSIONS);
 
@@ -479,7 +478,7 @@ describe('AuthProvider — hidratação (Issue #122)', () => {
   });
 
   test('hidratação com /auth/permissions em 401 limpa sessão', async () => {
-    window.localStorage.setItem(STORAGE_KEYS.token, 'jwt-persistido');
+    globalThis.localStorage.setItem(STORAGE_KEYS.token, 'jwt-persistido');
     const client = createAuthClientStub();
     client.get.mockImplementationOnce(async () => {
       const config = lastCall(client.setAuth.mock.calls)?.[0];
@@ -494,11 +493,11 @@ describe('AuthProvider — hidratação (Issue #122)', () => {
     await waitFor(() => expect(result.current.isAuthenticated).toBe(false));
     expect(result.current.user).toBeNull();
     expect(result.current.permissions).toEqual([]);
-    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
+    expect(globalThis.localStorage.getItem(STORAGE_KEYS.token)).toBeNull();
   });
 
   test('hidratação com falha de rede mantém sessão local intacta (warning)', async () => {
-    window.localStorage.setItem(STORAGE_KEYS.token, 'jwt-persistido');
+    globalThis.localStorage.setItem(STORAGE_KEYS.token, 'jwt-persistido');
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const client = createAuthClientStub();
     client.get.mockRejectedValueOnce(NETWORK_ERROR);
@@ -507,14 +506,14 @@ describe('AuthProvider — hidratação (Issue #122)', () => {
 
     // Sessão local preservada — usuário continua autenticado.
     expect(result.current.isAuthenticated).toBe(true);
-    expect(window.localStorage.getItem(STORAGE_KEYS.token)).toBe('jwt-persistido');
+    expect(globalThis.localStorage.getItem(STORAGE_KEYS.token)).toBe('jwt-persistido');
     expect(warnSpy).toHaveBeenCalled();
 
     warnSpy.mockRestore();
   });
 
   test('renderiza splash enquanto hidratação está em curso (token sem cache)', async () => {
-    window.localStorage.setItem(STORAGE_KEYS.token, 'jwt-persistido');
+    globalThis.localStorage.setItem(STORAGE_KEYS.token, 'jwt-persistido');
     const client = createAuthClientStub();
     let resolveFetch: ((value: PermissionsResponse) => void) | null = null;
     client.get.mockImplementationOnce(
@@ -567,7 +566,7 @@ describe('AuthProvider — hidratação (Issue #122)', () => {
   });
 
   test('unmount cancela /auth/permissions pendente via AbortController', async () => {
-    window.localStorage.setItem(STORAGE_KEYS.token, 'jwt-persistido');
+    globalThis.localStorage.setItem(STORAGE_KEYS.token, 'jwt-persistido');
     const client = createAuthClientStub();
     let abortSignal: AbortSignal | undefined;
     client.get.mockImplementationOnce((_path: string, options?: { signal?: AbortSignal }) => {
@@ -761,5 +760,116 @@ describe('AuthProvider — verifyRoute (Issue #122 / adendo)', () => {
 
     expect(outcome).toBe(false);
     expect(client.get).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Cobertura do `performPeriodicVerify` (Issue #142 — refactor cleanup
+ * Sonar). Os helpers `callPeriodicVerify` e `handlePeriodicVerifyError`
+ * extraídos do `useEffect` de hidratação só ficavam exercitados via tick
+ * do `setInterval`; sem teste do tick, o New Code coverage do Sonar caía
+ * abaixo de 80%. Cada cenário aqui rodaria só uma vez por tick — usamos
+ * `setTimeout` curto + `seedPersistedSession` para forçar o intervalo a
+ * disparar dentro do `waitFor`.
+ *
+ * O pathname global (`globalThis.location.pathname`) é alterado via
+ * `history.pushState` para que `resolveRouteCode` devolva um code válido
+ * (`/systems` → `AUTH_V1_SYSTEMS_LIST`). Após cada teste, restauramos
+ * `/` para não vazar estado para a suite seguinte.
+ */
+describe('AuthProvider — verify-token periódico', () => {
+  let originalPathname: string;
+
+  beforeEach(() => {
+    originalPathname = globalThis.location.pathname;
+    globalThis.history.pushState({}, '', '/systems');
+  });
+
+  afterEach(() => {
+    globalThis.history.pushState({}, '', originalPathname);
+  });
+
+  test('caminho feliz: tick chama /auth/verify-token com X-Route-Code da rota corrente', async () => {
+    await seedPersistedSession();
+    const client = createAuthClientStub();
+    // Hidratação inicial via /auth/permissions (cache vazio em alguns
+    // ambientes de teste) e depois o tick periódico via /auth/verify-token.
+    client.get
+      .mockResolvedValueOnce(SAMPLE_PERMISSIONS) // hidratação eventual
+      .mockResolvedValue(VERIFY_OK); // todos os ticks subsequentes
+
+    await renderAuthHook(client, { verifyIntervalMs: 30 });
+
+    await waitFor(() => {
+      expect(client.get).toHaveBeenCalledWith(
+        '/auth/verify-token',
+        expect.objectContaining({
+          headers: { 'X-Route-Code': 'AUTH_V1_SYSTEMS_LIST' },
+        }),
+      );
+    });
+  });
+
+  test('tick em rota sem mapeamento (resolveRouteCode === null) pula a chamada', async () => {
+    // Move para rota não mapeada antes do mount.
+    globalThis.history.pushState({}, '', '/login');
+    await seedPersistedSession();
+    const client = createAuthClientStub();
+    client.get.mockResolvedValue(SAMPLE_PERMISSIONS);
+
+    await renderAuthHook(client, { verifyIntervalMs: 30 });
+
+    // Deixa alguns ticks rodarem.
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // Nunca deve ter chamado /auth/verify-token (apenas /auth/permissions
+    // na hidratação inicial).
+    const verifyTokenCalls = client.get.mock.calls.filter(
+      ([path]) => path === '/auth/verify-token',
+    );
+    expect(verifyTokenCalls).toHaveLength(0);
+  });
+
+  test('tick com erro de rede mantém sessão e loga warning silencioso', async () => {
+    await seedPersistedSession();
+    const client = createAuthClientStub();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    client.get
+      .mockResolvedValueOnce(SAMPLE_PERMISSIONS)
+      .mockRejectedValue(NETWORK_ERROR);
+
+    const { result } = await renderAuthHook(client, { verifyIntervalMs: 30 });
+
+    await waitFor(() => {
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('verify-token periódico falhou'),
+      );
+    });
+
+    // Sessão local segue ativa — falha de rede não derruba.
+    expect(result.current.isAuthenticated).toBe(true);
+    warnSpy.mockRestore();
+  });
+
+  test('tick com 401 não loga warning (cliente HTTP já tratou)', async () => {
+    await seedPersistedSession();
+    const client = createAuthClientStub();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    client.get
+      .mockResolvedValueOnce(SAMPLE_PERMISSIONS)
+      .mockRejectedValue(UNAUTHORIZED_ERROR);
+
+    await renderAuthHook(client, { verifyIntervalMs: 30 });
+
+    // Espera o tick rodar pelo menos uma vez.
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // 401 NÃO deve disparar warning de "verify-token periódico falhou"
+    // (handlePeriodicVerifyError retorna `true` antes do `console.warn`).
+    const periodicWarnings = warnSpy.mock.calls.filter(([msg]) =>
+      typeof msg === 'string' && msg.includes('verify-token periódico falhou'),
+    );
+    expect(periodicWarnings).toHaveLength(0);
+    warnSpy.mockRestore();
   });
 });

@@ -20,14 +20,28 @@ interface RouteTitleEntry {
 /**
  * Mapeamento de rota → título exibido na Topbar. Suporta padrões com params
  * via `matchPath` (ex.: `/error/:code`). A primeira correspondência ganha,
- * por isso ordene do mais específico ao mais genérico.
+ * por isso ordene do mais específico ao mais genérico — em particular,
+ * `/usuarios/:id/permissoes` precisa vir antes de `/usuarios/:id` para
+ * pintar o título correto.
  */
 const ROUTE_TITLES: RouteTitleEntry[] = [
+  // Issue #62: `/systems/:systemId/routes` precisa vir ANTES de
+  // `/systems` — `matchPath` com `end: false` faz prefix-match e o
+  // primeiro padrão que casar ganha. Sem essa ordem, a Topbar exibiria
+  // "Sistemas" na página de listagem de rotas escopada a um sistema.
+  { pattern: '/systems/:systemId/routes', title: 'Rotas' },
+  // Issue #66: mesma regra — `/systems/:systemId/roles` precisa vir
+  // ANTES de `/systems`, pelo mesmo motivo do `matchPath` prefix-match.
+  { pattern: '/systems/:systemId/roles', title: 'Roles' },
   { pattern: '/systems', title: 'Sistemas' },
   { pattern: '/routes', title: 'Rotas' },
   { pattern: '/roles', title: 'Roles' },
-  { pattern: '/permissions', title: 'Permissões' },
-  { pattern: '/users', title: 'Usuários' },
+  { pattern: '/permissoes', title: 'Permissões' },
+  { pattern: '/usuarios/:id/permissoes', title: 'Permissões do usuário' },
+  { pattern: '/usuarios/:id', title: 'Detalhe do usuário' },
+  { pattern: '/usuarios', title: 'Usuários' },
+  { pattern: '/clientes/:id', title: 'Detalhe do cliente' },
+  { pattern: '/clientes', title: 'Clientes' },
   { pattern: '/tokens', title: 'Tokens' },
   { pattern: '/settings', title: 'Configurações' },
   { pattern: '/showcase', title: 'Showcase UI' },

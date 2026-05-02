@@ -23,14 +23,14 @@ const isThemePreference = (value: unknown): value is ThemePreference =>
   value === 'light' || value === 'dark' || value === 'system';
 
 /**
- * Lê preferência persistida. SSR-safe: retorna `system` quando `window`
+ * Lê preferência persistida. SSR-safe: retorna `system` quando `globalThis`
  * não está disponível ou quando `localStorage` lança (ex.: modo privado
  * com cota zerada).
  */
 const readStoredPreference = (): ThemePreference => {
-  if (typeof window === 'undefined') return 'system';
+  if (typeof globalThis === 'undefined') return 'system';
   try {
-    const raw = window.localStorage.getItem(THEME_STORAGE_KEY);
+    const raw = globalThis.localStorage.getItem(THEME_STORAGE_KEY);
     return isThemePreference(raw) ? raw : 'system';
   } catch {
     return 'system';
@@ -43,10 +43,10 @@ const readStoredPreference = (): ThemePreference => {
  * para `light` como padrão conservador.
  */
 const getSystemTheme = (): ResolvedTheme => {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+  if (typeof globalThis === 'undefined' || typeof globalThis.matchMedia !== 'function') {
     return 'light';
   }
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  return globalThis.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 };
 
 const resolveTheme = (preference: ThemePreference): ResolvedTheme =>
@@ -75,6 +75,17 @@ interface UseThemeResult {
   /** Alterna binariamente entre `light` ↔ `dark`. Ignora `system`. */
   toggleTheme: () => void;
 }
+
+/**
+ * Tipo helper para manter compat com Safari < 14, que ainda expõe a API
+ * legada `addListener`/`removeListener` em `MediaQueryList` (atualmente
+ * marcada como deprecated no DOM lib). Tratamos como métodos opcionais
+ * para evitar `as` de cast.
+ */
+type LegacyMediaQueryList = MediaQueryList & {
+  addListener?: (cb: (event: MediaQueryListEvent) => void) => void;
+  removeListener?: (cb: (event: MediaQueryListEvent) => void) => void;
+};
 
 /**
  * Hook unificado para tema.
@@ -124,9 +135,9 @@ export const useTheme = (): UseThemeResult => {
    */
   useEffect(() => {
     if (theme !== 'system') return;
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    if (typeof globalThis === 'undefined' || typeof globalThis.matchMedia !== 'function') return;
 
-    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const media = globalThis.matchMedia('(prefers-color-scheme: dark)') as LegacyMediaQueryList;
     const handleChange = (event: MediaQueryListEvent) => {
       const next: ResolvedTheme = event.matches ? 'dark' : 'light';
       setResolvedTheme(next);
@@ -134,23 +145,24 @@ export const useTheme = (): UseThemeResult => {
     };
 
     // Compat: Safari < 14 expõe addListener/removeListener no lugar
-    // dos eventos modernos. Tipamos com union pra cobrir os dois.
+    // dos eventos modernos. Preferimos o caminho moderno e fallbackamos
+    // para a API legada apenas quando `addEventListener` não existe.
     if (typeof media.addEventListener === 'function') {
       media.addEventListener('change', handleChange);
       return () => media.removeEventListener('change', handleChange);
     }
-    media.addListener(handleChange);
-    return () => media.removeListener(handleChange);
+    media.addListener?.(handleChange);
+    return () => media.removeListener?.(handleChange);
   }, [theme]);
 
   const setTheme = useCallback((preference: ThemePreference) => {
     setThemeState(preference);
-    if (typeof window === 'undefined') return;
+    if (typeof globalThis === 'undefined') return;
     try {
       if (preference === 'system') {
-        window.localStorage.removeItem(THEME_STORAGE_KEY);
+        globalThis.localStorage.removeItem(THEME_STORAGE_KEY);
       } else {
-        window.localStorage.setItem(THEME_STORAGE_KEY, preference);
+        globalThis.localStorage.setItem(THEME_STORAGE_KEY, preference);
       }
     } catch {
       // Persistência é best-effort — modo privado/cota zerada não
@@ -165,8 +177,8 @@ export const useTheme = (): UseThemeResult => {
       const current: ResolvedTheme = prev === 'system' ? resolveTheme(prev) : prev;
       const next: ThemePreference = current === 'dark' ? 'light' : 'dark';
       try {
-        if (typeof window !== 'undefined') {
-          window.localStorage.setItem(THEME_STORAGE_KEY, next);
+        if (typeof globalThis !== 'undefined') {
+          globalThis.localStorage.setItem(THEME_STORAGE_KEY, next);
         }
       } catch {
         // ver comentário em `setTheme`.

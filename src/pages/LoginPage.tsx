@@ -10,8 +10,6 @@ import { useTheme } from '../hooks/useTheme';
 import { isApiError } from '../shared/api';
 import { useAuth } from '../shared/auth';
 
-import type { ApiError } from '../shared/api';
-
 /**
  * Destino padrão pós-login quando a `location.state.from` não está
  * preenchida (acesso direto à rota `/login`).
@@ -329,11 +327,10 @@ function resolveRedirectTarget(state: unknown): string {
  */
 function buildErrorMessage(error: unknown): string {
   if (isApiError(error)) {
-    const httpError = error as ApiError;
-    if (httpError.status === 401) {
+    if (error.status === 401) {
       return INVALID_CREDENTIALS_MESSAGE;
     }
-    if (httpError.status === 400) {
+    if (error.status === 400) {
       // Erros 400 indicam falha de validação no servidor — em geral
       // problema de configuração local (`VITE_SYSTEM_ID` divergente do
       // seed do backend, sistema inativo etc.). Expor a mensagem do
@@ -343,13 +340,13 @@ function buildErrorMessage(error: unknown): string {
       // diagnóstico em dev e mostramos o fallback genérico em UI.
       // eslint-disable-next-line no-console
       console.warn('[login] backend recusou requisição (400):', {
-        code: httpError.code,
-        message: httpError.message,
+        code: error.code,
+        message: error.message,
       });
       return FALLBACK_ERROR;
     }
-    if (httpError.message) {
-      return httpError.message;
+    if (error.message) {
+      return error.message;
     }
   }
   return FALLBACK_ERROR;

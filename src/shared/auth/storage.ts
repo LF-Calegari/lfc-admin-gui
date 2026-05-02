@@ -30,10 +30,10 @@ const LEGACY_USER_KEY = 'lfc-admin-auth-user';
  */
 function getStorage(): Storage | null {
   try {
-    if (typeof window === 'undefined') {
+    if (typeof globalThis === 'undefined') {
       return null;
     }
-    return window.localStorage;
+    return globalThis.localStorage;
   } catch {
     return null;
   }

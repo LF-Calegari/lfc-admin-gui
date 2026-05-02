@@ -12,8 +12,8 @@ import { afterEach, vi } from 'vitest';
  * `prefers-color-scheme: dark` substituem esta implementação via
  * `vi.spyOn(window, 'matchMedia')` no próprio teste.
  */
-if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
-  Object.defineProperty(window, 'matchMedia', {
+if (typeof globalThis.window !== 'undefined' && typeof globalThis.matchMedia !== 'function') {
+  Object.defineProperty(globalThis, 'matchMedia', {
     writable: true,
     configurable: true,
     value: vi.fn().mockImplementation((query: string) => ({
@@ -35,14 +35,14 @@ if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
  * `<html>` para não vazar estado entre suites.
  */
 afterEach(() => {
-  if (typeof window !== 'undefined') {
+  if (typeof globalThis.window !== 'undefined') {
     try {
-      window.localStorage.clear();
+      globalThis.localStorage.clear();
     } catch {
       // ignore — modo privado/cota zerada não quebra o teste seguinte.
     }
   }
   if (typeof document !== 'undefined') {
-    document.documentElement.removeAttribute('data-theme');
+    delete document.documentElement.dataset.theme;
   }
 });

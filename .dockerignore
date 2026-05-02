@@ -1,7 +1,27 @@
 node_modules
 npm-debug.log*
 build
+dist
+coverage
+jscpd-report
 .git
 .gitignore
 Dockerfile
 docker-compose.yml
+# Credenciais e variáveis de ambiente — NUNCA copiar para a imagem.
+.credentials
+.env
+.env.*
+!.env.example
+# Editor / IDE / agentes locais
+.cursor
+.claude
+.vscode
+.idea
+# Sistemas operacionais
+.DS_Store
+Thumbs.db
+# Identity é um diretório de showcase/preview não usado em runtime.
+identity
+# Tests não vão em runtime; mantemos `src/**/*.test.*` para Vitest local.
+tests

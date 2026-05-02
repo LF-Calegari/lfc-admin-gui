@@ -59,8 +59,8 @@ const createMatchMedia = (initialDark: boolean) => {
 
 describe('useTheme', () => {
   beforeEach(() => {
-    window.localStorage.clear();
-    document.documentElement.removeAttribute('data-theme');
+    globalThis.localStorage.clear();
+    delete document.documentElement.dataset.theme;
   });
 
   afterEach(() => {
@@ -69,7 +69,7 @@ describe('useTheme', () => {
 
   it('default é "system" quando localStorage está vazio', () => {
     const { matchMedia } = createMatchMedia(false);
-    vi.spyOn(window, 'matchMedia').mockImplementation(matchMedia);
+    vi.spyOn(globalThis, 'matchMedia').mockImplementation(matchMedia);
 
     const { result } = renderHook(() => useTheme());
 
@@ -78,40 +78,40 @@ describe('useTheme', () => {
 
   it('resolve "system" para "dark" quando prefers-color-scheme: dark', () => {
     const { matchMedia } = createMatchMedia(true);
-    vi.spyOn(window, 'matchMedia').mockImplementation(matchMedia);
+    vi.spyOn(globalThis, 'matchMedia').mockImplementation(matchMedia);
 
     const { result } = renderHook(() => useTheme());
 
     expect(result.current.theme).toBe('system');
     expect(result.current.resolvedTheme).toBe('dark');
-    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    expect(document.documentElement.dataset.theme).toBe('dark');
   });
 
   it('resolve "system" para "light" quando prefers-color-scheme: light', () => {
     const { matchMedia } = createMatchMedia(false);
-    vi.spyOn(window, 'matchMedia').mockImplementation(matchMedia);
+    vi.spyOn(globalThis, 'matchMedia').mockImplementation(matchMedia);
 
     const { result } = renderHook(() => useTheme());
 
     expect(result.current.resolvedTheme).toBe('light');
-    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+    expect(document.documentElement.dataset.theme).toBe('light');
   });
 
   it('lê preferência persistida do localStorage', () => {
-    window.localStorage.setItem(THEME_STORAGE_KEY, 'dark');
+    globalThis.localStorage.setItem(THEME_STORAGE_KEY, 'dark');
     const { matchMedia } = createMatchMedia(false);
-    vi.spyOn(window, 'matchMedia').mockImplementation(matchMedia);
+    vi.spyOn(globalThis, 'matchMedia').mockImplementation(matchMedia);
 
     const { result } = renderHook(() => useTheme());
 
     expect(result.current.theme).toBe('dark');
     expect(result.current.resolvedTheme).toBe('dark');
-    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    expect(document.documentElement.dataset.theme).toBe('dark');
   });
 
   it('setTheme persiste e aplica no DOM imediatamente', () => {
     const { matchMedia } = createMatchMedia(false);
-    vi.spyOn(window, 'matchMedia').mockImplementation(matchMedia);
+    vi.spyOn(globalThis, 'matchMedia').mockImplementation(matchMedia);
 
     const { result } = renderHook(() => useTheme());
 
@@ -119,27 +119,27 @@ describe('useTheme', () => {
 
     expect(result.current.theme).toBe('dark');
     expect(result.current.resolvedTheme).toBe('dark');
-    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark');
-    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    expect(globalThis.localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark');
+    expect(document.documentElement.dataset.theme).toBe('dark');
   });
 
   it('setTheme("system") remove a chave do localStorage', () => {
-    window.localStorage.setItem(THEME_STORAGE_KEY, 'dark');
+    globalThis.localStorage.setItem(THEME_STORAGE_KEY, 'dark');
     const { matchMedia } = createMatchMedia(false);
-    vi.spyOn(window, 'matchMedia').mockImplementation(matchMedia);
+    vi.spyOn(globalThis, 'matchMedia').mockImplementation(matchMedia);
 
     const { result } = renderHook(() => useTheme());
 
     act(() => result.current.setTheme('system'));
 
     expect(result.current.theme).toBe('system');
-    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBeNull();
+    expect(globalThis.localStorage.getItem(THEME_STORAGE_KEY)).toBeNull();
     expect(result.current.resolvedTheme).toBe('light');
   });
 
   it('toggleTheme alterna binariamente light ↔ dark', () => {
     const { matchMedia } = createMatchMedia(false);
-    vi.spyOn(window, 'matchMedia').mockImplementation(matchMedia);
+    vi.spyOn(globalThis, 'matchMedia').mockImplementation(matchMedia);
 
     const { result } = renderHook(() => useTheme());
 
@@ -149,17 +149,17 @@ describe('useTheme', () => {
     act(() => result.current.toggleTheme());
     expect(result.current.theme).toBe('dark');
     expect(result.current.resolvedTheme).toBe('dark');
-    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark');
+    expect(globalThis.localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark');
 
     act(() => result.current.toggleTheme());
     expect(result.current.theme).toBe('light');
     expect(result.current.resolvedTheme).toBe('light');
-    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('light');
+    expect(globalThis.localStorage.getItem(THEME_STORAGE_KEY)).toBe('light');
   });
 
   it('reage a mudanças do SO quando theme === "system"', () => {
     const { matchMedia, setSystemDark } = createMatchMedia(false);
-    vi.spyOn(window, 'matchMedia').mockImplementation(matchMedia);
+    vi.spyOn(globalThis, 'matchMedia').mockImplementation(matchMedia);
 
     const { result } = renderHook(() => useTheme());
 
@@ -168,13 +168,13 @@ describe('useTheme', () => {
     act(() => setSystemDark(true));
 
     expect(result.current.resolvedTheme).toBe('dark');
-    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    expect(document.documentElement.dataset.theme).toBe('dark');
   });
 
   it('NÃO reage a mudanças do SO quando theme é explícito', () => {
-    window.localStorage.setItem(THEME_STORAGE_KEY, 'light');
+    globalThis.localStorage.setItem(THEME_STORAGE_KEY, 'light');
     const { matchMedia, setSystemDark } = createMatchMedia(false);
-    vi.spyOn(window, 'matchMedia').mockImplementation(matchMedia);
+    vi.spyOn(globalThis, 'matchMedia').mockImplementation(matchMedia);
 
     const { result } = renderHook(() => useTheme());
 
@@ -184,13 +184,13 @@ describe('useTheme', () => {
 
     // Permaneceu light — preferência explícita tem precedência sobre SO.
     expect(result.current.resolvedTheme).toBe('light');
-    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+    expect(document.documentElement.dataset.theme).toBe('light');
   });
 
   it('ignora valores inválidos no localStorage e cai para "system"', () => {
-    window.localStorage.setItem(THEME_STORAGE_KEY, 'rainbow');
+    globalThis.localStorage.setItem(THEME_STORAGE_KEY, 'rainbow');
     const { matchMedia } = createMatchMedia(false);
-    vi.spyOn(window, 'matchMedia').mockImplementation(matchMedia);
+    vi.spyOn(globalThis, 'matchMedia').mockImplementation(matchMedia);
 
     const { result } = renderHook(() => useTheme());
 

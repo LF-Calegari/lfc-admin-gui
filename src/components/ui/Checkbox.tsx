@@ -4,6 +4,8 @@ import styled, { css } from 'styled-components';
 
 import { Icon } from './Icon';
 
+const DANGER_COLOR = 'var(--danger)';
+
 export type CheckboxSize = 'sm' | 'md' | 'lg';
 
 interface CheckboxProps
@@ -66,7 +68,7 @@ const Box = styled.span<{ $hasError?: boolean }>`
   height: var(--checkbox-size);
   flex-shrink: 0;
   border: var(--border-medium) solid
-    ${({ $hasError }) => ($hasError ? 'var(--danger)' : 'var(--border-base)')};
+    ${({ $hasError }) => ($hasError ? DANGER_COLOR : 'var(--border-base)')};
   border-radius: var(--radius-sm);
   background: var(--bg-elevated);
   display: inline-flex;
@@ -101,12 +103,12 @@ const Box = styled.span<{ $hasError?: boolean }>`
   ${HiddenInput}:focus-visible + & {
     box-shadow: ${({ $hasError }) =>
       $hasError ? 'var(--focus-ring-danger-soft)' : 'var(--focus-ring-accent)'};
-    border-color: ${({ $hasError }) => ($hasError ? 'var(--danger)' : 'var(--accent)')};
+    border-color: ${({ $hasError }) => ($hasError ? DANGER_COLOR : 'var(--accent)')};
   }
 
   ${Wrapper}:hover ${HiddenInput}:not(:disabled) + & {
     border-color: ${({ $hasError }) =>
-      $hasError ? 'var(--danger)' : 'var(--border-soft-forest)'};
+      $hasError ? DANGER_COLOR : 'var(--border-soft-forest)'};
   }
 `;
 
@@ -126,7 +128,7 @@ const LabelText = styled.span`
 
 const HelperMsg = styled.span<{ $error?: boolean }>`
   font-size: var(--text-xs);
-  color: ${({ $error }) => ($error ? 'var(--danger)' : 'var(--text-muted)')};
+  color: ${({ $error }) => ($error ? DANGER_COLOR : 'var(--text-muted)')};
 `;
 
 export const Checkbox: React.FC<CheckboxProps> = ({

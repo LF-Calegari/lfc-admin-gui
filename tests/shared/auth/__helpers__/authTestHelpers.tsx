@@ -142,11 +142,11 @@ export async function renderAuthHook(
 
 /**
  * Pré-popula token (`localStorage`) e catálogo (IndexedDB) com a
- * sessão de exemplo. Usado em todo cenário que precisa de "usuário
+ * sessão de exemplo. Usado em qualquer cenário que precisa de "usuário
  * autenticado já hidratado" (logout, verifyRoute, RequireAuth).
  */
 export async function seedPersistedSession(): Promise<void> {
-  window.localStorage.setItem(STORAGE_KEYS.token, 'jwt-persistido');
+  globalThis.localStorage.setItem(STORAGE_KEYS.token, 'jwt-persistido');
   await permissionsCache.save({
     user: SAMPLE_USER,
     routes: SAMPLE_PERMISSIONS.routes,

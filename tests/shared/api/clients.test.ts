@@ -1,0 +1,1604 @@
+import { describe, expect, it, vi } from 'vitest';
+
+import type { ApiClient, ClientDto, PagedResponse } from '@/shared/api';
+
+import {
+  addClientExtraEmail,
+  addClientLandlinePhone,
+  addClientMobilePhone,
+  clientDisplayName,
+  createClient,
+  DEFAULT_CLIENTS_PAGE_SIZE,
+  deleteClient,
+  getClientById,
+  getClientsByIds,
+  isClientDto,
+  isPagedClientsResponse,
+  listClients,
+  removeClientExtraEmail,
+  removeClientLandlinePhone,
+  removeClientMobilePhone,
+  restoreClient,
+  updateClient,
+} from '@/shared/api';
+
+/**
+ * Suíte do módulo `src/shared/api/clients.ts` (Issue #73, EPIC #49).
+ *
+ * Cobre dois consumidores convergentes: a listagem própria de
+ * clientes (Issue #73) que valida `listClients`/querystring/type
+ * guards completos, e o lookup batch (`getClientsByIds`) consumido
+ * pela `UsersListShellPage` (Issue #77 mergeada antes deste PR) para
+ * denormalizar nome do cliente vinculado a cada usuário.
+ *
+ * Estratégia: stubar o `ApiClient` injetado e validar paths, type
+ * guards e propagação de `ApiError`. Não bate em `fetch` real —
+ * cobertura de transporte HTTP é responsabilidade dos testes em
+ * `client.test.ts`.
+ */
+
+const CLIENT_PF_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+const CLIENT_PJ_ID = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+
+interface ClientStub {
+  get: ReturnType<typeof vi.fn>;
+  post: ReturnType<typeof vi.fn>;
+  put: ReturnType<typeof vi.fn>;
+  patch: ReturnType<typeof vi.fn>;
+  delete: ReturnType<typeof vi.fn>;
+  request: ReturnType<typeof vi.fn>;
+  setAuth: ReturnType<typeof vi.fn>;
+  getSystemId: ReturnType<typeof vi.fn>;
+}
+
+function makeClientStub(): ClientStub {
+  return {
+    request: vi.fn(),
+    get: vi.fn(),
+    post: vi.fn(),
+    put: vi.fn(),
+    patch: vi.fn(),
+    delete: vi.fn(),
+    setAuth: vi.fn(),
+    getSystemId: vi.fn(() => 'system-test-uuid'),
+  };
+}
+
+function makeRawClientPf(overrides: Partial<ClientDto> = {}): ClientDto {
+  return {
+    id: CLIENT_PF_ID,
+    type: 'PF',
+    cpf: '12345678901',
+    fullName: 'Ana Cliente',
+    cnpj: null,
+    corporateName: null,
+    createdAt: '2026-01-10T12:00:00Z',
+    updatedAt: '2026-01-10T12:00:00Z',
+    deletedAt: null,
+    userIds: [],
+    extraEmails: [],
+    mobilePhones: [],
+    landlinePhones: [],
+    ...overrides,
+  };
+}
+
+function makeRawClientPj(overrides: Partial<ClientDto> = {}): ClientDto {
+  return {
+    id: CLIENT_PJ_ID,
+    type: 'PJ',
+    cpf: null,
+    fullName: null,
+    cnpj: '12345678000190',
+    corporateName: 'Acme Indústria S/A',
+    createdAt: '2026-01-10T12:00:00Z',
+    updatedAt: '2026-01-10T12:00:00Z',
+    deletedAt: null,
+    userIds: [],
+    extraEmails: [],
+    mobilePhones: [],
+    landlinePhones: [],
+    ...overrides,
+  };
+}
+
+function makePaged(
+  data: ReadonlyArray<ClientDto>,
+  overrides: Partial<PagedResponse<ClientDto>> = {},
+): PagedResponse<ClientDto> {
+  return {
+    data,
+    page: 1,
+    pageSize: DEFAULT_CLIENTS_PAGE_SIZE,
+    total: data.length,
+    ...overrides,
+  };
+}
+
+describe('isClientDto', () => {
+  it('aceita PF com cpf/fullName e arrays vazios', () => {
+    expect(isClientDto(makeRawClientPf())).toBe(true);
+  });
+
+  it('aceita PJ com cnpj/corporateName e arrays vazios', () => {
+    expect(isClientDto(makeRawClientPj())).toBe(true);
+  });
+
+  it('aceita extraEmails/mobilePhones/landlinePhones populados', () => {
+    expect(
+      isClientDto(
+        makeRawClientPf({
+          extraEmails: [
+            { id: 'e1', email: 'extra@example.com', createdAt: '2026-01-10T12:00:00Z' },
+          ],
+          mobilePhones: [
+            { id: 'p1', number: '+5511999999999', createdAt: '2026-01-10T12:00:00Z' },
+          ],
+          landlinePhones: [
+            { id: 'p2', number: '+551133334444', createdAt: '2026-01-10T12:00:00Z' },
+          ],
+          userIds: ['u1', 'u2'],
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it('aceita payload minimalista sem coleções (lookup #77)', () => {
+    // Issue #77 (`getClientsByIds`) consome `GET /clients/{id}` e
+    // pode receber um payload reduzido em testes — o type guard
+    // tolera ausência das 4 coleções sem perder a validação dos
+    // campos obrigatórios (`id`/`type`/`createdAt`/`updatedAt`).
+    const lean = {
+      id: CLIENT_PF_ID,
+      type: 'PF' as const,
+      cpf: null,
+      fullName: 'Ana Cliente',
+      cnpj: null,
+      corporateName: null,
+      createdAt: '2026-01-10T12:00:00Z',
+      updatedAt: '2026-01-10T12:00:00Z',
+      deletedAt: null,
+    };
+    expect(isClientDto(lean)).toBe(true);
+  });
+
+  it('rejeita type fora de PF/PJ', () => {
+    expect(isClientDto({ ...makeRawClientPf(), type: 'XX' })).toBe(false);
+  });
+
+  it('rejeita registro sem id', () => {
+    const { id: _id, ...rest } = makeRawClientPf();
+    expect(isClientDto(rest)).toBe(false);
+  });
+
+  it('rejeita coleções com tipo inválido (quando presentes)', () => {
+    expect(
+      isClientDto({ ...makeRawClientPf(), userIds: 'not-an-array' as unknown }),
+    ).toBe(false);
+    expect(
+      isClientDto({ ...makeRawClientPf(), extraEmails: [{ wrong: 'shape' }] as unknown }),
+    ).toBe(false);
+  });
+
+  it('aceita deletedAt como string ISO', () => {
+    expect(
+      isClientDto(makeRawClientPf({ deletedAt: '2026-02-01T00:00:00Z' })),
+    ).toBe(true);
+  });
+
+  it('rejeita primitivos e null', () => {
+    expect(isClientDto(null)).toBe(false);
+    expect(isClientDto('string')).toBe(false);
+    expect(isClientDto(42)).toBe(false);
+  });
+});
+
+describe('isPagedClientsResponse', () => {
+  it('aceita envelope completo com data válido', () => {
+    expect(isPagedClientsResponse(makePaged([makeRawClientPf()]))).toBe(true);
+  });
+
+  it('rejeita data não-array', () => {
+    expect(
+      isPagedClientsResponse({
+        data: 'not-array' as unknown,
+        page: 1,
+        pageSize: 20,
+        total: 0,
+      }),
+    ).toBe(false);
+  });
+
+  it('rejeita campos numéricos ausentes', () => {
+    expect(
+      isPagedClientsResponse({ data: [], page: 1, pageSize: 20 }),
+    ).toBe(false);
+  });
+
+  it('rejeita item interno inválido (propaga falha de isClientDto)', () => {
+    expect(
+      isPagedClientsResponse(
+        makePaged([{ ...makeRawClientPf(), type: 'XX' } as unknown as ClientDto]),
+      ),
+    ).toBe(false);
+  });
+});
+
+describe('clientDisplayName', () => {
+  it('retorna fullName para PF', () => {
+    expect(clientDisplayName(makeRawClientPf())).toBe('Ana Cliente');
+  });
+
+  it('retorna corporateName para PJ', () => {
+    expect(clientDisplayName(makeRawClientPj())).toBe('Acme Indústria S/A');
+  });
+
+  it('cai no id quando ambos os labels estão ausentes', () => {
+    const orphan = makeRawClientPf({ fullName: null, corporateName: null });
+    expect(clientDisplayName(orphan)).toBe(CLIENT_PF_ID);
+  });
+
+  it('cai no id quando os labels são apenas whitespace', () => {
+    const orphan = makeRawClientPf({ fullName: '   ', corporateName: '' });
+    expect(clientDisplayName(orphan)).toBe(CLIENT_PF_ID);
+  });
+
+  it('prioriza fullName sobre corporateName se ambos estiverem preenchidos', () => {
+    const both = makeRawClientPf({
+      fullName: 'PF Name',
+      corporateName: 'PJ Name',
+    });
+    expect(clientDisplayName(both)).toBe('PF Name');
+  });
+});
+
+describe('listClients', () => {
+  it('chama GET /clients sem querystring quando params são defaults', async () => {
+    const client = makeClientStub();
+    const paged = makePaged([makeRawClientPf()]);
+    client.get.mockResolvedValueOnce(paged);
+
+    const result = await listClients({}, undefined, client as unknown as ApiClient);
+
+    expect(client.get).toHaveBeenCalledTimes(1);
+    expect(client.get).toHaveBeenCalledWith('/clients', undefined);
+    expect(result).toBe(paged);
+  });
+
+  it('inclui q quando informado e trim aplicado', async () => {
+    const client = makeClientStub();
+    client.get.mockResolvedValueOnce(makePaged([]));
+
+    await listClients({ q: '  Ana  ' }, undefined, client as unknown as ApiClient);
+
+    expect(client.get).toHaveBeenCalledWith('/clients?q=Ana', undefined);
+  });
+
+  it('inclui type=PF quando informado', async () => {
+    const client = makeClientStub();
+    client.get.mockResolvedValueOnce(makePaged([]));
+
+    await listClients({ type: 'PF' }, undefined, client as unknown as ApiClient);
+
+    expect(client.get).toHaveBeenCalledWith('/clients?type=PF', undefined);
+  });
+
+  it('inclui type=PJ quando informado', async () => {
+    const client = makeClientStub();
+    client.get.mockResolvedValueOnce(makePaged([]));
+
+    await listClients({ type: 'PJ' }, undefined, client as unknown as ApiClient);
+
+    expect(client.get).toHaveBeenCalledWith('/clients?type=PJ', undefined);
+  });
+
+  it('inclui active quando boolean (true)', async () => {
+    const client = makeClientStub();
+    client.get.mockResolvedValueOnce(makePaged([]));
+
+    await listClients({ active: true }, undefined, client as unknown as ApiClient);
+
+    expect(client.get).toHaveBeenCalledWith('/clients?active=true', undefined);
+  });
+
+  it('inclui active=false quando explicitamente false', async () => {
+    const client = makeClientStub();
+    client.get.mockResolvedValueOnce(makePaged([]));
+
+    await listClients({ active: false }, undefined, client as unknown as ApiClient);
+
+    expect(client.get).toHaveBeenCalledWith('/clients?active=false', undefined);
+  });
+
+  it('inclui page quando ≠ 1 (default)', async () => {
+    const client = makeClientStub();
+    client.get.mockResolvedValueOnce(makePaged([], { page: 2 }));
+
+    await listClients({ page: 2 }, undefined, client as unknown as ApiClient);
+
+    expect(client.get).toHaveBeenCalledWith('/clients?page=2', undefined);
+  });
+
+  it('inclui pageSize quando ≠ 20 (default)', async () => {
+    const client = makeClientStub();
+    client.get.mockResolvedValueOnce(makePaged([], { pageSize: 50 }));
+
+    await listClients({ pageSize: 50 }, undefined, client as unknown as ApiClient);
+
+    expect(client.get).toHaveBeenCalledWith('/clients?pageSize=50', undefined);
+  });
+
+  it('inclui includeDeleted quando true', async () => {
+    const client = makeClientStub();
+    client.get.mockResolvedValueOnce(makePaged([]));
+
+    await listClients(
+      { includeDeleted: true },
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.get).toHaveBeenCalledWith('/clients?includeDeleted=true', undefined);
+  });
+
+  it('combina vários params na ordem esperada', async () => {
+    const client = makeClientStub();
+    client.get.mockResolvedValueOnce(makePaged([]));
+
+    await listClients(
+      { q: 'ana', type: 'PF', page: 2, pageSize: 50, includeDeleted: true },
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.get).toHaveBeenCalledWith(
+      '/clients?q=ana&type=PF&page=2&pageSize=50&includeDeleted=true',
+      undefined,
+    );
+  });
+
+  it('omite q vazio (após trim) e omite type fora de PF/PJ', async () => {
+    const client = makeClientStub();
+    client.get.mockResolvedValueOnce(makePaged([]));
+
+    await listClients(
+      { q: '   ', type: undefined },
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.get).toHaveBeenCalledWith('/clients', undefined);
+  });
+
+  it('lança ApiError(parse) quando o backend devolve envelope inválido', async () => {
+    const client = makeClientStub();
+    client.get.mockResolvedValueOnce({ wrong: 'shape' });
+
+    await expect(
+      listClients({}, undefined, client as unknown as ApiClient),
+    ).rejects.toMatchObject({ kind: 'parse' });
+  });
+
+  it('propaga signal via options', async () => {
+    const client = makeClientStub();
+    client.get.mockResolvedValueOnce(makePaged([]));
+    const controller = new AbortController();
+
+    await listClients(
+      {},
+      { signal: controller.signal },
+      client as unknown as ApiClient,
+    );
+
+    expect(client.get).toHaveBeenCalledWith('/clients', { signal: controller.signal });
+  });
+});
+
+describe('getClientsByIds', () => {
+  it('retorna Map vazio quando ids está vazio (sem chamadas ao client)', async () => {
+    const client = makeClientStub();
+    const result = await getClientsByIds(
+      [],
+      undefined,
+      client as unknown as ApiClient,
+    );
+    expect(result.size).toBe(0);
+    expect(client.get).not.toHaveBeenCalled();
+  });
+
+  it('busca cada id e popula o Map preservando o id-chave', async () => {
+    const client = makeClientStub();
+    const pf = makeRawClientPf();
+    const pj = makeRawClientPj();
+    client.get.mockResolvedValueOnce(pf).mockResolvedValueOnce(pj);
+
+    const result = await getClientsByIds(
+      [pf.id, pj.id],
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(result.size).toBe(2);
+    expect(result.get(pf.id)).toEqual(pf);
+    expect(result.get(pj.id)).toEqual(pj);
+    expect(client.get.mock.calls[0][0]).toBe(`/clients/${pf.id}`);
+    expect(client.get.mock.calls[1][0]).toBe(`/clients/${pj.id}`);
+  });
+
+  it('skipa ids duplicados sem refazer chamada', async () => {
+    const client = makeClientStub();
+    const pf = makeRawClientPf();
+    client.get.mockResolvedValueOnce(pf);
+
+    await getClientsByIds(
+      [pf.id, pf.id, pf.id],
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.get).toHaveBeenCalledTimes(1);
+  });
+
+  it('é best-effort: lookup falho silenciosamente skipa o id', async () => {
+    const client = makeClientStub();
+    const pf = makeRawClientPf();
+    client.get
+      .mockRejectedValueOnce({ kind: 'http', status: 404, message: 'x' })
+      .mockResolvedValueOnce(pf);
+
+    const result = await getClientsByIds(
+      ['missing-id', pf.id],
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(result.size).toBe(1);
+    expect(result.get(pf.id)).toEqual(pf);
+    expect(result.has('missing-id')).toBe(false);
+  });
+
+  it('lança AbortError quando a requisição é cancelada', async () => {
+    const client = makeClientStub();
+    const abort = new DOMException('aborted', 'AbortError');
+    client.get.mockRejectedValueOnce(abort);
+
+    await expect(
+      getClientsByIds(
+        [CLIENT_PF_ID],
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toBe(abort);
+  });
+
+  it('lança ApiError de network com cancelamento explícito', async () => {
+    const client = makeClientStub();
+    const networkAbort = {
+      kind: 'network' as const,
+      message: 'Requisição cancelada.',
+    };
+    client.get.mockRejectedValueOnce(networkAbort);
+
+    await expect(
+      getClientsByIds(
+        [CLIENT_PF_ID],
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toBe(networkAbort);
+  });
+});
+
+/* ─── createClient (Issue #74) ──────────────────────────── */
+
+describe('createClient', () => {
+  it('envia POST /clients para PF com cpf+fullName trimados', async () => {
+    const client = makeClientStub();
+    const created = makeRawClientPf();
+    client.post.mockResolvedValueOnce(created);
+
+    const result = await createClient(
+      {
+        type: 'PF',
+        cpf: '  12345678901  ',
+        fullName: '  Ana Cliente  ',
+      },
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.post).toHaveBeenCalledTimes(1);
+    expect(client.post).toHaveBeenCalledWith(
+      '/clients',
+      {
+        type: 'PF',
+        cpf: '12345678901',
+        fullName: 'Ana Cliente',
+      },
+      undefined,
+    );
+    expect(result).toBe(created);
+  });
+
+  it('envia POST /clients para PJ com cnpj+corporateName trimados', async () => {
+    const client = makeClientStub();
+    const created = makeRawClientPj();
+    client.post.mockResolvedValueOnce(created);
+
+    await createClient(
+      {
+        type: 'PJ',
+        cnpj: '  12345678000190  ',
+        corporateName: '  Acme Indústria S/A  ',
+      },
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.post).toHaveBeenCalledWith(
+      '/clients',
+      {
+        type: 'PJ',
+        cnpj: '12345678000190',
+        corporateName: 'Acme Indústria S/A',
+      },
+      undefined,
+    );
+  });
+
+  it('omite campos do tipo oposto (PF não envia cnpj/corporateName)', async () => {
+    const client = makeClientStub();
+    client.post.mockResolvedValueOnce(makeRawClientPf());
+
+    await createClient(
+      {
+        type: 'PF',
+        cpf: '12345678901',
+        fullName: 'Ana',
+        // Caller mal-comportado tenta enviar campos PJ junto. O
+        // helper interno `buildClientMutationBody` os filtra para
+        // evitar 400 do backend ("CNPJ não deve ser informado para
+        // cliente PF.").
+        cnpj: '12345678000190',
+        corporateName: 'Algo',
+      },
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    const [, body] = client.post.mock.calls[0];
+    expect(body).toEqual({
+      type: 'PF',
+      cpf: '12345678901',
+      fullName: 'Ana',
+    });
+    expect(body).not.toHaveProperty('cnpj');
+    expect(body).not.toHaveProperty('corporateName');
+  });
+
+  it('omite campos do tipo oposto (PJ não envia cpf/fullName)', async () => {
+    const client = makeClientStub();
+    client.post.mockResolvedValueOnce(makeRawClientPj());
+
+    await createClient(
+      {
+        type: 'PJ',
+        cnpj: '12345678000190',
+        corporateName: 'Acme',
+        cpf: '12345678901',
+        fullName: 'Ana',
+      },
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    const [, body] = client.post.mock.calls[0];
+    expect(body).toEqual({
+      type: 'PJ',
+      cnpj: '12345678000190',
+      corporateName: 'Acme',
+    });
+    expect(body).not.toHaveProperty('cpf');
+    expect(body).not.toHaveProperty('fullName');
+  });
+
+  it('omite campos whitespace-only (PF com fullName apenas espaços)', async () => {
+    const client = makeClientStub();
+    client.post.mockResolvedValueOnce(makeRawClientPf());
+
+    await createClient(
+      {
+        type: 'PF',
+        cpf: '12345678901',
+        fullName: '   ',
+      },
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    const [, body] = client.post.mock.calls[0];
+    expect(body).toEqual({
+      type: 'PF',
+      cpf: '12345678901',
+    });
+    expect(body).not.toHaveProperty('fullName');
+  });
+
+  it('lança ApiError(parse) quando o backend devolve payload inválido', async () => {
+    const client = makeClientStub();
+    client.post.mockResolvedValueOnce({ wrong: 'shape' });
+
+    await expect(
+      createClient(
+        {
+          type: 'PF',
+          cpf: '12345678901',
+          fullName: 'Ana',
+        },
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toMatchObject({ kind: 'parse' });
+  });
+
+  it('propaga signal via options', async () => {
+    const client = makeClientStub();
+    client.post.mockResolvedValueOnce(makeRawClientPf());
+    const controller = new AbortController();
+
+    await createClient(
+      { type: 'PF', cpf: '12345678901', fullName: 'Ana' },
+      { signal: controller.signal },
+      client as unknown as ApiClient,
+    );
+
+    expect(client.post).toHaveBeenCalledWith(
+      '/clients',
+      expect.any(Object),
+      { signal: controller.signal },
+    );
+  });
+
+  it('propaga ApiError 409 do backend (CPF/CNPJ duplicado)', async () => {
+    const client = makeClientStub();
+    const conflict = {
+      kind: 'http' as const,
+      status: 409,
+      message: 'Já existe cliente com este CPF.',
+    };
+    client.post.mockRejectedValueOnce(conflict);
+
+    await expect(
+      createClient(
+        { type: 'PF', cpf: '12345678901', fullName: 'Ana' },
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toBe(conflict);
+  });
+});
+
+/* ─── getClientById (Issue #75) ─────────────────────────── */
+
+describe('getClientById', () => {
+  it('faz GET /clients/{id} e devolve o ClientDto parseado', async () => {
+    const client = makeClientStub();
+    const dto = makeRawClientPf();
+    client.get.mockResolvedValueOnce(dto);
+
+    const result = await getClientById(
+      CLIENT_PF_ID,
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.get).toHaveBeenCalledTimes(1);
+    expect(client.get).toHaveBeenCalledWith(`/clients/${CLIENT_PF_ID}`, undefined);
+    expect(result).toBe(dto);
+  });
+
+  it('propaga signal via options', async () => {
+    const client = makeClientStub();
+    client.get.mockResolvedValueOnce(makeRawClientPf());
+    const controller = new AbortController();
+
+    await getClientById(
+      CLIENT_PF_ID,
+      { signal: controller.signal },
+      client as unknown as ApiClient,
+    );
+
+    expect(client.get).toHaveBeenCalledWith(`/clients/${CLIENT_PF_ID}`, {
+      signal: controller.signal,
+    });
+  });
+
+  it('lança ApiError(parse) quando o backend devolve corpo vazio', async () => {
+    const client = makeClientStub();
+    client.get.mockResolvedValueOnce(null);
+
+    await expect(
+      getClientById(CLIENT_PF_ID, undefined, client as unknown as ApiClient),
+    ).rejects.toMatchObject({ kind: 'parse' });
+  });
+
+  it('lança ApiError(parse) quando o backend devolve payload com shape inválido', async () => {
+    const client = makeClientStub();
+    client.get.mockResolvedValueOnce({ wrong: 'shape' });
+
+    await expect(
+      getClientById(CLIENT_PF_ID, undefined, client as unknown as ApiClient),
+    ).rejects.toMatchObject({ kind: 'parse' });
+  });
+
+  it('propaga ApiError 404 do backend', async () => {
+    const client = makeClientStub();
+    const notFound = {
+      kind: 'http' as const,
+      status: 404,
+      message: 'Cliente não encontrado.',
+    };
+    client.get.mockRejectedValueOnce(notFound);
+
+    await expect(
+      getClientById(CLIENT_PF_ID, undefined, client as unknown as ApiClient),
+    ).rejects.toBe(notFound);
+  });
+});
+
+/* ─── updateClient (Issue #75) ──────────────────────────── */
+
+describe('updateClient', () => {
+  it('envia PUT /clients/{id} para PF com cpf+fullName trimados', async () => {
+    const client = makeClientStub();
+    const updated = makeRawClientPf();
+    client.put.mockResolvedValueOnce(updated);
+
+    const result = await updateClient(
+      CLIENT_PF_ID,
+      {
+        type: 'PF',
+        cpf: '  12345678901  ',
+        fullName: '  Ana Cliente  ',
+      },
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.put).toHaveBeenCalledTimes(1);
+    expect(client.put).toHaveBeenCalledWith(
+      `/clients/${CLIENT_PF_ID}`,
+      {
+        type: 'PF',
+        cpf: '12345678901',
+        fullName: 'Ana Cliente',
+      },
+      undefined,
+    );
+    expect(result).toBe(updated);
+  });
+
+  it('envia PUT /clients/{id} para PJ com cnpj+corporateName trimados', async () => {
+    const client = makeClientStub();
+    const updated = makeRawClientPj();
+    client.put.mockResolvedValueOnce(updated);
+
+    await updateClient(
+      CLIENT_PJ_ID,
+      {
+        type: 'PJ',
+        cnpj: '  12345678000190  ',
+        corporateName: '  Acme Indústria S/A  ',
+      },
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.put).toHaveBeenCalledWith(
+      `/clients/${CLIENT_PJ_ID}`,
+      {
+        type: 'PJ',
+        cnpj: '12345678000190',
+        corporateName: 'Acme Indústria S/A',
+      },
+      undefined,
+    );
+  });
+
+  it('omite campos do tipo oposto (PF não envia cnpj/corporateName)', async () => {
+    const client = makeClientStub();
+    client.put.mockResolvedValueOnce(makeRawClientPf());
+
+    await updateClient(
+      CLIENT_PF_ID,
+      {
+        type: 'PF',
+        cpf: '12345678901',
+        fullName: 'Ana',
+        // Caller mal-comportado tenta enviar campos PJ junto. O
+        // helper interno `buildClientMutationBody` os filtra para
+        // evitar 400 do backend ("CNPJ não deve ser informado para
+        // cliente PF.").
+        cnpj: '12345678000190',
+        corporateName: 'Algo',
+      },
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    const [, body] = client.put.mock.calls[0];
+    expect(body).toEqual({
+      type: 'PF',
+      cpf: '12345678901',
+      fullName: 'Ana',
+    });
+    expect(body).not.toHaveProperty('cnpj');
+    expect(body).not.toHaveProperty('corporateName');
+  });
+
+  it('lança ApiError(parse) quando o backend devolve payload inválido', async () => {
+    const client = makeClientStub();
+    client.put.mockResolvedValueOnce({ wrong: 'shape' });
+
+    await expect(
+      updateClient(
+        CLIENT_PF_ID,
+        { type: 'PF', cpf: '12345678901', fullName: 'Ana' },
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toMatchObject({ kind: 'parse' });
+  });
+
+  it('propaga signal via options', async () => {
+    const client = makeClientStub();
+    client.put.mockResolvedValueOnce(makeRawClientPf());
+    const controller = new AbortController();
+
+    await updateClient(
+      CLIENT_PF_ID,
+      { type: 'PF', cpf: '12345678901', fullName: 'Ana' },
+      { signal: controller.signal },
+      client as unknown as ApiClient,
+    );
+
+    expect(client.put).toHaveBeenCalledWith(
+      `/clients/${CLIENT_PF_ID}`,
+      expect.any(Object),
+      { signal: controller.signal },
+    );
+  });
+
+  it('propaga ApiError 409 do backend (CPF/CNPJ duplicado)', async () => {
+    const client = makeClientStub();
+    const conflict = {
+      kind: 'http' as const,
+      status: 409,
+      message: 'Já existe cliente com este CPF.',
+    };
+    client.put.mockRejectedValueOnce(conflict);
+
+    await expect(
+      updateClient(
+        CLIENT_PF_ID,
+        { type: 'PF', cpf: '12345678901', fullName: 'Ana' },
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toBe(conflict);
+  });
+
+  it('propaga ApiError 404 do backend (cliente removido)', async () => {
+    const client = makeClientStub();
+    const notFound = {
+      kind: 'http' as const,
+      status: 404,
+      message: 'Cliente não encontrado.',
+    };
+    client.put.mockRejectedValueOnce(notFound);
+
+    await expect(
+      updateClient(
+        CLIENT_PF_ID,
+        { type: 'PF', cpf: '12345678901', fullName: 'Ana' },
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toBe(notFound);
+  });
+
+  it('propaga ApiError 400 do backend (type imutável)', async () => {
+    const client = makeClientStub();
+    const badRequest = {
+      kind: 'http' as const,
+      status: 400,
+      message: 'Tipo do cliente não pode ser alterado após a criação.',
+    };
+    client.put.mockRejectedValueOnce(badRequest);
+
+    await expect(
+      updateClient(
+        CLIENT_PF_ID,
+        { type: 'PJ', cnpj: '12345678000190', corporateName: 'Acme' },
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toBe(badRequest);
+  });
+});
+
+/* ─── deleteClient (Issue #76) ──────────────────────────── */
+
+describe('deleteClient', () => {
+  it('faz DELETE /clients/{id} sem corpo e resolve void em sucesso', async () => {
+    const client = makeClientStub();
+    client.delete.mockResolvedValueOnce(undefined);
+
+    const result = await deleteClient(
+      CLIENT_PF_ID,
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.delete).toHaveBeenCalledTimes(1);
+    expect(client.delete).toHaveBeenCalledWith(`/clients/${CLIENT_PF_ID}`, undefined);
+    expect(result).toBeUndefined();
+  });
+
+  it('propaga signal via options', async () => {
+    const client = makeClientStub();
+    client.delete.mockResolvedValueOnce(undefined);
+    const controller = new AbortController();
+
+    await deleteClient(
+      CLIENT_PF_ID,
+      { signal: controller.signal },
+      client as unknown as ApiClient,
+    );
+
+    expect(client.delete).toHaveBeenCalledWith(`/clients/${CLIENT_PF_ID}`, {
+      signal: controller.signal,
+    });
+  });
+
+  it('propaga ApiError 404 do backend (cliente não encontrado)', async () => {
+    const client = makeClientStub();
+    const notFound = {
+      kind: 'http' as const,
+      status: 404,
+      message: 'Cliente não encontrado.',
+    };
+    client.delete.mockRejectedValueOnce(notFound);
+
+    await expect(
+      deleteClient(CLIENT_PF_ID, undefined, client as unknown as ApiClient),
+    ).rejects.toBe(notFound);
+  });
+
+  it('propaga ApiError 409 do backend (conflito por usuários vinculados — defensivo)', async () => {
+    // Hoje o backend não devolve 409 no DELETE — apenas faz o
+    // soft-delete sem detachar vínculos. Mantemos o teste como
+    // defensivo para o caso do backend evoluir o contrato (critério
+    // #76 — "Tratamento de erro caso o cliente tenha usuários ativos
+    // vinculados.").
+    const client = makeClientStub();
+    const conflict = {
+      kind: 'http' as const,
+      status: 409,
+      message: 'Cliente possui usuários ativos vinculados.',
+    };
+    client.delete.mockRejectedValueOnce(conflict);
+
+    await expect(
+      deleteClient(CLIENT_PF_ID, undefined, client as unknown as ApiClient),
+    ).rejects.toBe(conflict);
+  });
+
+  it('propaga ApiError 401/403 do backend (sessão/permissão)', async () => {
+    const client = makeClientStub();
+    const forbidden = {
+      kind: 'http' as const,
+      status: 403,
+      message: 'Você não tem permissão para esta ação.',
+    };
+    client.delete.mockRejectedValueOnce(forbidden);
+
+    await expect(
+      deleteClient(CLIENT_PF_ID, undefined, client as unknown as ApiClient),
+    ).rejects.toBe(forbidden);
+  });
+});
+
+/* ─── restoreClient (Issue #76) ─────────────────────────── */
+
+describe('restoreClient', () => {
+  it('faz POST /clients/{id}/restore com body undefined e resolve void em sucesso', async () => {
+    const client = makeClientStub();
+    // Backend devolve `{ message: "Cliente restaurado com sucesso." }`
+    // mas o wrapper retorna `void` — descartamos o body.
+    client.post.mockResolvedValueOnce(undefined);
+
+    const result = await restoreClient(
+      CLIENT_PF_ID,
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.post).toHaveBeenCalledTimes(1);
+    expect(client.post).toHaveBeenCalledWith(
+      `/clients/${CLIENT_PF_ID}/restore`,
+      undefined,
+      undefined,
+    );
+    expect(result).toBeUndefined();
+  });
+
+  it('propaga signal via options', async () => {
+    const client = makeClientStub();
+    client.post.mockResolvedValueOnce(undefined);
+    const controller = new AbortController();
+
+    await restoreClient(
+      CLIENT_PF_ID,
+      { signal: controller.signal },
+      client as unknown as ApiClient,
+    );
+
+    expect(client.post).toHaveBeenCalledWith(
+      `/clients/${CLIENT_PF_ID}/restore`,
+      undefined,
+      { signal: controller.signal },
+    );
+  });
+
+  it('propaga ApiError 404 do backend (cliente inexistente ou já ativo)', async () => {
+    const client = makeClientStub();
+    const notFound = {
+      kind: 'http' as const,
+      status: 404,
+      message: 'Cliente não encontrado ou não está deletado.',
+    };
+    client.post.mockRejectedValueOnce(notFound);
+
+    await expect(
+      restoreClient(CLIENT_PF_ID, undefined, client as unknown as ApiClient),
+    ).rejects.toBe(notFound);
+  });
+
+  it('propaga ApiError 401/403 do backend (sessão/permissão)', async () => {
+    const client = makeClientStub();
+    const forbidden = {
+      kind: 'http' as const,
+      status: 401,
+      message: 'Sessão expirada. Faça login novamente.',
+    };
+    client.post.mockRejectedValueOnce(forbidden);
+
+    await expect(
+      restoreClient(CLIENT_PF_ID, undefined, client as unknown as ApiClient),
+    ).rejects.toBe(forbidden);
+  });
+});
+
+describe('addClientExtraEmail (Issue #146)', () => {
+  const EMAIL_ID = 'e0000000-0000-0000-0000-000000000001';
+
+  function makeRawEmail(overrides: Partial<{ id: string; email: string; createdAt: string }> = {}): {
+    id: string;
+    email: string;
+    createdAt: string;
+  } {
+    return {
+      id: EMAIL_ID,
+      email: 'extra@exemplo.com',
+      createdAt: '2026-02-10T12:00:00Z',
+      ...overrides,
+    };
+  }
+
+  it('faz POST /clients/{id}/emails com body { email } e devolve ClientEmailDto', async () => {
+    const client = makeClientStub();
+    const created = makeRawEmail();
+    client.post.mockResolvedValueOnce(created);
+
+    const result = await addClientExtraEmail(
+      CLIENT_PF_ID,
+      'extra@exemplo.com',
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.post).toHaveBeenCalledTimes(1);
+    expect(client.post.mock.calls[0][0]).toBe(
+      `/clients/${CLIENT_PF_ID}/emails`,
+    );
+    expect(client.post.mock.calls[0][1]).toEqual({ email: 'extra@exemplo.com' });
+    expect(result).toEqual(created);
+  });
+
+  it('propaga signal via options', async () => {
+    const client = makeClientStub();
+    client.post.mockResolvedValueOnce(makeRawEmail());
+    const controller = new AbortController();
+
+    await addClientExtraEmail(
+      CLIENT_PF_ID,
+      'extra@exemplo.com',
+      { signal: controller.signal },
+      client as unknown as ApiClient,
+    );
+
+    expect(client.post.mock.calls[0][2]).toEqual({ signal: controller.signal });
+  });
+
+  it('lança ApiError(parse) quando o backend devolve payload inválido', async () => {
+    const client = makeClientStub();
+    client.post.mockResolvedValueOnce({ malformed: true });
+
+    await expect(
+      addClientExtraEmail(
+        CLIENT_PF_ID,
+        'extra@exemplo.com',
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toMatchObject({
+      kind: 'parse',
+      message: 'Resposta inválida do servidor.',
+    });
+  });
+
+  it('propaga ApiError 400 do backend (limite atingido)', async () => {
+    const client = makeClientStub();
+    const limit = {
+      kind: 'http' as const,
+      status: 400,
+      message: 'Limite de 3 emails extras por cliente.',
+    };
+    client.post.mockRejectedValueOnce(limit);
+
+    await expect(
+      addClientExtraEmail(
+        CLIENT_PF_ID,
+        'extra@exemplo.com',
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toBe(limit);
+  });
+
+  it('propaga ApiError 409 do backend (email duplicado)', async () => {
+    const client = makeClientStub();
+    const conflict = {
+      kind: 'http' as const,
+      status: 409,
+      message: 'Email extra já cadastrado para este cliente.',
+    };
+    client.post.mockRejectedValueOnce(conflict);
+
+    await expect(
+      addClientExtraEmail(
+        CLIENT_PF_ID,
+        'extra@exemplo.com',
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toBe(conflict);
+  });
+
+  it('propaga ApiError 409 do backend (email é username de algum usuário)', async () => {
+    const client = makeClientStub();
+    const conflict = {
+      kind: 'http' as const,
+      status: 409,
+      message:
+        'Este email está sendo usado como username e não pode ser email extra.',
+    };
+    client.post.mockRejectedValueOnce(conflict);
+
+    await expect(
+      addClientExtraEmail(
+        CLIENT_PF_ID,
+        'username@exemplo.com',
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toBe(conflict);
+  });
+
+  it('propaga ApiError 404 do backend (cliente removido)', async () => {
+    const client = makeClientStub();
+    const notFound = {
+      kind: 'http' as const,
+      status: 404,
+      message: 'Cliente não encontrado.',
+    };
+    client.post.mockRejectedValueOnce(notFound);
+
+    await expect(
+      addClientExtraEmail(
+        CLIENT_PF_ID,
+        'extra@exemplo.com',
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toBe(notFound);
+  });
+});
+
+describe('removeClientExtraEmail (Issue #146)', () => {
+  const EMAIL_ID = 'e0000000-0000-0000-0000-000000000001';
+
+  it('faz DELETE /clients/{id}/emails/{emailId} sem corpo e resolve void', async () => {
+    const client = makeClientStub();
+    client.delete.mockResolvedValueOnce(undefined);
+
+    const result = await removeClientExtraEmail(
+      CLIENT_PF_ID,
+      EMAIL_ID,
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.delete).toHaveBeenCalledTimes(1);
+    expect(client.delete.mock.calls[0][0]).toBe(
+      `/clients/${CLIENT_PF_ID}/emails/${EMAIL_ID}`,
+    );
+    expect(result).toBeUndefined();
+  });
+
+  it('propaga signal via options', async () => {
+    const client = makeClientStub();
+    client.delete.mockResolvedValueOnce(undefined);
+    const controller = new AbortController();
+
+    await removeClientExtraEmail(
+      CLIENT_PF_ID,
+      EMAIL_ID,
+      { signal: controller.signal },
+      client as unknown as ApiClient,
+    );
+
+    expect(client.delete.mock.calls[0][1]).toEqual({
+      signal: controller.signal,
+    });
+  });
+
+  it('propaga ApiError 400 do backend (email é username — não pode remover)', async () => {
+    const client = makeClientStub();
+    const usernameError = {
+      kind: 'http' as const,
+      status: 400,
+      message:
+        'Não é permitido remover email que esteja sendo usado como username.',
+    };
+    client.delete.mockRejectedValueOnce(usernameError);
+
+    await expect(
+      removeClientExtraEmail(
+        CLIENT_PF_ID,
+        EMAIL_ID,
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toBe(usernameError);
+  });
+
+  it('propaga ApiError 404 do backend (email não pertence ao cliente)', async () => {
+    const client = makeClientStub();
+    const notFound = {
+      kind: 'http' as const,
+      status: 404,
+      message: 'Email extra não encontrado para este cliente.',
+    };
+    client.delete.mockRejectedValueOnce(notFound);
+
+    await expect(
+      removeClientExtraEmail(
+        CLIENT_PF_ID,
+        EMAIL_ID,
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toBe(notFound);
+  });
+
+  it('propaga ApiError 401/403 do backend (sessão/permissão)', async () => {
+    const client = makeClientStub();
+    const forbidden = {
+      kind: 'http' as const,
+      status: 403,
+      message: 'Você não tem permissão para esta ação.',
+    };
+    client.delete.mockRejectedValueOnce(forbidden);
+
+    await expect(
+      removeClientExtraEmail(
+        CLIENT_PF_ID,
+        EMAIL_ID,
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toBe(forbidden);
+  });
+});
+
+/* ─── add(Mobile|Landline)Phone — Issue #147 ─────────────── */
+
+/**
+ * Helper interno parametrizado por endpoint para colapsar a suíte
+ * idêntica entre `addClientMobilePhone` e `addClientLandlinePhone`.
+ *
+ * As duas funções compartilham 100% do contrato (mesmo body, mesmo
+ * type guard, mesmos `ApiError` propagados) — o backend dispara
+ * `AddPhoneInternal` único, divergindo apenas no `Type` registrado e
+ * na string da mensagem de limite. Manter um único helper de teste
+ * parametrizado evita duplicação Sonar (lição PR #128/#134/#135).
+ */
+function buildAddPhoneTests(
+  label: string,
+  fn: typeof addClientMobilePhone | typeof addClientLandlinePhone,
+  endpoint: string,
+  limitMessage: string,
+): void {
+  describe(`${label} (Issue #147)`, () => {
+    const PHONE_ID = 'p0000000-0000-0000-0000-000000000001';
+
+    function makeRawPhone(
+      overrides: Partial<{ id: string; number: string; createdAt: string }> = {},
+    ): { id: string; number: string; createdAt: string } {
+      return {
+        id: PHONE_ID,
+        number: '+5518981789845',
+        createdAt: '2026-02-15T12:00:00Z',
+        ...overrides,
+      };
+    }
+
+    it(`faz POST ${endpoint} com body { number } e devolve ClientPhoneDto`, async () => {
+      const client = makeClientStub();
+      const created = makeRawPhone();
+      client.post.mockResolvedValueOnce(created);
+
+      const result = await fn(
+        CLIENT_PF_ID,
+        '+5518981789845',
+        undefined,
+        client as unknown as ApiClient,
+      );
+
+      expect(client.post).toHaveBeenCalledTimes(1);
+      expect(client.post.mock.calls[0][0]).toBe(endpoint);
+      expect(client.post.mock.calls[0][1]).toEqual({
+        number: '+5518981789845',
+      });
+      expect(result).toEqual(created);
+    });
+
+    it('propaga signal via options', async () => {
+      const client = makeClientStub();
+      client.post.mockResolvedValueOnce(makeRawPhone());
+      const controller = new AbortController();
+
+      await fn(
+        CLIENT_PF_ID,
+        '+5518981789845',
+        { signal: controller.signal },
+        client as unknown as ApiClient,
+      );
+
+      expect(client.post.mock.calls[0][2]).toEqual({
+        signal: controller.signal,
+      });
+    });
+
+    it('lança ApiError(parse) quando o backend devolve payload inválido', async () => {
+      const client = makeClientStub();
+      client.post.mockResolvedValueOnce({ malformed: true });
+
+      await expect(
+        fn(
+          CLIENT_PF_ID,
+          '+5518981789845',
+          undefined,
+          client as unknown as ApiClient,
+        ),
+      ).rejects.toMatchObject({
+        kind: 'parse',
+        message: 'Resposta inválida do servidor.',
+      });
+    });
+
+    it('propaga ApiError 400 do backend (limite atingido)', async () => {
+      const client = makeClientStub();
+      const limit = {
+        kind: 'http' as const,
+        status: 400,
+        message: limitMessage,
+      };
+      client.post.mockRejectedValueOnce(limit);
+
+      await expect(
+        fn(
+          CLIENT_PF_ID,
+          '+5518981789845',
+          undefined,
+          client as unknown as ApiClient,
+        ),
+      ).rejects.toBe(limit);
+    });
+
+    it('propaga ApiError 400 do backend (telefone inválido)', async () => {
+      const client = makeClientStub();
+      const invalid = {
+        kind: 'http' as const,
+        status: 400,
+        message:
+          'Telefone inválido. Use o formato internacional com DDI e DDD, ex.: +5518981789845.',
+      };
+      client.post.mockRejectedValueOnce(invalid);
+
+      await expect(
+        fn(
+          CLIENT_PF_ID,
+          '+5518981789845',
+          undefined,
+          client as unknown as ApiClient,
+        ),
+      ).rejects.toBe(invalid);
+    });
+
+    it('propaga ApiError 409 do backend (telefone duplicado)', async () => {
+      const client = makeClientStub();
+      const conflict = {
+        kind: 'http' as const,
+        status: 409,
+        message: 'Contato já cadastrado para este cliente.',
+      };
+      client.post.mockRejectedValueOnce(conflict);
+
+      await expect(
+        fn(
+          CLIENT_PF_ID,
+          '+5518981789845',
+          undefined,
+          client as unknown as ApiClient,
+        ),
+      ).rejects.toBe(conflict);
+    });
+
+    it('propaga ApiError 404 do backend (cliente removido)', async () => {
+      const client = makeClientStub();
+      const notFound = {
+        kind: 'http' as const,
+        status: 404,
+        message: 'Cliente não encontrado.',
+      };
+      client.post.mockRejectedValueOnce(notFound);
+
+      await expect(
+        fn(
+          CLIENT_PF_ID,
+          '+5518981789845',
+          undefined,
+          client as unknown as ApiClient,
+        ),
+      ).rejects.toBe(notFound);
+    });
+  });
+}
+
+buildAddPhoneTests(
+  'addClientMobilePhone',
+  addClientMobilePhone,
+  `/clients/${CLIENT_PF_ID}/mobiles`,
+  'Limite de 3 celulares por cliente.',
+);
+
+buildAddPhoneTests(
+  'addClientLandlinePhone',
+  addClientLandlinePhone,
+  `/clients/${CLIENT_PF_ID}/phones`,
+  'Limite de 3 telefones por cliente.',
+);
+
+/* ─── remove(Mobile|Landline)Phone — Issue #147 ──────────── */
+
+/**
+ * Helper interno parametrizado por endpoint para colapsar a suíte
+ * idêntica entre `removeClientMobilePhone` e `removeClientLandlinePhone`.
+ * Mesma motivação de `buildAddPhoneTests` — o backend reusa
+ * `RemovePhoneInternal`.
+ */
+function buildRemovePhoneTests(
+  label: string,
+  fn: typeof removeClientMobilePhone | typeof removeClientLandlinePhone,
+  endpoint: string,
+): void {
+  describe(`${label} (Issue #147)`, () => {
+    const PHONE_ID = 'p0000000-0000-0000-0000-000000000001';
+
+    it(`faz DELETE ${endpoint} sem corpo e resolve void`, async () => {
+      const client = makeClientStub();
+      client.delete.mockResolvedValueOnce(undefined);
+
+      const result = await fn(
+        CLIENT_PF_ID,
+        PHONE_ID,
+        undefined,
+        client as unknown as ApiClient,
+      );
+
+      expect(client.delete).toHaveBeenCalledTimes(1);
+      expect(client.delete.mock.calls[0][0]).toBe(endpoint);
+      expect(result).toBeUndefined();
+    });
+
+    it('propaga signal via options', async () => {
+      const client = makeClientStub();
+      client.delete.mockResolvedValueOnce(undefined);
+      const controller = new AbortController();
+
+      await fn(
+        CLIENT_PF_ID,
+        PHONE_ID,
+        { signal: controller.signal },
+        client as unknown as ApiClient,
+      );
+
+      expect(client.delete.mock.calls[0][1]).toEqual({
+        signal: controller.signal,
+      });
+    });
+
+    it('propaga ApiError 404 do backend (telefone não pertence ao cliente)', async () => {
+      const client = makeClientStub();
+      const notFound = {
+        kind: 'http' as const,
+        status: 404,
+        message: 'Contato não encontrado para este cliente.',
+      };
+      client.delete.mockRejectedValueOnce(notFound);
+
+      await expect(
+        fn(
+          CLIENT_PF_ID,
+          PHONE_ID,
+          undefined,
+          client as unknown as ApiClient,
+        ),
+      ).rejects.toBe(notFound);
+    });
+
+    it('propaga ApiError 401/403 do backend (sessão/permissão)', async () => {
+      const client = makeClientStub();
+      const forbidden = {
+        kind: 'http' as const,
+        status: 403,
+        message: 'Você não tem permissão para esta ação.',
+      };
+      client.delete.mockRejectedValueOnce(forbidden);
+
+      await expect(
+        fn(
+          CLIENT_PF_ID,
+          PHONE_ID,
+          undefined,
+          client as unknown as ApiClient,
+        ),
+      ).rejects.toBe(forbidden);
+    });
+  });
+}
+
+buildRemovePhoneTests(
+  'removeClientMobilePhone',
+  removeClientMobilePhone,
+  `/clients/${CLIENT_PF_ID}/mobiles/p0000000-0000-0000-0000-000000000001`,
+);
+
+buildRemovePhoneTests(
+  'removeClientLandlinePhone',
+  removeClientLandlinePhone,
+  `/clients/${CLIENT_PF_ID}/phones/p0000000-0000-0000-0000-000000000001`,
+);

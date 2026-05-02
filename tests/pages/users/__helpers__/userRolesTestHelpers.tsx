@@ -1,0 +1,233 @@
+import { render, screen, waitFor } from '@testing-library/react';
+import React from 'react';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { vi } from 'vitest';
+
+import type {
+  ApiClient,
+  PagedResponse,
+  RoleDto,
+  SystemDto,
+  UserDto,
+  UserRoleSummary,
+} from '@/shared/api';
+
+import { ToastProvider } from '@/components/ui';
+import { UserRolesShellPage } from '@/pages/users';
+
+/**
+ * Helpers compartilhados pela suíte da `UserRolesShellPage`
+ * (Issue #71). Espelha o pattern de `userPermissionsTestHelpers.tsx`
+ * (Issue #70 — lição PR #128 sobre projetar shared helpers desde o
+ * primeiro PR do recurso). A tela tem 4 fontes de dados
+ * (`listRoles`, `listSystems`, `getUserById`, e as duas mutações
+ * `assignRoleToUser`/`removeRoleFromUser`), então o stub pré-configura
+ * todos os `client.get/post/delete` em estado feliz e os testes só
+ * sobrescrevem o que importa por cenário.
+ */
+
+export const ID_USER = '11111111-1111-1111-1111-111111111111';
+export const ID_ROLE_ADMIN = '22222222-2222-2222-2222-222222222222';
+export const ID_ROLE_VIEWER = '33333333-3333-3333-3333-333333333333';
+export const ID_ROLE_OPERATOR = '44444444-4444-4444-4444-444444444444';
+export const ID_SYS_AUTH = '55555555-5555-5555-5555-555555555555';
+export const ID_SYS_KURTTO = '66666666-6666-6666-6666-666666666666';
+
+export type ApiClientStub = ApiClient & {
+  get: ReturnType<typeof vi.fn>;
+  post: ReturnType<typeof vi.fn>;
+  put: ReturnType<typeof vi.fn>;
+  patch: ReturnType<typeof vi.fn>;
+  delete: ReturnType<typeof vi.fn>;
+  request: ReturnType<typeof vi.fn>;
+  setAuth: ReturnType<typeof vi.fn>;
+  getSystemId: ReturnType<typeof vi.fn>;
+};
+
+export function createUserRolesClientStub(): ApiClientStub {
+  return {
+    request: vi.fn(),
+    get: vi.fn(),
+    post: vi.fn(),
+    put: vi.fn(),
+    patch: vi.fn(),
+    delete: vi.fn(),
+    setAuth: vi.fn(),
+    getSystemId: vi.fn(() => 'system-test-uuid'),
+  } as unknown as ApiClientStub;
+}
+
+export function makeRole(overrides: Partial<RoleDto> = {}): RoleDto {
+  return {
+    id: ID_ROLE_ADMIN,
+    name: 'Administrator',
+    code: 'admin',
+    systemId: ID_SYS_AUTH,
+    description: null,
+    permissionsCount: null,
+    usersCount: null,
+    createdAt: '2026-01-10T12:00:00Z',
+    updatedAt: '2026-01-10T12:00:00Z',
+    deletedAt: null,
+    ...overrides,
+  };
+}
+
+export function makeSystem(overrides: Partial<SystemDto> = {}): SystemDto {
+  return {
+    id: ID_SYS_AUTH,
+    name: 'Authenticator',
+    code: 'authenticator',
+    description: null,
+    createdAt: '2026-01-10T12:00:00Z',
+    updatedAt: '2026-01-10T12:00:00Z',
+    deletedAt: null,
+    ...overrides,
+  };
+}
+
+export function makeUserRoleSummary(
+  overrides: Partial<UserRoleSummary> = {},
+): UserRoleSummary {
+  return {
+    id: ID_ROLE_ADMIN,
+    name: 'Administrator',
+    code: 'admin',
+    systemId: ID_SYS_AUTH,
+    ...overrides,
+  };
+}
+
+export function makeUser(overrides: Partial<UserDto> = {}): UserDto {
+  return {
+    id: ID_USER,
+    name: 'Alice Admin',
+    email: 'alice@example.com',
+    clientId: null,
+    identity: 1,
+    active: true,
+    createdAt: '2026-01-10T12:00:00Z',
+    updatedAt: '2026-01-10T12:00:00Z',
+    deletedAt: null,
+    roles: [],
+    ...overrides,
+  };
+}
+
+/**
+ * Constrói um envelope `PagedResponse<T>` com defaults de página
+ * coerentes com o catálogo carregado em uma única request
+ * (`pageSize=100`, `page=1`). Genérico evita duplicação entre
+ * `makePagedRoles` e `makePagedSystems` que o lint
+ * `sonarjs/no-identical-functions` capturaria.
+ */
+function makePagedResponse<T>(
+  items: ReadonlyArray<T>,
+  overrides: Partial<PagedResponse<T>> = {},
+): PagedResponse<T> {
+  return {
+    data: items,
+    page: 1,
+    pageSize: 100,
+    total: items.length,
+    ...overrides,
+  };
+}
+
+export function makePagedRoles(
+  items: ReadonlyArray<RoleDto>,
+  overrides: Partial<PagedResponse<RoleDto>> = {},
+): PagedResponse<RoleDto> {
+  return makePagedResponse(items, overrides);
+}
+
+export function makePagedSystems(
+  items: ReadonlyArray<SystemDto>,
+  overrides: Partial<PagedResponse<SystemDto>> = {},
+): PagedResponse<SystemDto> {
+  return makePagedResponse(items, overrides);
+}
+
+interface SetupOptions {
+  /**
+   * Catálogo devolvido pelo `listRoles`. **Importante:** o backend
+   * `/roles` ainda devolve um array cru (não envelope paginado);
+   * `listRoles` adapta client-side. O stub deve mocar o array, e o
+   * `makePagedRoles` aqui é apenas conveniência para testes que
+   * queiram passar o envelope explicitamente — a normalização no
+   * `primeStubResponses` aceita ambos.
+   */
+  roles?: PagedResponse<RoleDto> | ReadonlyArray<RoleDto>;
+  /** Sistemas devolvidos pelo `listSystems` (lookup, envelope paginado). */
+  systems?: PagedResponse<SystemDto>;
+  /** Usuário devolvido pelo `getUserById`. */
+  user?: UserDto;
+}
+
+/**
+ * Configura o stub para retornar roles + sistemas + user em estado
+ * feliz. A página dispara as três requests em paralelo no mount; este
+ * helper resolve todas via `mockImplementation` baseado na URL para
+ * evitar acoplar o teste à ordem de chamadas.
+ */
+export function primeStubResponses(
+  client: ApiClientStub,
+  options: SetupOptions = {},
+): void {
+  // Backend hoje devolve `/roles` como array cru — o adapter
+  // `listRoles` paginia/filtra client-side. O stub aqui sempre devolve
+  // o array (extraído do envelope se o caller passou `PagedResponse`).
+  const rolesInput = options.roles ?? [makeRole()];
+  const rolesArray = Array.isArray(rolesInput)
+    ? (rolesInput as ReadonlyArray<RoleDto>)
+    : (rolesInput as PagedResponse<RoleDto>).data;
+  const systems = options.systems ?? makePagedSystems([makeSystem()]);
+  const user = options.user ?? makeUser();
+
+  client.get.mockImplementation((path: string) => {
+    if (path.startsWith('/roles')) {
+      return Promise.resolve(rolesArray);
+    }
+    if (path.startsWith('/systems')) {
+      return Promise.resolve(systems);
+    }
+    if (path.startsWith('/users/')) {
+      return Promise.resolve(user);
+    }
+    return Promise.reject(
+      Object.assign(new Error('URL stub não esperada: ' + path), {
+        kind: 'http',
+        status: 404,
+      }),
+    );
+  });
+}
+
+export function renderUserRolesPage(
+  client: ApiClientStub,
+  userId: string = ID_USER,
+): void {
+  render(
+    <ToastProvider>
+      <MemoryRouter initialEntries={[`/usuarios/${userId}/roles`]}>
+        <Routes>
+          <Route
+            path="/usuarios/:id/roles"
+            element={<UserRolesShellPage client={client} />}
+          />
+        </Routes>
+      </MemoryRouter>
+    </ToastProvider>,
+  );
+}
+
+/**
+ * Aguarda a finalização do mount: o spinner de loading desaparece
+ * quando todas as promises (roles + sistemas + user) resolvem.
+ * Centraliza o pattern para reduzir boilerplate por teste.
+ */
+export async function waitForInitialFetch(): Promise<void> {
+  await waitFor(() => {
+    expect(screen.queryByTestId('user-roles-loading')).not.toBeInTheDocument();
+  });
+}

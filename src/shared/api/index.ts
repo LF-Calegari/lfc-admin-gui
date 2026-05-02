@@ -55,6 +55,17 @@ const systemId: string = resolveSystemId();
 export const apiClient: ApiClient = createApiClient({ baseUrl, systemId });
 
 export { createApiClient } from './client';
+// Fix incidental (Issue #72): o PR #163 (commit 0308969) extraiu
+// `extractErrorMessage`/`isFetchAborted` para `fetchHelpers.ts` mas
+// não exportou pelo barrel. As páginas existentes
+// (`UserPermissionsShellPage`, `UserRolesShellPage`) já importavam de
+// `@/shared/api`, mas o `tsc --noEmit` ficou quebrado em
+// `origin/development` desde o merge do PR #163. Esta exportação
+// destrava o gate pré-PR. A Issue #82 detectou o problema em paralelo
+// com a mesma resolução — caso seja mergeada antes, este bloco
+// conflitará trivialmente em rebase (manter ambas as resoluções
+// semanticamente idênticas).
+export { extractErrorMessage, isFetchAborted } from './fetchHelpers';
 export { isApiError } from './types';
 export type {
   ApiClient,
@@ -68,14 +79,146 @@ export type {
   SafeRequestOptions,
 } from './types';
 export {
+  createSystem,
   DEFAULT_INCLUDE_DELETED,
   DEFAULT_PAGE,
   DEFAULT_PAGE_SIZE,
+  deleteSystem,
+  getSystemsStats,
   isPagedSystemsResponse,
+  isSystemDto,
   listSystems,
+  restoreSystem,
+  updateSystem,
 } from './systems';
 export type {
+  CreateSystemPayload,
   ListSystemsParams,
   PagedResponse,
   SystemDto,
+  SystemsStats,
+  UpdateSystemPayload,
 } from './systems';
+export {
+  createRoute,
+  DEFAULT_ROUTES_INCLUDE_DELETED,
+  DEFAULT_ROUTES_PAGE,
+  DEFAULT_ROUTES_PAGE_SIZE,
+  deleteRoute,
+  isPagedRoutesResponse,
+  isRouteDto,
+  listRoutes,
+  updateRoute,
+} from './routes';
+export type {
+  CreateRoutePayload,
+  ListRoutesParams,
+  RouteDto,
+  UpdateRoutePayload,
+} from './routes';
+export {
+  assignPermissionToRole,
+  createRole,
+  DEFAULT_ROLES_INCLUDE_DELETED,
+  DEFAULT_ROLES_PAGE,
+  DEFAULT_ROLES_PAGE_SIZE,
+  deleteRole,
+  isPagedRolesResponse,
+  isRoleDto,
+  isRolePermissionLinkDto,
+  listRolePermissions,
+  listRoles,
+  MAX_ROLES_PAGE_SIZE,
+  removePermissionFromRole,
+  updateRole,
+} from './roles';
+export type {
+  CreateRolePayload,
+  ListRolesParams,
+  RoleDto,
+  RolePermissionLinkDto,
+  UpdateRolePayload,
+} from './roles';
+export {
+  addClientExtraEmail,
+  addClientLandlinePhone,
+  addClientMobilePhone,
+  clientDisplayName,
+  createClient,
+  DEFAULT_CLIENTS_INCLUDE_DELETED,
+  DEFAULT_CLIENTS_PAGE,
+  DEFAULT_CLIENTS_PAGE_SIZE,
+  deleteClient,
+  getClientById,
+  getClientsByIds,
+  isClientDto,
+  isPagedClientsResponse,
+  listClients,
+  MAX_CLIENT_EXTRA_EMAILS,
+  MAX_CLIENT_PHONES_PER_TYPE,
+  removeClientExtraEmail,
+  removeClientLandlinePhone,
+  removeClientMobilePhone,
+  restoreClient,
+  updateClient,
+} from './clients';
+export type {
+  ClientDto,
+  ClientEmailDto,
+  ClientLookupDto,
+  ClientPhoneDto,
+  ClientType,
+  CreateClientPayload,
+  ListClientsParams,
+  UpdateClientPayload,
+} from './clients';
+export {
+  isTokenTypeArray,
+  isTokenTypeDto,
+  listTokenTypes,
+} from './tokenTypes';
+export type { TokenTypeDto } from './tokenTypes';
+export {
+  assignRoleToUser,
+  createUser,
+  DEFAULT_USERS_INCLUDE_DELETED,
+  DEFAULT_USERS_PAGE,
+  DEFAULT_USERS_PAGE_SIZE,
+  forceLogoutUser,
+  getUserById,
+  isPagedUsersResponse,
+  isUserDto,
+  listUsers,
+  removeRoleFromUser,
+  resetUserPassword,
+  updateUser,
+} from './users';
+export type {
+  CreateUserPayload,
+  ForceLogoutResponse,
+  ListUsersParams,
+  ResetUserPasswordPayload,
+  UpdateUserPayload,
+  UserDto,
+  UserRoleLinkDto,
+  UserRoleSummary,
+} from './users';
+export {
+  assignPermissionToUser,
+  DEFAULT_PERMISSIONS_INCLUDE_DELETED,
+  DEFAULT_PERMISSIONS_PAGE,
+  DEFAULT_PERMISSIONS_PAGE_SIZE,
+  isPagedPermissionsResponse,
+  isPermissionDto,
+  listEffectiveUserPermissions,
+  listPermissions,
+  MAX_PERMISSIONS_PAGE_SIZE,
+  removePermissionFromUser,
+} from './permissions';
+export type {
+  EffectivePermissionDto,
+  EffectivePermissionSource,
+  ListPermissionsParams,
+  PermissionDto,
+  UserPermissionLinkDto,
+} from './permissions';

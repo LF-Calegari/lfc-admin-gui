@@ -14,7 +14,7 @@ module.exports = {
       jsx: true,
     },
   },
-  plugins: ['@typescript-eslint', 'react', 'react-hooks', 'import'],
+  plugins: ['@typescript-eslint', 'react', 'react-hooks', 'import', 'sonarjs'],
   extends: [
     'eslint:recommended',
     'plugin:@typescript-eslint/recommended',
@@ -30,6 +30,17 @@ module.exports = {
     },
   },
   ignorePatterns: ['build/', 'coverage/', 'node_modules/'],
+  overrides: [
+    {
+      // Alinha com `sonar.exclusions=**/*.test.*,**/*.spec.*` em sonar-project.properties:
+      // strings repetidas em assertions e setups complexos de teste são legítimos.
+      files: ['tests/**/*.{ts,tsx,js,jsx}'],
+      rules: {
+        'sonarjs/no-duplicate-string': 'off',
+        'sonarjs/cognitive-complexity': 'off',
+      },
+    },
+  ],
   rules: {
     'react/react-in-jsx-scope': 'off',
     'react/prop-types': 'off',
@@ -68,5 +79,15 @@ module.exports = {
         },
       },
     ],
+    // sonarjs — subset curado, mapeado a BLOCKERs históricos do SonarCloud.
+    // Limiares (15 / 3) coincidem com os padrões do Sonar para evitar drift CI/local.
+    'sonarjs/cognitive-complexity': ['error', 15],
+    'sonarjs/no-identical-functions': 'error',
+    'sonarjs/no-duplicate-string': ['error', { threshold: 3 }],
+    'sonarjs/no-identical-expressions': 'error',
+    'sonarjs/no-redundant-jump': 'error',
+    'sonarjs/no-useless-catch': 'error',
+    'sonarjs/prefer-immediate-return': 'error',
+    'sonarjs/no-collapsible-if': 'error',
   },
 };

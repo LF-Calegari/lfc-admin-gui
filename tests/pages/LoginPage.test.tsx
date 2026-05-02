@@ -99,8 +99,8 @@ function renderLogin(options: RenderOptions = {}): { client: ClientStub } {
               element={<div data-testid="systems-page">systems</div>}
             />
             <Route
-              path="/permissions"
-              element={<div data-testid="permissions-page">permissions</div>}
+              path="/permissoes"
+              element={<div data-testid="permissions-page">permissoes</div>}
             />
           </Routes>
         </ToastProvider>
@@ -112,8 +112,8 @@ function renderLogin(options: RenderOptions = {}): { client: ClientStub } {
 
 beforeEach(() => {
   installFakeIndexedDB();
-  window.localStorage.clear();
-  document.documentElement.removeAttribute('data-theme');
+  globalThis.localStorage.clear();
+  delete document.documentElement.dataset.theme;
 });
 
 afterEach(() => {
@@ -284,7 +284,7 @@ describe('LoginPage — submit feliz', () => {
     renderLogin({
       client,
       initialEntries: [
-        { pathname: '/login', state: { from: { pathname: '/permissions' } } },
+        { pathname: '/login', state: { from: { pathname: '/permissoes' } } },
       ],
     });
 

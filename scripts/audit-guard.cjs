@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 
 const fs = require('node:fs');
+const path = require('node:path');
 
 const args = process.argv.slice(2);
+const repoRoot = process.cwd();
 
 function getArg(flag, fallback) {
   const idx = args.indexOf(flag);
@@ -16,8 +18,17 @@ const reportPath = getArg('--report', 'audit-report.json');
 const exceptionsPath = getArg('--exceptions', 'security/audit-exceptions.json');
 const now = new Date();
 
-function readJson(path) {
-  return JSON.parse(fs.readFileSync(path, 'utf8'));
+function resolveInsideRepo(filePath) {
+  const resolved = path.resolve(repoRoot, filePath);
+  const rootWithSep = repoRoot.endsWith(path.sep) ? repoRoot : repoRoot + path.sep;
+  if (resolved !== repoRoot && !resolved.startsWith(rootWithSep)) {
+    throw new Error(`Caminho fora do repositório recusado: ${filePath}`);
+  }
+  return resolved;
+}
+
+function readJson(filePath) {
+  return JSON.parse(fs.readFileSync(resolveInsideRepo(filePath), 'utf8'));
 }
 
 const report = readJson(reportPath);

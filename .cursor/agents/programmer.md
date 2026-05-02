@@ -201,6 +201,61 @@ Se houver risco, mitigar ou documentar de forma explícita.
 
 ---
 
+# Gate de qualidade pré-PR (obrigatório)
+
+Antes de criar branch de feature, fazer push ou abrir PR, executar **todos** os comandos abaixo via container. Falha em qualquer etapa é bloqueio absoluto — corrigir e re-rodar até zerar.
+
+## Comandos obrigatórios (na ordem)
+
+```bash
+# 1) Lint sem warnings
+docker compose run --rm web npm run lint
+
+# 2) Typecheck
+docker compose run --rm web npm run typecheck
+
+# 3) Suíte completa de testes
+docker compose run --rm web npm test
+
+# 4) Duplicação (espelha o que o Sonar tokeniza como bloco duplicado)
+docker compose run --rm web npx jscpd src \
+  --threshold 3 --min-lines 10 \
+  --reporters console,json \
+  --output ./jscpd-report
+```
+
+> Use o nome de serviço definido no `docker-compose.yml` deste repo (`web`). Se o compose local divergir, ajustar para o serviço equivalente — nunca rodar no host.
+
+## Critérios de aprovação
+
+- `lint`: 0 erros, 0 warnings (`--max-warnings 0` é o default).
+- `typecheck`: 0 erros de `tsc --noEmit`.
+- `test`: suíte 100% verde; **nunca** reportar contagem de testes sem ter executado a suíte completa.
+- `jscpd`: `statistics.total.percentage ≤ 3%` **E** `newClones === 0` em todo arquivo tocado pelo diff (consultar `jscpd-report/jscpd-report.json`).
+
+## Tratamento de duplicação detectada
+
+Se o JSCPD reportar clone de ≥10 linhas envolvendo arquivo do diff:
+
+1. **Não pushar.**
+2. Abrir `jscpd-report/jscpd-report.json` e localizar os blocos clones (`duplicates[]`).
+3. Refatorar para helper genérico:
+   - Erros de submit / parsing de `ValidationProblemDetails` → `src/shared/forms/classifySubmitError.ts` (já existe).
+   - Handlers de campo (`handleNameChange/handleCodeChange/...`) → `src/shared/forms/createFieldChangeHandler.ts` (já existe).
+   - Paginação de listas → `src/hooks/usePaginationControls` (criar se ainda não houver).
+   - Boilerplate de testes (mock auth, abrir modal, preencher form) → `__helpers__/` do recurso ou fixtures compartilhadas.
+   - Cenários de teste com 1–2 mocks variando → `it.each`, não `it` separados.
+4. Re-rodar o gate até `newClones === 0` nos arquivos do diff.
+5. Só então criar branch / abrir PR.
+
+## Evidência obrigatória no fechamento
+
+A seção **Testes** da saída final do programmer deve conter o trecho final (ou resumo) de cada um dos 4 comandos acima, comprovando aprovação. Abrir PR sem essa evidência é BLOCKER por contrato com o reviewer.
+
+> **Justificativa:** as 5 recorrências históricas de Sonar New Code Duplication (PRs #119, #123, #127, #128, #134, todas registradas em `programmer-lessons.md`) eram detectáveis localmente por este gate antes do push. Memória passiva não basta — o gate é a contraparte ativa.
+
+---
+
 # Branch
 
 Padrão:
@@ -323,6 +378,7 @@ Você deve terminar com:
 - Não ignorar qualidade visual
 - Não fazer merge (isso é papel de reviewer/maestro)
 - Não executar build/lint/test no host
+- Não abrir PR sem aprovação completa do gate de qualidade pré-PR (lint, typecheck, test, jscpd)
 - Não usar `any` como escape de tipagem
 - Não usar class components
 - Não deixar estados visuais críticos sem tratamento

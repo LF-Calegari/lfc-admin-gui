@@ -34,7 +34,7 @@ import { STORAGE_KEYS } from '@/shared/auth/storage';
 async function seedSession(
   routes: ReadonlyArray<string> = ['AUTH_V1_SYSTEMS_LIST'],
 ): Promise<void> {
-  window.localStorage.setItem(STORAGE_KEYS.token, 'jwt-test');
+  globalThis.localStorage.setItem(STORAGE_KEYS.token, 'jwt-test');
   await permissionsCache.save({
     user: SAMPLE_USER,
     routes,
@@ -124,7 +124,7 @@ function renderRequireAuthWithContext(options: {
 
 beforeEach(() => {
   installFakeIndexedDB();
-  window.localStorage.clear();
+  globalThis.localStorage.clear();
 });
 
 afterEach(() => {
@@ -362,11 +362,11 @@ describe('RequireAuth', () => {
         value,
         initial: '/systems',
         protectedPath: '/systems',
-        protectedContent: <NavigationTrigger to="/users" />,
+        protectedContent: <NavigationTrigger to="/usuarios" />,
         extraRoutes: {
-          '/users': (
+          '/usuarios': (
             <RequireAuth>
-              <div data-testid="users-page">users</div>
+              <div data-testid="usuarios-page">usuarios</div>
             </RequireAuth>
           ),
         },
@@ -374,14 +374,14 @@ describe('RequireAuth', () => {
 
       await waitFor(() => expect(verifyRouteMock).toHaveBeenCalledTimes(1));
 
-      // Navega para /users via botão (mudança real de pathname).
+      // Navega para /usuarios via botão (mudança real de pathname).
       await act(async () => {
-        screen.getByTestId('go-users').click();
+        screen.getByTestId('go-usuarios').click();
       });
 
       await waitFor(() => expect(verifyRouteMock).toHaveBeenCalledTimes(2));
       // O primeiro signal (rota /systems) foi cancelado pelo cleanup do
-      // effect ao navegar para /users.
+      // effect ao navegar para /usuarios.
       expect(abortSignals[0]?.aborted).toBe(true);
     });
 

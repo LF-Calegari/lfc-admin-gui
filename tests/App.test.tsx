@@ -49,7 +49,7 @@ function makeInertClient(): ApiClient {
  * todas as rotas listadas.
  */
 async function seedAdminSession(): Promise<void> {
-  window.localStorage.setItem(STORAGE_KEYS.token, 'jwt-admin-test');
+  globalThis.localStorage.setItem(STORAGE_KEYS.token, 'jwt-admin-test');
   await permissionsCache.save({
     user: {
       id: 'u-admin',
@@ -59,8 +59,10 @@ async function seedAdminSession(): Promise<void> {
     },
     routes: [
       'AUTH_V1_SYSTEMS_LIST',
+      'AUTH_V1_SYSTEMS_ROUTES_LIST',
       'AUTH_V1_ROLES_LIST',
       'AUTH_V1_PERMISSIONS_LIST',
+      'AUTH_V1_CLIENTS_LIST',
       'AUTH_V1_USERS_LIST',
     ],
   } as Omit<CachedPermissions, 'cachedAt'>);
@@ -78,7 +80,7 @@ function renderAt(path: string) {
 
 beforeEach(() => {
   installFakeIndexedDB();
-  window.localStorage.clear();
+  globalThis.localStorage.clear();
 });
 
 afterEach(() => {
