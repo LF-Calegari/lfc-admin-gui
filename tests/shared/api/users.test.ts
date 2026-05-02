@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { ApiClient, UserDto } from '@/shared/api';
+import type { ApiClient, CreateUserPayload, UserDto } from '@/shared/api';
 
 import {
+  createUser,
   DEFAULT_USERS_PAGE_SIZE,
   isPagedUsersResponse,
   isUserDto,
@@ -406,5 +407,202 @@ describe('listUsers — comportamento', () => {
     );
 
     expect(result).toEqual(envelope);
+  });
+});
+
+/**
+ * Suíte do `createUser` (Issue #78). Cobre serialização do body
+ * (trim/omit defensivo), validação do response via `isUserDto` e
+ * propagação de erros tipados (`ApiError`).
+ *
+ * Espelha o padrão de `tests/shared/api/routes.test.ts` para
+ * `createRoute` — validar o caminho HTTP unitariamente sem precisar
+ * de fetch real.
+ */
+describe('createUser — body', () => {
+  function buildBasicPayload(overrides: Partial<CreateUserPayload> = {}): CreateUserPayload {
+    return {
+      name: 'Alice Admin',
+      email: 'alice@example.com',
+      password: 'senha-forte-1',
+      identity: 1,
+      ...overrides,
+    };
+  }
+
+  it('emite POST /users com body trimado nos campos texto', async () => {
+    const client = createStub();
+    client.post.mockResolvedValueOnce(makeUserDto());
+
+    await createUser(
+      buildBasicPayload({
+        name: '  Alice Admin  ',
+        email: '  alice@example.com  ',
+        password: '  senha-forte-1  ',
+      }),
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.post).toHaveBeenCalledTimes(1);
+    expect(client.post.mock.calls[0][0]).toBe('/users');
+    expect(client.post.mock.calls[0][1]).toEqual({
+      name: 'Alice Admin',
+      email: 'alice@example.com',
+      // Senha NÃO é trimada — preserva espaços laterais intencionais.
+      password: '  senha-forte-1  ',
+      identity: 1,
+    });
+  });
+
+  it('omite clientId quando vazio (string vazia ou só espaços)', async () => {
+    const client = createStub();
+    client.post.mockResolvedValueOnce(makeUserDto());
+
+    await createUser(
+      buildBasicPayload({ clientId: '   ' }),
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    const body = client.post.mock.calls[0][1] as Record<string, unknown>;
+    expect(body).not.toHaveProperty('clientId');
+  });
+
+  it('inclui clientId quando informado e trima', async () => {
+    const client = createStub();
+    client.post.mockResolvedValueOnce(makeUserDto());
+
+    await createUser(
+      buildBasicPayload({ clientId: '  ' + CLIENT_ID + '  ' }),
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.post.mock.calls[0][1]).toMatchObject({ clientId: CLIENT_ID });
+  });
+
+  it('inclui active quando explícito (true ou false)', async () => {
+    const client = createStub();
+    client.post.mockResolvedValue(makeUserDto());
+
+    await createUser(
+      buildBasicPayload({ active: true }),
+      undefined,
+      client as unknown as ApiClient,
+    );
+    expect(client.post.mock.calls[0][1]).toMatchObject({ active: true });
+
+    await createUser(
+      buildBasicPayload({ active: false }),
+      undefined,
+      client as unknown as ApiClient,
+    );
+    expect(client.post.mock.calls[1][1]).toMatchObject({ active: false });
+  });
+
+  it('omite active quando ausente (deixa o backend usar default true)', async () => {
+    const client = createStub();
+    client.post.mockResolvedValueOnce(makeUserDto());
+
+    await createUser(buildBasicPayload(), undefined, client as unknown as ApiClient);
+
+    const body = client.post.mock.calls[0][1] as Record<string, unknown>;
+    expect(body).not.toHaveProperty('active');
+  });
+});
+
+describe('createUser — response e erros', () => {
+  function buildBasicPayload(): CreateUserPayload {
+    return {
+      name: 'Alice Admin',
+      email: 'alice@example.com',
+      password: 'senha-forte-1',
+      identity: 1,
+    };
+  }
+
+  it('devolve UserDto recém-criado quando o response é válido', async () => {
+    const client = createStub();
+    const created = makeUserDto({ id: '99999999-9999-9999-9999-999999999999' });
+    client.post.mockResolvedValueOnce(created);
+
+    const result = await createUser(
+      buildBasicPayload(),
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(result).toEqual(created);
+  });
+
+  it('lança ApiError(parse) quando o response não é UserDto', async () => {
+    const client = createStub();
+    client.post.mockResolvedValueOnce({ malformed: true });
+
+    await expect(
+      createUser(buildBasicPayload(), undefined, client as unknown as ApiClient),
+    ).rejects.toMatchObject({ kind: 'parse' });
+  });
+
+  it('propaga 409 do backend (email duplicado) sem traduzir', async () => {
+    const client = createStub();
+    const apiError = {
+      kind: 'http',
+      status: 409,
+      message: 'Já existe um usuário com este Email.',
+    };
+    client.post.mockRejectedValueOnce(apiError);
+
+    await expect(
+      createUser(buildBasicPayload(), undefined, client as unknown as ApiClient),
+    ).rejects.toEqual(apiError);
+  });
+
+  it('propaga 400 com errors (validação de campo) sem traduzir', async () => {
+    const client = createStub();
+    const apiError = {
+      kind: 'http',
+      status: 400,
+      message: 'Erro de validação.',
+      details: {
+        errors: {
+          Email: ['Email inválido.'],
+          Identity: ['The Identity field is required.'],
+        },
+      },
+    };
+    client.post.mockRejectedValueOnce(apiError);
+
+    await expect(
+      createUser(buildBasicPayload(), undefined, client as unknown as ApiClient),
+    ).rejects.toEqual(apiError);
+  });
+
+  it('propaga 400 sem errors (caso ClientId inexistente) sem traduzir', async () => {
+    const client = createStub();
+    const apiError = {
+      kind: 'http',
+      status: 400,
+      message: 'ClientId informado não existe.',
+    };
+    client.post.mockRejectedValueOnce(apiError);
+
+    await expect(
+      createUser(buildBasicPayload(), undefined, client as unknown as ApiClient),
+    ).rejects.toEqual(apiError);
+  });
+
+  it('propaga 401/403 sem traduzir', async () => {
+    const client = createStub();
+    client.post.mockRejectedValueOnce({
+      kind: 'http',
+      status: 403,
+      message: 'Sem permissão.',
+    });
+
+    await expect(
+      createUser(buildBasicPayload(), undefined, client as unknown as ApiClient),
+    ).rejects.toMatchObject({ kind: 'http', status: 403 });
   });
 });
