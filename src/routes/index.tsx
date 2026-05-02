@@ -10,6 +10,7 @@ import { NotFoundPage } from '../pages/NotFoundPage';
 import { PermissionsListShellPage } from '../pages/permissions';
 import { PlaceholderPage } from '../pages/PlaceholderPage';
 import { RolePermissionsShellPage } from '../pages/roles/RolePermissionsShellPage';
+import { RolesGlobalListShellPage } from '../pages/roles/RolesGlobalListShellPage';
 import { RolesPage } from '../pages/RolesPage';
 import { RoutesPage } from '../pages/RoutesPage';
 import { SettingsPage } from '../pages/SettingsPage';
@@ -163,11 +164,7 @@ export const AppRoutes: React.FC = () => (
         path="/roles"
         element={
           <RequirePermission code="AUTH_V1_ROLES_LIST">
-            <PlaceholderPage
-              eyebrow="03 Roles"
-              title="Gerenciamento de Roles"
-              desc="Roles agrupam permissões e podem ser atribuídas a usuários do sistema. Para listar as roles de um sistema específico, abra o sistema correspondente."
-            />
+            <RolesGlobalListShellPage />
           </RequirePermission>
         }
       />

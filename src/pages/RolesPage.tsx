@@ -16,32 +16,24 @@ import {
 import { useAuth } from "../shared/auth";
 import {
   BackLink,
-  CardCode,
-  CardDescription,
-  CardHeader,
   CardListForMobile,
   CardMeta,
   CardMetaTerm,
   CardMetaValue,
-  CardName,
-  DescriptionCell,
-  EmptyHint,
-  EmptyMessage,
-  EmptyTitle,
   EntityCard,
   ErrorRetryBlock,
   InitialLoadingSpinner,
   InvalidIdNotice,
   ListingToolbar,
   LiveRegion,
-  Mono,
   PaginationFooter,
-  Placeholder,
   RefetchOverlay,
+  RoleCardHeader,
   RowActions,
   StatusBadge,
   TableForDesktop,
   TableShell,
+  useListingEmptyContent,
   useListingLiveMessage,
 } from "../shared/listing";
 
@@ -103,46 +95,13 @@ function isProbablyValidSystemId(value: string | undefined): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-/**
- * Renderiza a célula de descrição truncando textos longos via
- * `text-overflow: ellipsis`. **Hoje** o backend não devolve
- * `description` em `RoleResponse` (TODO no model `AppRole` — ver
- * `src/shared/api/roles.ts`), então a coluna tipicamente exibe "—".
- * Quando o backend evoluir, a UI mostra automaticamente sem mudar
- * código.
- *
- * Reusado tanto pela tabela desktop quanto pelos cards mobile —
- * centralizar evita duplicação visual.
- */
-function renderDescription(row: RoleDto): React.ReactNode {
-  if (
-    row.description === null ||
-    row.description === undefined ||
-    row.description.trim().length === 0
-  ) {
-    return <Placeholder>—</Placeholder>;
-  }
-  return (
-    <DescriptionCell title={row.description}>{row.description}</DescriptionCell>
-  );
-}
-
-/**
- * Renderiza a contagem de permissões/usuários da role. **Hoje** o
- * backend não devolve esses campos (TODO documentado no DTO); a UI
- * exibe "—" enquanto o valor for `null`/`undefined`. Quando o
- * backend ganhar `permissionsCount`/`usersCount`, a UI passa a
- * exibir o número formatado sem mudar a página.
- *
- * Centralizado em função pura para reuso entre tabela desktop e
- * cards mobile.
- */
-function renderCount(value: number | null | undefined): React.ReactNode {
-  if (typeof value !== "number") {
-    return <Placeholder>—</Placeholder>;
-  }
-  return <Mono>{value}</Mono>;
-}
+// `renderDescription`/`renderCount` extraídos para
+// `src/pages/roles/rolesRenderHelpers.tsx` — compartilhados com
+// `RolesGlobalListShellPage` (lição PR #134/#135 — duplicação Sonar).
+import {
+  renderRoleDescription as renderDescription,
+  renderRoleCount as renderCount,
+} from './roles/rolesRenderHelpers';
 
 export const RolesPage: React.FC<RolesPageProps> = ({ client }) => {
   // `useParams` devolve `string | undefined` — nunca lançamos: rota
@@ -294,42 +253,23 @@ export const RolesPage: React.FC<RolesPageProps> = ({ client }) => {
   const hasActiveSearch = trimmedSearch.length > 0;
 
   /**
-   * Decide qual mensagem renderizar quando `rows` está vazio:
-   *
-   * - Vazio com busca ativa → cita o termo + sugere limpar.
-   * - Vazio sem busca → "nenhuma role cadastrada" + dica sobre o toggle
-   *   "Mostrar inativas" caso esteja desligado.
+   * `emptyContent` delegado ao hook compartilhado `useListingEmptyContent`
+   * para evitar duplicação JSCPD/Sonar com `RolesGlobalListShellPage`
+   * (lição PR #134/#135 — bloco com `useMemo` + árvore de decisão
+   * `<EmptyMessage>` + `<Button>` se repetia idêntico).
    */
-  const emptyContent = useMemo<React.ReactNode>(() => {
-    if (hasActiveSearch) {
-      return (
-        <EmptyMessage>
-          <EmptyTitle>
-            Nenhuma role encontrada para <Mono>{trimmedSearch}</Mono>.
-          </EmptyTitle>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleClearSearch}
-            data-testid="roles-empty-clear"
-          >
-            Limpar busca
-          </Button>
-        </EmptyMessage>
-      );
-    }
-    return (
-      <EmptyMessage>
-        <EmptyTitle>Nenhuma role cadastrada para este sistema.</EmptyTitle>
-        {!includeDeleted && (
-          <EmptyHint>
-            Roles removidas podem ser visualizadas ativando &quot;Mostrar
-            inativas&quot;.
-          </EmptyHint>
-        )}
-      </EmptyMessage>
-    );
-  }, [handleClearSearch, hasActiveSearch, includeDeleted, trimmedSearch]);
+  const emptyContent = useListingEmptyContent({
+    trimmedSearch,
+    includeDeleted,
+    onClearSearch: handleClearSearch,
+    copy: {
+      searchPrefix: "Nenhuma role encontrada para",
+      emptyTitle: "Nenhuma role cadastrada para este sistema.",
+      hintWhenIncludeDeletedOff:
+        'Roles removidas podem ser visualizadas ativando "Mostrar inativas".',
+      clearTestId: "roles-empty-clear",
+    },
+  });
 
   const columns = useMemo<ReadonlyArray<TableColumn<RoleDto>>>(() => {
     const base: Array<TableColumn<RoleDto>> = [
@@ -564,16 +504,12 @@ export const RolesPage: React.FC<RolesPageProps> = ({ client }) => {
                 tabIndex={0}
                 data-testid={`roles-card-${row.id}`}
               >
-                <CardHeader>
-                  <CardCode>{row.code}</CardCode>
-                  <StatusBadge deletedAt={row.deletedAt} />
-                </CardHeader>
-                <CardName>{row.name}</CardName>
-                {row.description !== null &&
-                  row.description !== undefined &&
-                  row.description.trim().length > 0 && (
-                    <CardDescription>{row.description}</CardDescription>
-                  )}
+                <RoleCardHeader
+                  code={row.code}
+                  name={row.name}
+                  description={row.description}
+                  deletedAt={row.deletedAt}
+                />
                 <CardMeta>
                   <CardMetaTerm>Permissões</CardMetaTerm>
                   <CardMetaValue>

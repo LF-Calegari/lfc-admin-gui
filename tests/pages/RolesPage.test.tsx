@@ -8,7 +8,9 @@ import {
   ID_ROLE_ADMIN,
   ID_ROLE_ROOT,
   ID_ROLE_VIEWER,
+  ID_SYS_AUTH,
   lastGetPath,
+  makePagedRolesResponse,
   makeRole,
   renderRolesPage,
   waitForInitialList,
@@ -25,22 +27,12 @@ import { RolesPage } from '@/pages/RolesPage';
  * busca debounced, toggle "incluir inativas", erros e cancelamento de
  * request.
  *
- * **Diferenças em relação a `RoutesPage.test.tsx`:**
- *
- * - O backend `/roles` hoje devolve um array cru (sem paginação/
- *   busca/includeDeleted nativos); o `listRoles` aplica os filtros
- *   client-side. Por isso a suíte foca no **comportamento da UI**
- *   (busca filtra a tabela, paginação aplica skip/take em memória,
- *   toggle inclui/exclui inativos visualmente) em vez de inspecionar
- *   a querystring do `client.get`.
- * - `lastGetPath` continua existindo e é usado para garantir que o
- *   path é sempre `/roles` (sem querystring) — quando o backend
- *   evoluir para paginação real, esses asserts mudarão para refletir
- *   a nova querystring.
- * - Não há gating de auth para nova role nesta sub-issue (a CTA é
- *   adicionada na #67); o mock `useAuth` segue sendo necessário pelo
- *   `RequirePermission` (que não é exercitado nesta suíte porque
- *   renderizamos a página direto, sem `AppRoutes`).
+ * Após `lfc-authenticator#163`/`#164` o backend `/roles` devolve o
+ * envelope paginado nativo (`PagedResponse<RoleResponse>`); o adapter
+ * client-side foi removido. Os mocks usam `makePagedRolesResponse`.
+ * A suíte continua focando no comportamento da UI (busca dispara
+ * refetch debounced, paginação propaga page para a request, toggle
+ * inclui inativos via querystring server-side).
  */
 
 vi.mock('@/shared/auth', () => buildAuthMock(() => []));
@@ -98,8 +90,12 @@ describe('RolesPage — render inicial', () => {
 
     expect(screen.getByTestId('roles-loading')).toBeInTheDocument();
 
+    // Backend filtra `deletedAt` server-side por default — só
+    // devolve roles ativas (Viewer fica fora porque está soft-
+    // deletada).
+    const activeRows = SAMPLE_ROWS.filter((row) => row.deletedAt === null);
     await act(async () => {
-      resolveFn(SAMPLE_ROWS.slice());
+      resolveFn(makePagedRolesResponse(activeRows));
       await Promise.resolve();
     });
 
@@ -120,7 +116,7 @@ describe('RolesPage — render inicial', () => {
 
   it('renderiza header da página com título "Roles do sistema"', async () => {
     const client = createRolesClientStub();
-    client.get.mockResolvedValueOnce(SAMPLE_ROWS.slice());
+    client.get.mockResolvedValueOnce(makePagedRolesResponse(SAMPLE_ROWS));
 
     renderRolesPage(client);
 
@@ -129,26 +125,28 @@ describe('RolesPage — render inicial', () => {
     expect(screen.getByRole('heading', { name: /Roles do sistema/i })).toBeInTheDocument();
   });
 
-  it('chama backend em GET /roles (endpoint atual, sem paginação nativa)', async () => {
+  it('chama backend em GET /roles com systemId na querystring (paginação server-side)', async () => {
     const client = createRolesClientStub();
-    client.get.mockResolvedValueOnce(SAMPLE_ROWS.slice());
+    client.get.mockResolvedValueOnce(makePagedRolesResponse(SAMPLE_ROWS));
 
     renderRolesPage(client);
 
     await waitForInitialList(client);
-    expect(lastGetPath(client)).toBe('/roles');
+    expect(lastGetPath(client)).toBe(`/roles?systemId=${ID_SYS_AUTH}`);
   });
 
   it('renderiza badge "Inativa" para roles com deletedAt e "Ativa" para as demais (com toggle ligado)', async () => {
     const client = createRolesClientStub();
-    client.get.mockResolvedValue(SAMPLE_ROWS.slice());
+    // Backend filtra `deletedAt` server-side conforme `includeDeleted`.
+    // Primeira request (default `includeDeleted=false`) só ativas;
+    // após ligar o toggle, retorna o conjunto completo.
+    const activeRows = SAMPLE_ROWS.filter((row) => row.deletedAt === null);
+    client.get.mockResolvedValueOnce(makePagedRolesResponse(activeRows));
+    client.get.mockResolvedValueOnce(makePagedRolesResponse(SAMPLE_ROWS));
 
     renderRolesPage(client);
     await waitForInitialList(client);
 
-    // Por default `includeDeleted=false` — a Viewer (deletada) é
-    // omitida. Ligamos o toggle para incluí-la e exibir o badge
-    // "Inativa".
     fireEvent.click(screen.getByTestId('roles-include-deleted'));
 
     await waitFor(() => {
@@ -165,19 +163,23 @@ describe('RolesPage — render inicial', () => {
     expect(within(viewerCard).getByText('Inativa')).toBeInTheDocument();
   });
 
-  it('exibe placeholder "—" para description/permissionsCount/usersCount ausentes (estado atual do backend)', async () => {
+  it('exibe placeholder "—" para description/permissionsCount/usersCount ausentes (fixture defensivo)', async () => {
     const client = createRolesClientStub();
-    // Cenário "backend não devolve os campos opcionais" — todos `null`.
-    client.get.mockResolvedValueOnce([
-      makeRole({
-        id: ID_ROLE_ROOT,
-        name: 'Root',
-        code: 'root',
-        description: null,
-        permissionsCount: null,
-        usersCount: null,
-      }),
-    ]);
+    // Cenário defensivo: backend pode devolver os campos opcionais
+    // como `null`. Espelha fixtures legadas e protege contra deploy
+    // desalinhado.
+    client.get.mockResolvedValueOnce(
+      makePagedRolesResponse([
+        makeRole({
+          id: ID_ROLE_ROOT,
+          name: 'Root',
+          code: 'root',
+          description: null,
+          permissionsCount: null,
+          usersCount: null,
+        }),
+      ]),
+    );
 
     renderRolesPage(client);
     await waitForInitialList(client);
@@ -187,18 +189,20 @@ describe('RolesPage — render inicial', () => {
     expect(screen.getAllByText('—').length).toBeGreaterThan(0);
   });
 
-  it('exibe contagens numéricas quando o backend devolve os campos (cenário futuro)', async () => {
+  it('exibe contagens numéricas quando o backend devolve os campos enriquecidos', async () => {
     const client = createRolesClientStub();
-    client.get.mockResolvedValueOnce([
-      makeRole({
-        id: ID_ROLE_ROOT,
-        name: 'Root',
-        code: 'root',
-        description: 'Acesso irrestrito',
-        permissionsCount: 12,
-        usersCount: 2,
-      }),
-    ]);
+    client.get.mockResolvedValueOnce(
+      makePagedRolesResponse([
+        makeRole({
+          id: ID_ROLE_ROOT,
+          name: 'Root',
+          code: 'root',
+          description: 'Acesso irrestrito',
+          permissionsCount: 12,
+          usersCount: 2,
+        }),
+      ]),
+    );
 
     renderRolesPage(client);
     await waitForInitialList(client);
@@ -211,7 +215,7 @@ describe('RolesPage — render inicial', () => {
 
   it('renderiza cards mobile com testId estável por role', async () => {
     const client = createRolesClientStub();
-    client.get.mockResolvedValueOnce(SAMPLE_ROWS.slice());
+    client.get.mockResolvedValueOnce(makePagedRolesResponse(SAMPLE_ROWS));
 
     renderRolesPage(client);
     await waitForInitialList(client);
@@ -221,10 +225,14 @@ describe('RolesPage — render inicial', () => {
   });
 });
 
-describe('RolesPage — busca debounced (filtro client-side)', () => {
-  it('digitar não dispara request imediato; após 300ms re-aplica o filtro client-side', async () => {
+describe('RolesPage — busca debounced (filtro server-side)', () => {
+  it('digitar não dispara request imediato; após 300ms refaz GET com q na querystring', async () => {
     const client = createRolesClientStub();
-    client.get.mockResolvedValue(SAMPLE_ROWS.slice());
+    // Backend filtra `q` server-side: primeira request devolve todos
+    // ativos; após digitar "admin", devolve só admin.
+    const adminOnly = SAMPLE_ROWS.filter((row) => row.code === 'admin');
+    client.get.mockResolvedValueOnce(makePagedRolesResponse(SAMPLE_ROWS));
+    client.get.mockResolvedValueOnce(makePagedRolesResponse(adminOnly));
 
     renderRolesPage(client);
 
@@ -233,10 +241,6 @@ describe('RolesPage — busca debounced (filtro client-side)', () => {
     const input = screen.getByTestId('roles-search') as HTMLInputElement;
     fireEvent.change(input, { target: { value: 'admin' } });
 
-    // O backend não suporta `q` nativo — o adapter aplica em memória,
-    // mas o `usePaginatedFetch` ainda dispara um refetch (a request
-    // identidade do `fetcher` mudou) para consistência com a paridade
-    // de UX entre listagens.
     expect(client.get).toHaveBeenCalledTimes(1);
 
     await act(async () => {
@@ -245,8 +249,10 @@ describe('RolesPage — busca debounced (filtro client-side)', () => {
     });
 
     await waitFor(() => expect(client.get).toHaveBeenCalledTimes(2));
+    expect(lastGetPath(client)).toBe(
+      `/roles?systemId=${ID_SYS_AUTH}&q=admin`,
+    );
 
-    // Apenas a role com nome/code "admin" deve aparecer.
     await waitFor(() => {
       expect(screen.getByTestId(`roles-card-${ID_ROLE_ADMIN}`)).toBeInTheDocument();
     });
@@ -255,7 +261,7 @@ describe('RolesPage — busca debounced (filtro client-side)', () => {
 
   it('teclas em sequência só disparam a última busca', async () => {
     const client = createRolesClientStub();
-    client.get.mockResolvedValue(SAMPLE_ROWS.slice());
+    client.get.mockResolvedValue(makePagedRolesResponse(SAMPLE_ROWS));
 
     renderRolesPage(client);
     await waitFor(() => expect(client.get).toHaveBeenCalledTimes(1));
@@ -275,44 +281,58 @@ describe('RolesPage — busca debounced (filtro client-side)', () => {
   });
 });
 
-describe('RolesPage — paginação client-side', () => {
-  it('clicar "próxima" muda a página para a 2; "anterior" volta para 1', async () => {
+describe('RolesPage — paginação server-side', () => {
+  it('clicar "próxima" envia page=2 na querystring; "anterior" volta para page omitido (default)', async () => {
     const client = createRolesClientStub();
-    // 25 roles ativas garantem 2 páginas com pageSize=20.
-    const manyRows = Array.from({ length: 25 }, (_, i) =>
+    // 25 roles totais → 2 páginas com pageSize=20.
+    const pageOneRows = Array.from({ length: 20 }, (_, i) =>
       makeRole({
         id: `id-${i}`,
         name: `Role ${i}`,
         code: `r${String(i).padStart(2, '0')}`,
       }),
     );
-    client.get.mockResolvedValue(manyRows);
+    const pageTwoRows = Array.from({ length: 5 }, (_, i) =>
+      makeRole({
+        id: `id-${i + 20}`,
+        name: `Role ${i + 20}`,
+        code: `r${String(i + 20).padStart(2, '0')}`,
+      }),
+    );
+    client.get.mockResolvedValueOnce(
+      makePagedRolesResponse(pageOneRows, { total: 25, page: 1 }),
+    );
+    client.get.mockResolvedValueOnce(
+      makePagedRolesResponse(pageTwoRows, { total: 25, page: 2 }),
+    );
+    client.get.mockResolvedValueOnce(
+      makePagedRolesResponse(pageOneRows, { total: 25, page: 1 }),
+    );
 
     renderRolesPage(client);
     await waitForInitialList(client);
 
-    // Na página 1 vemos r00..r19.
     expect(screen.getByTestId('roles-page-info')).toHaveTextContent(/Página 1 de 2/i);
 
     fireEvent.click(screen.getByTestId('roles-next'));
 
-    await waitFor(() => {
-      expect(screen.getByTestId('roles-page-info')).toHaveTextContent(/Página 2 de 2/i);
-    });
+    await waitFor(() => expect(client.get).toHaveBeenCalledTimes(2));
+    expect(lastGetPath(client)).toBe(`/roles?systemId=${ID_SYS_AUTH}&page=2`);
 
     fireEvent.click(screen.getByTestId('roles-prev'));
 
-    await waitFor(() => {
-      expect(screen.getByTestId('roles-page-info')).toHaveTextContent(/Página 1 de 2/i);
-    });
+    await waitFor(() => expect(client.get).toHaveBeenCalledTimes(3));
+    expect(lastGetPath(client)).toBe(`/roles?systemId=${ID_SYS_AUTH}`);
   });
 
   it('botão "anterior" desabilita na primeira página', async () => {
     const client = createRolesClientStub();
-    const manyRows = Array.from({ length: 25 }, (_, i) =>
+    const pageOneRows = Array.from({ length: 20 }, (_, i) =>
       makeRole({ id: `id-${i}`, code: `r${String(i).padStart(2, '0')}` }),
     );
-    client.get.mockResolvedValueOnce(manyRows);
+    client.get.mockResolvedValueOnce(
+      makePagedRolesResponse(pageOneRows, { total: 25 }),
+    );
 
     renderRolesPage(client);
     await waitForInitialList(client);
@@ -323,7 +343,7 @@ describe('RolesPage — paginação client-side', () => {
 
   it('botão "próxima" desabilita quando totalPages é 1', async () => {
     const client = createRolesClientStub();
-    client.get.mockResolvedValueOnce(SAMPLE_ROWS.slice());
+    client.get.mockResolvedValueOnce(makePagedRolesResponse(SAMPLE_ROWS));
 
     renderRolesPage(client);
     await waitForInitialList(client);
@@ -332,12 +352,14 @@ describe('RolesPage — paginação client-side', () => {
     expect(screen.getByTestId('roles-next')).toBeDisabled();
   });
 
-  it('exibe indicador "página X de Y" com total filtrado', async () => {
+  it('exibe indicador "Página X de Y" com total filtrado', async () => {
     const client = createRolesClientStub();
-    const manyRows = Array.from({ length: 42 }, (_, i) =>
+    const pageOneRows = Array.from({ length: 20 }, (_, i) =>
       makeRole({ id: `id-${i}`, code: `r${String(i).padStart(2, '0')}` }),
     );
-    client.get.mockResolvedValueOnce(manyRows);
+    client.get.mockResolvedValueOnce(
+      makePagedRolesResponse(pageOneRows, { total: 42 }),
+    );
 
     renderRolesPage(client);
     await waitForInitialList(client);
@@ -349,14 +371,15 @@ describe('RolesPage — paginação client-side', () => {
 });
 
 describe('RolesPage — filtro de inativas', () => {
-  it('liga toggle dispara request com inclusão de inativas no resultado', async () => {
+  it('liga toggle dispara request com includeDeleted=true na querystring', async () => {
     const client = createRolesClientStub();
-    client.get.mockResolvedValue(SAMPLE_ROWS.slice());
+    const activeRows = SAMPLE_ROWS.filter((row) => row.deletedAt === null);
+    client.get.mockResolvedValueOnce(makePagedRolesResponse(activeRows));
+    client.get.mockResolvedValueOnce(makePagedRolesResponse(SAMPLE_ROWS));
 
     renderRolesPage(client);
     await waitFor(() => expect(client.get).toHaveBeenCalledTimes(1));
 
-    // Antes de ligar o toggle, a Viewer (deletada) não aparece.
     expect(
       screen.queryByTestId(`roles-card-${ID_ROLE_VIEWER}`),
     ).not.toBeInTheDocument();
@@ -365,8 +388,10 @@ describe('RolesPage — filtro de inativas', () => {
     fireEvent.click(toggle);
 
     await waitFor(() => expect(client.get).toHaveBeenCalledTimes(2));
+    expect(lastGetPath(client)).toBe(
+      `/roles?systemId=${ID_SYS_AUTH}&includeDeleted=true`,
+    );
 
-    // Depois do toggle, a Viewer aparece.
     await waitFor(() => {
       expect(
         screen.getByTestId(`roles-card-${ID_ROLE_VIEWER}`),
@@ -378,7 +403,10 @@ describe('RolesPage — filtro de inativas', () => {
 describe('RolesPage — estados vazios', () => {
   it('vazio com busca: exibe termo + botão limpar', async () => {
     const client = createRolesClientStub();
-    client.get.mockResolvedValue(SAMPLE_ROWS.slice());
+    // Backend filtra server-side: primeira request devolve todos;
+    // após digitar "naoexiste", devolve vazio.
+    client.get.mockResolvedValueOnce(makePagedRolesResponse(SAMPLE_ROWS));
+    client.get.mockResolvedValueOnce(makePagedRolesResponse([]));
 
     renderRolesPage(client);
     await waitFor(() => expect(client.get).toHaveBeenCalledTimes(1));
@@ -402,7 +430,7 @@ describe('RolesPage — estados vazios', () => {
 
   it('vazio sem busca: mensagem dedicada + dica sobre toggle', async () => {
     const client = createRolesClientStub();
-    client.get.mockResolvedValueOnce([]);
+    client.get.mockResolvedValueOnce(makePagedRolesResponse([]));
 
     renderRolesPage(client);
     await waitForInitialList(client);
@@ -417,7 +445,11 @@ describe('RolesPage — estados vazios', () => {
 
   it('clicar em "limpar busca" reseta termo e re-popula a lista', async () => {
     const client = createRolesClientStub();
-    client.get.mockResolvedValue(SAMPLE_ROWS.slice());
+    // Backend filtra server-side: 1ª (default), 2ª (busca naoexiste
+    // → vazio), 3ª (limpar busca → todos).
+    client.get.mockResolvedValueOnce(makePagedRolesResponse(SAMPLE_ROWS));
+    client.get.mockResolvedValueOnce(makePagedRolesResponse([]));
+    client.get.mockResolvedValueOnce(makePagedRolesResponse(SAMPLE_ROWS));
 
     renderRolesPage(client);
     await waitFor(() => expect(client.get).toHaveBeenCalledTimes(1));
@@ -461,7 +493,7 @@ describe('RolesPage — erro de rede', () => {
     const client = createRolesClientStub();
     client.get
       .mockRejectedValueOnce(apiError)
-      .mockResolvedValueOnce(SAMPLE_ROWS.slice());
+      .mockResolvedValueOnce(makePagedRolesResponse(SAMPLE_ROWS));
 
     renderRolesPage(client);
 
@@ -497,7 +529,7 @@ describe('RolesPage — cancelamento de request', () => {
         if (options?.signal) {
           signals.push(options.signal);
         }
-        return Promise.resolve(SAMPLE_ROWS.slice());
+        return Promise.resolve(makePagedRolesResponse(SAMPLE_ROWS));
       },
     );
 

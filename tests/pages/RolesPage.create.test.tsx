@@ -9,6 +9,7 @@ import {
   fillNewRoleForm,
   ID_ROLE_ROOT,
   ID_SYS_AUTH,
+  makePagedRolesResponse,
   makeRole,
   openCreateRoleModal,
   renderRolesPage,
@@ -70,7 +71,7 @@ describe("RolesPage — criação (Issue #67)", () => {
     it("não exibe o botão quando o usuário não possui AUTH_V1_ROLES_CREATE", async () => {
       permissionsMock = [];
       const client = createRolesClientStub();
-      client.get.mockResolvedValueOnce([makeRole()]);
+      client.get.mockResolvedValueOnce(makePagedRolesResponse([makeRole()]));
 
       renderRolesPage(client);
       await waitForInitialList(client);
@@ -81,7 +82,7 @@ describe("RolesPage — criação (Issue #67)", () => {
     it("exibe o botão quando o usuário possui AUTH_V1_ROLES_CREATE", async () => {
       permissionsMock = [ROLES_CREATE_PERMISSION];
       const client = createRolesClientStub();
-      client.get.mockResolvedValueOnce([makeRole()]);
+      client.get.mockResolvedValueOnce(makePagedRolesResponse([makeRole()]));
 
       renderRolesPage(client);
       await waitForInitialList(client);

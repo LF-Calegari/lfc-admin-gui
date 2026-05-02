@@ -9,9 +9,16 @@ import React from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { expect, vi } from "vitest";
 
-import type { ApiClient, ApiError, RoleDto } from "@/shared/api";
+import type {
+  ApiClient,
+  ApiError,
+  PagedResponse,
+  RoleDto,
+  SystemDto,
+} from "@/shared/api";
 
 import { ToastProvider } from "@/components/ui";
+import { RolesGlobalListShellPage } from "@/pages/roles/RolesGlobalListShellPage";
 import { RolesPage } from "@/pages/RolesPage";
 
 /**
@@ -114,6 +121,69 @@ export function makeRole(overrides: Partial<RoleDto> = {}): RoleDto {
 }
 
 /**
+ * Constrói o envelope paginado mockado pelo backend — `total`
+ * reflete `data.length` por default; testes que cobrem paginação
+ * sobrescrevem. Espelha `makePagedClientsResponse`/`makePagedResponse`
+ * em outros helpers — pré-fabricado para ser consumido pelas suítes
+ * de `RolesPage` (per-system) e `RolesGlobalListShellPage` (Issue
+ * #173) sem duplicação.
+ */
+export function makePagedRolesResponse(
+  data: ReadonlyArray<RoleDto>,
+  overrides: Partial<PagedResponse<RoleDto>> = {},
+): PagedResponse<RoleDto> {
+  return {
+    data,
+    page: 1,
+    pageSize: 20,
+    total: data.length,
+    ...overrides,
+  };
+}
+
+/**
+ * Constrói um `SystemDto` mínimo para o dropdown de filtro da
+ * `RolesGlobalListShellPage` (Issue #173). Mantido local ao módulo
+ * de roles para não acoplar as suítes globais a `systemsTestHelpers`
+ * (manter independência reduz custo de boot de cada suíte). Defaults
+ * apontam para `ID_SYS_AUTH` para casar com `makeRole`.
+ */
+export function makeSystemDtoForRoles(
+  overrides: Partial<SystemDto> = {},
+): SystemDto {
+  return {
+    id: ID_SYS_AUTH,
+    name: "lfc-authenticator",
+    code: "AUTH",
+    description: null,
+    createdAt: "2026-01-10T12:00:00Z",
+    updatedAt: "2026-01-10T12:00:00Z",
+    deletedAt: null,
+    ...overrides,
+  };
+}
+
+/**
+ * Constrói o envelope paginado de sistemas (`PagedResponse<SystemDto>`)
+ * para mockar a request paralela `listSystems` que a
+ * `RolesGlobalListShellPage` dispara para popular o dropdown de
+ * filtro. `pageSize=100` espelha `MAX_ROLES_PAGE_SIZE` (mesmo limite
+ * usado pela página).
+ */
+export function makePagedSystemsResponseForRoles(
+  data: ReadonlyArray<SystemDto>,
+  overrides: Partial<PagedResponse<SystemDto>> = {},
+): PagedResponse<SystemDto> {
+  return {
+    data,
+    page: 1,
+    pageSize: 100,
+    total: data.length,
+    ...overrides,
+  };
+}
+
+/**
  * Renderiza a `RolesPage` envolvendo no `MemoryRouter` apontando
  * para `/systems/:systemId/roles`. A página consome
  * `useParams<{ systemId }>` — sem o roteador, `systemId` ficaria
@@ -166,20 +236,115 @@ export async function waitForInitialList(client: ApiClientStub): Promise<void> {
 }
 
 /**
+ * Renderiza a `RolesGlobalListShellPage` (Issue #173) envolvendo num
+ * `MemoryRouter` (a página chama `useNavigate` para drill-down nas
+ * linhas) e num `ToastProvider`. Não exige `:systemId` na URL — a
+ * listagem é cross-system.
+ */
+export function renderRolesGlobalListPage(client: ApiClientStub): void {
+  render(
+    <ToastProvider>
+      <MemoryRouter initialEntries={["/roles"]}>
+        <Routes>
+          <Route
+            path="/roles"
+            element={<RolesGlobalListShellPage client={client} />}
+          />
+          <Route path="/systems/:systemId/roles" element={<div>drill</div>} />
+        </Routes>
+      </MemoryRouter>
+    </ToastProvider>,
+  );
+}
+
+/**
+ * Configura o `client.get` da `RolesGlobalListShellPage` para
+ * responder roles e sistemas via `mockImplementation` baseado no
+ * `path`. A página dispara duas requests em paralelo no mount
+ * (`/roles` e `/systems`); resolvê-las por path evita acoplar o
+ * teste à ordem de chamadas.
+ *
+ * Pré-fabricado no helper (em vez de inline em cada teste) para
+ * evitar duplicação JSCPD/Sonar — espelha `primeStubResponses` em
+ * `tests/pages/users/__helpers__/userRolesTestHelpers.tsx` (lição
+ * PR #134/#135 — corpo do `mockImplementation` por path se torna
+ * clone entre suítes da mesma família).
+ */
+export function primeRolesGlobalStubResponses(
+  client: ApiClientStub,
+  options: {
+    roles?: PagedResponse<RoleDto>;
+    systems?: PagedResponse<SystemDto>;
+  } = {},
+): void {
+  const rolesEnvelope = options.roles ?? makePagedRolesResponse([makeRole()]);
+  const systemsEnvelope =
+    options.systems ?? makePagedSystemsResponseForRoles([makeSystemDtoForRoles()]);
+
+  client.get.mockImplementation((path: string) => {
+    if (path.startsWith("/roles")) {
+      return Promise.resolve(rolesEnvelope);
+    }
+    if (path.startsWith("/systems")) {
+      return Promise.resolve(systemsEnvelope);
+    }
+    return Promise.reject(
+      Object.assign(new Error("URL stub não esperada: " + path), {
+        kind: "http",
+        status: 404,
+      }),
+    );
+  });
+}
+
+/**
+ * Aguarda a primeira renderização da listagem global. A
+ * `RolesGlobalListShellPage` dispara duas requests em paralelo no
+ * mount (`listRoles` e `listSystems`) — esperar `client.get` ser
+ * chamado pelo menos 2 vezes garante que a UI saiu de loading.
+ */
+export async function waitForRolesGlobalInitialList(
+  client: ApiClientStub,
+): Promise<void> {
+  await waitFor(() => expect(client.get).toHaveBeenCalled());
+  await waitFor(() => {
+    expect(
+      screen.queryByTestId("roles-global-loading"),
+    ).not.toBeInTheDocument();
+  });
+}
+
+/**
  * Helper para extrair o `path` passado a `client.get` na chamada
  * mais recente. Usado em asserts que verificam o endpoint
  * consumido. Espelha `lastGetPath` em `routesTestHelpers.tsx`.
- *
- * **Hoje** o backend só expõe `GET /roles` (sem querystring); o
- * adapter client-side em `listRoles` aplica filtros/paginação em
- * memória. Quando o backend evoluir para `GET /systems/roles?...`,
- * este helper continuará válido — só mudará o conteúdo retornado.
  */
 export function lastGetPath(client: ApiClientStub): string {
   const calls = client.get.mock.calls;
   if (calls.length === 0) return "";
   const path = calls[calls.length - 1][0];
   return typeof path === "string" ? path : "";
+}
+
+/**
+ * Helper para extrair o último path de `client.get` que case com um
+ * prefixo (`'/roles'` ou `'/systems'`). A `RolesGlobalListShellPage`
+ * dispara duas requests no mount (`listRoles` e `listSystems`) e
+ * `lastGetPath` cru retorna a mais recente — quando o teste precisa
+ * inspecionar a request de roles, este helper filtra pela base.
+ */
+export function lastGetPathMatching(
+  client: ApiClientStub,
+  prefix: string,
+): string {
+  const calls = client.get.mock.calls;
+  for (let i = calls.length - 1; i >= 0; i -= 1) {
+    const path = calls[i][0];
+    if (typeof path === "string" && path.startsWith(prefix)) {
+      return path;
+    }
+  }
+  return "";
 }
 
 /**
@@ -356,7 +521,7 @@ export function mockOpenEditModalResponses(
   options: { role?: RoleDto } = {},
 ): void {
   const role = options.role ?? makeRole();
-  client.get.mockResolvedValueOnce([role]);
+  client.get.mockResolvedValueOnce(makePagedRolesResponse([role]));
 }
 
 /**
@@ -465,7 +630,7 @@ export async function openCreateRoleModal(
     client.get.mock.calls.length === 0 &&
     client.get.mock.results.length === 0
   ) {
-    client.get.mockResolvedValueOnce(options.rows ?? []);
+    client.get.mockResolvedValueOnce(makePagedRolesResponse(options.rows ?? []));
   }
   renderRolesPage(client);
   await waitForInitialList(client);

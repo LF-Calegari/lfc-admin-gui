@@ -150,12 +150,10 @@ export function makePagedSystems(
 
 interface SetupOptions {
   /**
-   * Catálogo devolvido pelo `listRoles`. **Importante:** o backend
-   * `/roles` ainda devolve um array cru (não envelope paginado);
-   * `listRoles` adapta client-side. O stub deve mocar o array, e o
-   * `makePagedRoles` aqui é apenas conveniência para testes que
-   * queiram passar o envelope explicitamente — a normalização no
-   * `primeStubResponses` aceita ambos.
+   * Catálogo devolvido pelo `listRoles`. Após `lfc-authenticator#163`/
+   * `#164`, o backend devolve `PagedResponse<RoleDto>` nativo;
+   * `listRoles` valida e propaga sem adapter. Aceita também um array
+   * cru (legado) — o `primeStubResponses` envelopa automaticamente.
    */
   roles?: PagedResponse<RoleDto> | ReadonlyArray<RoleDto>;
   /** Sistemas devolvidos pelo `listSystems` (lookup, envelope paginado). */
@@ -174,19 +172,19 @@ export function primeStubResponses(
   client: ApiClientStub,
   options: SetupOptions = {},
 ): void {
-  // Backend hoje devolve `/roles` como array cru — o adapter
-  // `listRoles` paginia/filtra client-side. O stub aqui sempre devolve
-  // o array (extraído do envelope se o caller passou `PagedResponse`).
+  // Backend devolve `/roles` como `PagedResponse<RoleDto>` nativo após
+  // `lfc-authenticator#163`/`#164`. O stub envelopa quando o caller
+  // passa só o array cru (compatibilidade com fixtures legadas).
   const rolesInput = options.roles ?? [makeRole()];
-  const rolesArray = Array.isArray(rolesInput)
-    ? (rolesInput as ReadonlyArray<RoleDto>)
-    : (rolesInput as PagedResponse<RoleDto>).data;
+  const rolesEnvelope = Array.isArray(rolesInput)
+    ? makePagedRoles(rolesInput as ReadonlyArray<RoleDto>)
+    : (rolesInput as PagedResponse<RoleDto>);
   const systems = options.systems ?? makePagedSystems([makeSystem()]);
   const user = options.user ?? makeUser();
 
   client.get.mockImplementation((path: string) => {
     if (path.startsWith('/roles')) {
-      return Promise.resolve(rolesArray);
+      return Promise.resolve(rolesEnvelope);
     }
     if (path.startsWith('/systems')) {
       return Promise.resolve(systems);
