@@ -441,3 +441,85 @@ export async function submitEditRoleForm(
     expect(client.put).toHaveBeenCalledTimes(expectedPutCalls),
   );
 }
+
+/* ─── Helpers para suíte de criação (Issue #67) ─────────────── */
+
+/**
+ * Mocka o GET inicial com uma página vazia (ou contendo as roles
+ * informadas), renderiza a `RolesPage`, espera a lista carregar e
+ * clica no botão "Nova role" para abrir o `NewRoleModal`.
+ *
+ * Quem precisar de mocks diferentes pode chamar
+ * `client.get.mockXxx` **antes** de invocar este helper para
+ * sobrescrever a fila — a detecção de mocks pré-existentes
+ * preserva o caso "fila customizada de respostas" (ex.: cenários
+ * com refetch após sucesso). Espelha `openCreateModal` em
+ * `systemsTestHelpers.tsx` (lição PR #127 — trechos de 5+ linhas
+ * em 2+ testes são `New Code Duplication` no Sonar).
+ */
+export async function openCreateRoleModal(
+  client: ApiClientStub,
+  options: { rows?: ReadonlyArray<RoleDto> } = {},
+): Promise<void> {
+  if (
+    client.get.mock.calls.length === 0 &&
+    client.get.mock.results.length === 0
+  ) {
+    client.get.mockResolvedValueOnce(options.rows ?? []);
+  }
+  renderRolesPage(client);
+  await waitForInitialList(client);
+  fireEvent.click(screen.getByTestId("roles-create-open"));
+  // Garante que o modal montou — a presença do form indica que o
+  // `NewRoleModal` está renderizado e os refs/handlers prontos.
+  await waitFor(() => {
+    expect(screen.getByTestId("new-role-form")).toBeInTheDocument();
+  });
+}
+
+/**
+ * Preenche os campos do form do `NewRoleModal`. Cada chave é
+ * opcional — testes que validam só `name` e `code` deixam
+ * `description` ausente. Espelha `fillEditRoleForm`/
+ * `fillNewSystemForm` mas com testIds `new-role-*`.
+ */
+export function fillNewRoleForm(values: {
+  name?: string;
+  code?: string;
+  description?: string;
+}): void {
+  if (values.name !== undefined) {
+    fireEvent.change(screen.getByTestId("new-role-name"), {
+      target: { value: values.name },
+    });
+  }
+  if (values.code !== undefined) {
+    fireEvent.change(screen.getByTestId("new-role-code"), {
+      target: { value: values.code },
+    });
+  }
+  if (values.description !== undefined) {
+    fireEvent.change(screen.getByTestId("new-role-description"), {
+      target: { value: values.description },
+    });
+  }
+}
+
+/**
+ * Submete o form do `NewRoleModal` e aguarda o `client.post` ser
+ * chamado pelo menos `expectedPostCalls` vezes (default `1`).
+ * Espelha `submitNewSystemForm` — `act` + `waitFor` para flushar a
+ * microtask do submit antes do assert.
+ */
+export async function submitNewRoleForm(
+  client: ApiClientStub,
+  expectedPostCalls = 1,
+): Promise<void> {
+  await act(async () => {
+    fireEvent.submit(screen.getByTestId("new-role-form"));
+    await Promise.resolve();
+  });
+  await waitFor(() =>
+    expect(client.post).toHaveBeenCalledTimes(expectedPostCalls),
+  );
+}
