@@ -10,8 +10,9 @@ import { useParams } from 'react-router-dom';
 import { Badge, Checkbox, useToast } from '../../components/ui';
 import {
   assignRoleToUser,
+  extractErrorMessage,
   getUserById,
-  isApiError,
+  isFetchAborted,
   listRoles,
   listSystems,
   MAX_ROLES_PAGE_SIZE,
@@ -81,40 +82,6 @@ interface FetchedState {
 }
 
 /**
- * Distingue erros de cancelamento (esperados durante navegação rápida)
- * dos erros reais de UI. Espelha `UserPermissionsShellPage`/
- * `RolePermissionsShellPage` (lição PR #134/#135 — aceitar duplicação
- * pequena (5 linhas) entre páginas-shell se a alternativa é exportar
- * helper privado).
- */
-function isFetchAborted(error: unknown): boolean {
-  if (error instanceof DOMException && error.name === 'AbortError') {
-    return true;
-  }
-  if (
-    isApiError(error) &&
-    error.kind === 'network' &&
-    error.message === 'Requisição cancelada.'
-  ) {
-    return true;
-  }
-  return false;
-}
-
-/**
- * Extrai mensagem amigável de qualquer erro vindo da camada HTTP.
- * Quando o erro é um `ApiError`, devolvemos a `message` (o cliente já
- * resolveu fallbacks por status). Para erros arbitrários, usamos a
- * `fallback` em pt-BR específica do contexto.
- */
-function extractErrorMessage(error: unknown, fallback: string): string {
-  if (isApiError(error)) {
-    return error.message;
-  }
-  return fallback;
-}
-
-/**
  * Constrói o mapa `systemId -> {code, name}` a partir do array de
  * `SystemDto` devolvido por `listSystems`. Mantido fora do componente
  * para tornar testes baratos.
@@ -139,7 +106,7 @@ function buildSystemLookup(
  *    `GET /systems` (lookup de `systemId -> {code, name}`) e
  *    `GET /users/{id}` (estado atual do usuário, incluindo array
  *    `roles`).
- * 2. Inicializa o set `selectedRoles` com os ids das roles do array
+ * 2. Inicializa o set `chosenRoleIds` com os ids das roles do array
  *    `user.roles`.
  * 3. UI exibe lista agrupada por sistema; cada role tem um checkbox
  *    controlado e badges visuais (vínculo atual / pendente).
@@ -172,45 +139,45 @@ export const UserRolesShellPage: React.FC<UserRolesShellPageProps> = ({
 
   const toast = useToast();
 
-  const [state, setState] = useState<{
+  const [matrixState, setMatrixState] = useState<{
     isInitialLoading: boolean;
     isSaving: boolean;
     errorMessage: string | null;
     fetched: FetchedState | null;
-    selectedRoles: ReadonlySet<RoleId>;
-    originalRoles: ReadonlySet<RoleId>;
-    refetchNonce: number;
+    chosenRoleIds: ReadonlySet<RoleId>;
+    baselineRoleIds: ReadonlySet<RoleId>;
+    refreshTick: number;
   }>({
     isInitialLoading: true,
     isSaving: false,
     errorMessage: null,
     fetched: null,
-    selectedRoles: new Set<RoleId>(),
-    originalRoles: new Set<RoleId>(),
-    refetchNonce: 0,
+    chosenRoleIds: new Set<RoleId>(),
+    baselineRoleIds: new Set<RoleId>(),
+    refreshTick: 0,
   });
 
-  const lastControllerRef = useRef<AbortController | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const handleRefetch = useCallback(() => {
-    setState((prev) => ({
+    setMatrixState((prev) => ({
       ...prev,
       isInitialLoading: true,
       errorMessage: null,
-      refetchNonce: prev.refetchNonce + 1,
+      refreshTick: prev.refreshTick + 1,
     }));
   }, []);
 
   useEffect(() => {
     if (!hasValidUserId) {
-      setState((prev) => ({ ...prev, isInitialLoading: false }));
+      setMatrixState((prev) => ({ ...prev, isInitialLoading: false }));
       return undefined;
     }
 
     let cancelled = false;
     const controller = new AbortController();
-    lastControllerRef.current?.abort();
-    lastControllerRef.current = controller;
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = controller;
 
     Promise.all([
       listRoles({ pageSize: MAX_ROLES_PAGE_SIZE }, { signal: controller.signal }, client),
@@ -219,8 +186,8 @@ export const UserRolesShellPage: React.FC<UserRolesShellPageProps> = ({
     ])
       .then(([rolesResponse, systemsResponse, user]) => {
         if (cancelled) return;
-        const originalRoles = buildInitialUserRoleIds(user.roles);
-        setState({
+        const baselineRoleIds = buildInitialUserRoleIds(user.roles);
+        setMatrixState({
           isInitialLoading: false,
           isSaving: false,
           errorMessage: null,
@@ -229,15 +196,15 @@ export const UserRolesShellPage: React.FC<UserRolesShellPageProps> = ({
             roles: rolesResponse.data,
             systemLookup: buildSystemLookup(systemsResponse.data),
           },
-          selectedRoles: new Set(originalRoles),
-          originalRoles,
-          refetchNonce: 0,
+          chosenRoleIds: new Set(baselineRoleIds),
+          baselineRoleIds,
+          refreshTick: 0,
         });
       })
       .catch((error: unknown) => {
         if (cancelled) return;
         if (isFetchAborted(error)) return;
-        setState((prev) => ({
+        setMatrixState((prev) => ({
           ...prev,
           isInitialLoading: false,
           errorMessage: extractErrorMessage(
@@ -251,48 +218,48 @@ export const UserRolesShellPage: React.FC<UserRolesShellPageProps> = ({
       cancelled = true;
       controller.abort();
     };
-  }, [client, hasValidUserId, userId, state.refetchNonce]);
+  }, [client, hasValidUserId, userId, matrixState.refreshTick]);
 
   const groups = useMemo<ReadonlyArray<RoleSystemGroup>>(() => {
-    if (!state.fetched) return [];
-    return groupRolesBySystem(state.fetched.roles, state.fetched.systemLookup);
-  }, [state.fetched]);
+    if (!matrixState.fetched) return [];
+    return groupRolesBySystem(matrixState.fetched.roles, matrixState.fetched.systemLookup);
+  }, [matrixState.fetched]);
 
   const diff = useMemo(
-    () => computeIdSetDiff(state.originalRoles, state.selectedRoles),
-    [state.originalRoles, state.selectedRoles],
+    () => computeIdSetDiff(matrixState.baselineRoleIds, matrixState.chosenRoleIds),
+    [matrixState.baselineRoleIds, matrixState.chosenRoleIds],
   );
   const hasUnsavedChanges = idSetDiffHasChanges(diff);
 
   const handleToggleRole = useCallback((roleId: RoleId, checked: boolean) => {
-    setState((prev) => {
-      const next = new Set(prev.selectedRoles);
+    setMatrixState((prev) => {
+      const next = new Set(prev.chosenRoleIds);
       if (checked) {
         next.add(roleId);
       } else {
         next.delete(roleId);
       }
-      return { ...prev, selectedRoles: next };
+      return { ...prev, chosenRoleIds: next };
     });
   }, []);
 
   const handleResetChanges = useCallback(() => {
-    setState((prev) => ({ ...prev, selectedRoles: new Set(prev.originalRoles) }));
+    setMatrixState((prev) => ({ ...prev, chosenRoleIds: new Set(prev.baselineRoleIds) }));
   }, []);
 
   const handleSave = useCallback(async () => {
-    if (!hasValidUserId || !hasUnsavedChanges || state.isSaving) {
+    if (!hasValidUserId || !hasUnsavedChanges || matrixState.isSaving) {
       return;
     }
-    setState((prev) => ({ ...prev, isSaving: true }));
+    setMatrixState((prev) => ({ ...prev, isSaving: true }));
     const failures: RoleAssignmentFailure[] = [];
-    let succeededAdd = 0;
-    let succeededRemove = 0;
+    let addedSuccess = 0;
+    let removedSuccess = 0;
 
     const addOps = diff.toAdd.map(async (roleId) => {
       try {
         await assignRoleToUser(userId, roleId, undefined, client);
-        succeededAdd += 1;
+        addedSuccess += 1;
       } catch (error: unknown) {
         failures.push({
           roleId,
@@ -308,7 +275,7 @@ export const UserRolesShellPage: React.FC<UserRolesShellPageProps> = ({
     const removeOps = diff.toRemove.map(async (roleId) => {
       try {
         await removeRoleFromUser(userId, roleId, undefined, client);
-        succeededRemove += 1;
+        removedSuccess += 1;
       } catch (error: unknown) {
         failures.push({
           roleId,
@@ -324,32 +291,32 @@ export const UserRolesShellPage: React.FC<UserRolesShellPageProps> = ({
     await Promise.all([...addOps, ...removeOps]);
 
     if (failures.length === 0) {
-      const totalApplied = succeededAdd + succeededRemove;
+      const appliedCount = addedSuccess + removedSuccess;
       toast.show(
-        totalApplied === 1
+        appliedCount === 1
           ? '1 alteração de role aplicada com sucesso.'
-          : `${totalApplied} alterações de roles aplicadas com sucesso.`,
+          : `${appliedCount} alterações de roles aplicadas com sucesso.`,
         { variant: 'success', title: 'Roles atualizadas' },
       );
     } else {
-      const totalApplied = succeededAdd + succeededRemove;
-      const failedCount = failures.length;
+      const appliedCount = addedSuccess + removedSuccess;
+      const failureCount = failures.length;
       toast.show(
-        `${failedCount} alteração(ões) falharam${totalApplied > 0 ? `, ${totalApplied} aplicada(s)` : ''}. Revise e tente novamente.`,
+        `${failureCount} alteração(ões) falharam${appliedCount > 0 ? `, ${appliedCount} aplicada(s)` : ''}. Revise e tente novamente.`,
         { variant: 'warning', title: 'Algumas atualizações falharam' },
       );
     }
 
     // Refetch após o salvar — backend é a fonte da verdade. Se houve
     // falha parcial, o estado reflete o backend (não o esforço local).
-    setState((prev) => ({
+    setMatrixState((prev) => ({
       ...prev,
       isSaving: false,
       isInitialLoading: true,
       errorMessage: null,
-      refetchNonce: prev.refetchNonce + 1,
+      refreshTick: prev.refreshTick + 1,
     }));
-  }, [client, diff, hasUnsavedChanges, hasValidUserId, state.isSaving, toast, userId]);
+  }, [client, diff, hasUnsavedChanges, hasValidUserId, matrixState.isSaving, toast, userId]);
 
   const pendingCount = diff.toAdd.length + diff.toRemove.length;
 
@@ -384,10 +351,10 @@ export const UserRolesShellPage: React.FC<UserRolesShellPageProps> = ({
           </AssignmentLegendItem>
         </>
       }
-      isInitialLoading={state.isInitialLoading}
-      errorMessage={state.errorMessage}
+      isInitialLoading={matrixState.isInitialLoading}
+      errorMessage={matrixState.errorMessage}
       isEmpty={groups.length === 0}
-      isSaving={state.isSaving}
+      isSaving={matrixState.isSaving}
       hasUnsavedChanges={hasUnsavedChanges}
       pendingCount={pendingCount}
       groups={groups}
@@ -403,9 +370,9 @@ export const UserRolesShellPage: React.FC<UserRolesShellPageProps> = ({
         <RoleGroup
           key={group.systemId || group.systemCode}
           group={group}
-          selectedRoles={state.selectedRoles}
-          originalRoles={state.originalRoles}
-          isSaving={state.isSaving}
+          chosenRoleIds={matrixState.chosenRoleIds}
+          baselineRoleIds={matrixState.baselineRoleIds}
+          isSaving={matrixState.isSaving}
           onToggle={handleToggleRole}
         />
       )}
@@ -415,16 +382,16 @@ export const UserRolesShellPage: React.FC<UserRolesShellPageProps> = ({
 
 interface RoleGroupProps {
   group: RoleSystemGroup;
-  selectedRoles: ReadonlySet<RoleId>;
-  originalRoles: ReadonlySet<RoleId>;
+  chosenRoleIds: ReadonlySet<RoleId>;
+  baselineRoleIds: ReadonlySet<RoleId>;
   isSaving: boolean;
   onToggle: (roleId: RoleId, checked: boolean) => void;
 }
 
 const RoleGroup: React.FC<RoleGroupProps> = ({
   group,
-  selectedRoles,
-  originalRoles,
+  chosenRoleIds,
+  baselineRoleIds,
   isSaving,
   onToggle,
 }) => (
@@ -438,17 +405,17 @@ const RoleGroup: React.FC<RoleGroupProps> = ({
     </AssignmentGroupHeader>
     <AssignmentItemList>
       {group.items.map((role) => {
-        const isSelected = selectedRoles.has(role.id);
-        const wasOriginallyLinked = originalRoles.has(role.id);
-        const isPending = isSelected !== wasOriginallyLinked;
+        const checkboxChecked = chosenRoleIds.has(role.id);
+        const wasInitiallyLinked = baselineRoleIds.has(role.id);
+        const hasUnsavedChange = checkboxChecked !== wasInitiallyLinked;
         return (
           <AssignmentItemRow
             key={role.id}
             data-testid={`user-roles-item-${role.id}`}
-            data-pending={isPending || undefined}
+            data-pending={hasUnsavedChange || undefined}
           >
             <Checkbox
-              checked={isSelected}
+              checked={checkboxChecked}
               disabled={isSaving}
               onChange={(checked) => onToggle(role.id, checked)}
               aria-label={`${role.name} · ${role.code}`}
@@ -465,14 +432,14 @@ const RoleGroup: React.FC<RoleGroupProps> = ({
                 <AssignmentItemDescription>{role.description}</AssignmentItemDescription>
               )}
               <AssignmentItemBadges>
-                {wasOriginallyLinked && (
+                {wasInitiallyLinked && (
                   <Badge variant="success" dot>
                     Vinculada
                   </Badge>
                 )}
-                {isPending && (
+                {hasUnsavedChange && (
                   <Badge variant="warning">
-                    {isSelected ? 'Adição pendente' : 'Remoção pendente'}
+                    {checkboxChecked ? 'Adição pendente' : 'Remoção pendente'}
                   </Badge>
                 )}
               </AssignmentItemBadges>
