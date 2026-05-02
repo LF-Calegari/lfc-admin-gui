@@ -376,6 +376,79 @@ export async function submitEditUserForm(
   await waitFor(() => expect(client.put).toHaveBeenCalledTimes(expectedPutCalls));
 }
 
+/* ─── Helpers para suíte de toggle ativo (Issue #80) ──────── */
+
+/**
+ * Mocka a resposta inicial (listagem com o usuário-alvo), renderiza a
+ * `UsersListShellPage`, espera a lista carregar e clica no botão
+ * "Desativar"/"Ativar" da linha do usuário informado. Espelha
+ * `openEditUserModal` mas dispara o modal de toggle ativo
+ * (`ToggleUserActiveConfirm`) — Issue #80.
+ *
+ * O `data-testid` do botão (`users-toggle-active-{id}`) é estável
+ * independente do estado `active` do usuário; o que muda é o label
+ * visível ("Desativar"/"Ativar") e o variant. Helpers de teste usam
+ * o testId para abrir o modal sem reagir ao label, e os asserts
+ * verificam a copy correta separadamente.
+ *
+ * Quem precisar de mocks diferentes pode chamar
+ * `client.get.mockImplementation(...)` antes de invocar este helper —
+ * a detecção de mocks pré-existentes preserva o caso "fila customizada
+ * de respostas" (ex.: cenários de erro 404 com refetch).
+ */
+export async function openToggleUserActiveConfirm(
+  client: ApiClientStub,
+  options: { user?: UserDto } = {},
+): Promise<void> {
+  const user = options.user ?? makeUser();
+  if (
+    client.get.getMockImplementation() === undefined &&
+    client.get.mock.calls.length === 0 &&
+    client.get.mock.results.length === 0
+  ) {
+    client.get.mockImplementation((path: string) => {
+      if (typeof path === 'string' && path.startsWith('/users')) {
+        return Promise.resolve(makeUsersPagedResponse([user]));
+      }
+      if (typeof path === 'string' && path.startsWith('/clients/')) {
+        return Promise.resolve(null);
+      }
+      return Promise.reject(new Error(`unexpected path: ${String(path)}`));
+    });
+  }
+  renderUsersPage(client);
+  await waitForInitialList(client);
+  fireEvent.click(screen.getByTestId(`users-toggle-active-${user.id}`));
+  // Aguarda a abertura do modal — verifica a presença do botão de
+  // confirmação que existe apenas quando o `MutationConfirmModal`
+  // está renderizado.
+  await waitFor(() => {
+    expect(
+      screen.getByTestId('toggle-user-active-confirm'),
+    ).toBeInTheDocument();
+  });
+}
+
+/**
+ * Confirma o toggle clicando em "Desativar"/"Ativar" no
+ * `ToggleUserActiveConfirm` e aguarda o `client.put` ser chamado pelo
+ * menos `expectedPutCalls` vezes (default `1`). Espelha `confirmDelete`
+ * dos `systemsTestHelpers`, mas com PUT em vez de DELETE — o backend
+ * não tem endpoint dedicado para toggle de `active`, então o modal
+ * dispara `updateUser` (PUT) com o body completo. Faz `act(async)`
+ * para flushar a microtask do click handler antes do `waitFor`.
+ */
+export async function confirmToggleUserActive(
+  client: ApiClientStub,
+  expectedPutCalls = 1,
+): Promise<void> {
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('toggle-user-active-confirm'));
+    await Promise.resolve();
+  });
+  await waitFor(() => expect(client.put).toHaveBeenCalledTimes(expectedPutCalls));
+}
+
 /**
  * Constrói os 3 cenários de fechamento sem persistência (Esc,
  * Cancelar, backdrop) usando o `cancelTestId` da suíte chamadora.
@@ -418,8 +491,37 @@ export function buildUsersCloseCases(
  * `New Code Duplication` no Sonar (lição PR #128 — projetar shared
  * helpers desde o primeiro PR do recurso).
  */
-export function buildSharedUserSubmitErrorCases(
-  verb: 'criar' | 'atualizar',
+/**
+ * Verbos suportados pelas suítes de mutação de usuário. Cada um
+ * controla a copy genérica do toast vermelho (`"Não foi possível
+ * {verb} o usuário. Tente novamente."`):
+ *
+ * - `'criar'`/`'atualizar'` — usados pelo create/edit do form de
+ *   usuário (Issues #78/#79).
+ * - `'ativar'`/`'desativar'` — usados pelo toggle ativo (Issue #80).
+ *
+ * Centralizar o tipo aqui (em vez de declarar dois alias paralelos)
+ * permite que `buildSharedUserMutationErrorCases` cubra todos os
+ * cenários sem duplicar a função (lição PR #134/#135 — sonarjs/
+ * no-identical-functions).
+ */
+export type UserMutationVerb = 'criar' | 'atualizar' | 'ativar' | 'desativar';
+
+/**
+ * Constrói os cenários comuns de erro 401/403/network para qualquer
+ * mutação de usuário. Casos comuns aparecem em todas as suítes
+ * (criação #78, edição #79, toggle ativo #80) com a única diferença
+ * sendo o verbo na copy genérica do toast vermelho — `it.each` reusa
+ * a mesma tabela em todas elas.
+ *
+ * Pré-fabricar antes do segundo call site previne a recorrência de
+ * `New Code Duplication` no Sonar (lição PR #128 — projetar shared
+ * helpers desde o primeiro PR do recurso). Casos específicos
+ * (`409`/`404` — comportamento difere entre suítes) ficam inline em
+ * cada suíte porque divergem em estrutura, não só em copy.
+ */
+export function buildSharedUserMutationErrorCases(
+  verb: UserMutationVerb,
 ): ReadonlyArray<UsersErrorCase> {
   return [
     {
@@ -446,4 +548,16 @@ export function buildSharedUserSubmitErrorCases(
       expectedText: `Não foi possível ${verb} o usuário. Tente novamente.`,
     },
   ];
+}
+
+/**
+ * Alias retro-compatível para suítes de criação/edição (#78/#79). Mantém
+ * a API pública sem reabrir os call-sites existentes — o conjunto de
+ * verbos aceitos é restrito ao subconjunto histórico (`criar`/`atualizar`)
+ * via união de tipo.
+ */
+export function buildSharedUserSubmitErrorCases(
+  verb: 'criar' | 'atualizar',
+): ReadonlyArray<UsersErrorCase> {
+  return buildSharedUserMutationErrorCases(verb);
 }
