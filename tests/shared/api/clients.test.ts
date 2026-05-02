@@ -4,6 +4,7 @@ import type { ApiClient, ClientDto, PagedResponse } from '@/shared/api';
 
 import {
   clientDisplayName,
+  createClient,
   DEFAULT_CLIENTS_PAGE_SIZE,
   getClientsByIds,
   isClientDto,
@@ -475,5 +476,194 @@ describe('getClientsByIds', () => {
         client as unknown as ApiClient,
       ),
     ).rejects.toBe(networkAbort);
+  });
+});
+
+/* ─── createClient (Issue #74) ──────────────────────────── */
+
+describe('createClient', () => {
+  it('envia POST /clients para PF com cpf+fullName trimados', async () => {
+    const client = makeClientStub();
+    const created = makeRawClientPf();
+    client.post.mockResolvedValueOnce(created);
+
+    const result = await createClient(
+      {
+        type: 'PF',
+        cpf: '  12345678901  ',
+        fullName: '  Ana Cliente  ',
+      },
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.post).toHaveBeenCalledTimes(1);
+    expect(client.post).toHaveBeenCalledWith(
+      '/clients',
+      {
+        type: 'PF',
+        cpf: '12345678901',
+        fullName: 'Ana Cliente',
+      },
+      undefined,
+    );
+    expect(result).toBe(created);
+  });
+
+  it('envia POST /clients para PJ com cnpj+corporateName trimados', async () => {
+    const client = makeClientStub();
+    const created = makeRawClientPj();
+    client.post.mockResolvedValueOnce(created);
+
+    await createClient(
+      {
+        type: 'PJ',
+        cnpj: '  12345678000190  ',
+        corporateName: '  Acme Indústria S/A  ',
+      },
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.post).toHaveBeenCalledWith(
+      '/clients',
+      {
+        type: 'PJ',
+        cnpj: '12345678000190',
+        corporateName: 'Acme Indústria S/A',
+      },
+      undefined,
+    );
+  });
+
+  it('omite campos do tipo oposto (PF não envia cnpj/corporateName)', async () => {
+    const client = makeClientStub();
+    client.post.mockResolvedValueOnce(makeRawClientPf());
+
+    await createClient(
+      {
+        type: 'PF',
+        cpf: '12345678901',
+        fullName: 'Ana',
+        // Caller mal-comportado tenta enviar campos PJ junto. O
+        // helper interno `buildClientMutationBody` os filtra para
+        // evitar 400 do backend ("CNPJ não deve ser informado para
+        // cliente PF.").
+        cnpj: '12345678000190',
+        corporateName: 'Algo',
+      },
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    const [, body] = client.post.mock.calls[0];
+    expect(body).toEqual({
+      type: 'PF',
+      cpf: '12345678901',
+      fullName: 'Ana',
+    });
+    expect(body).not.toHaveProperty('cnpj');
+    expect(body).not.toHaveProperty('corporateName');
+  });
+
+  it('omite campos do tipo oposto (PJ não envia cpf/fullName)', async () => {
+    const client = makeClientStub();
+    client.post.mockResolvedValueOnce(makeRawClientPj());
+
+    await createClient(
+      {
+        type: 'PJ',
+        cnpj: '12345678000190',
+        corporateName: 'Acme',
+        cpf: '12345678901',
+        fullName: 'Ana',
+      },
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    const [, body] = client.post.mock.calls[0];
+    expect(body).toEqual({
+      type: 'PJ',
+      cnpj: '12345678000190',
+      corporateName: 'Acme',
+    });
+    expect(body).not.toHaveProperty('cpf');
+    expect(body).not.toHaveProperty('fullName');
+  });
+
+  it('omite campos whitespace-only (PF com fullName apenas espaços)', async () => {
+    const client = makeClientStub();
+    client.post.mockResolvedValueOnce(makeRawClientPf());
+
+    await createClient(
+      {
+        type: 'PF',
+        cpf: '12345678901',
+        fullName: '   ',
+      },
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    const [, body] = client.post.mock.calls[0];
+    expect(body).toEqual({
+      type: 'PF',
+      cpf: '12345678901',
+    });
+    expect(body).not.toHaveProperty('fullName');
+  });
+
+  it('lança ApiError(parse) quando o backend devolve payload inválido', async () => {
+    const client = makeClientStub();
+    client.post.mockResolvedValueOnce({ wrong: 'shape' });
+
+    await expect(
+      createClient(
+        {
+          type: 'PF',
+          cpf: '12345678901',
+          fullName: 'Ana',
+        },
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toMatchObject({ kind: 'parse' });
+  });
+
+  it('propaga signal via options', async () => {
+    const client = makeClientStub();
+    client.post.mockResolvedValueOnce(makeRawClientPf());
+    const controller = new AbortController();
+
+    await createClient(
+      { type: 'PF', cpf: '12345678901', fullName: 'Ana' },
+      { signal: controller.signal },
+      client as unknown as ApiClient,
+    );
+
+    expect(client.post).toHaveBeenCalledWith(
+      '/clients',
+      expect.any(Object),
+      { signal: controller.signal },
+    );
+  });
+
+  it('propaga ApiError 409 do backend (CPF/CNPJ duplicado)', async () => {
+    const client = makeClientStub();
+    const conflict = {
+      kind: 'http' as const,
+      status: 409,
+      message: 'Já existe cliente com este CPF.',
+    };
+    client.post.mockRejectedValueOnce(conflict);
+
+    await expect(
+      createClient(
+        { type: 'PF', cpf: '12345678901', fullName: 'Ana' },
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toBe(conflict);
   });
 });

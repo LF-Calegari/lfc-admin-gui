@@ -1,7 +1,9 @@
 import React, { useMemo } from "react";
 import styled from "styled-components";
 
-import { Alert, Button, Input, Textarea } from "../../components/ui";
+import { Alert, Input, Textarea } from "../../components/ui";
+
+import { FormFooter as SharedFormFooter } from "./FormFooter";
 
 /**
  * Form body genérico para entidades cujo CRUD expõe exatamente os
@@ -48,19 +50,6 @@ const FormShell = styled.form`
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-`;
-
-const FormFooter = styled.div`
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-3);
-  margin-top: var(--space-2);
-`;
-
-const FormHelperRow = styled.div`
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  letter-spacing: var(--tracking-tight);
 `;
 
 const FieldStack = styled.div`
@@ -276,28 +265,12 @@ export const NameCodeDescriptionFormBody: React.FC<
       onChangeDescription={onChangeDescription}
       disabled={isSubmitting}
     />
-    <FormHelperRow>Campos com * são obrigatórios.</FormHelperRow>
-    <FormFooter>
-      <Button
-        type="button"
-        variant="ghost"
-        size="md"
-        onClick={onCancel}
-        disabled={isSubmitting}
-        data-testid={`${idPrefix}-cancel`}
-      >
-        Cancelar
-      </Button>
-      <Button
-        type="submit"
-        variant="primary"
-        size="md"
-        loading={isSubmitting}
-        data-testid={`${idPrefix}-submit`}
-      >
-        {submitLabel}
-      </Button>
-    </FormFooter>
+    <SharedFormFooter
+      idPrefix={idPrefix}
+      onCancel={onCancel}
+      isSubmitting={isSubmitting}
+      submitLabel={submitLabel}
+    />
   </FormShell>
 );
 

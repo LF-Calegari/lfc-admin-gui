@@ -1,6 +1,17 @@
 import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+// `buildAuthMock` precisa ser importado **antes** de
+// `clientsTestHelpers` para que `vi.mock('@/shared/auth', () =>
+// buildAuthMock(...))` consiga resolver a factory durante o hoisting
+// — sem isso, o teste falha com `Cannot access '__vi_import_2__'
+// before initialization` porque o `clientsTestHelpers` carrega
+// `ClientsListShellPage`, que carrega `@/shared/auth` (o alvo do
+// mock), antes de `buildAuthMock` estar definido. Quebra a ordem
+// alfabética de `import/order` por necessidade de hoisting do
+// Vitest — espelha o padrão usado em `SystemsPage.test.tsx`.
+/* eslint-disable import/order */
+import { buildAuthMock } from './__helpers__/mockUseAuth';
 import {
   createClientsClientStub,
   ID_CLIENT_PF_ANA,
@@ -14,7 +25,7 @@ import {
   renderClientsListPage,
   waitForInitialList,
 } from './__helpers__/clientsTestHelpers';
-import { buildAuthMock } from './__helpers__/mockUseAuth';
+/* eslint-enable import/order */
 
 import type { ApiError, ClientDto } from '@/shared/api';
 

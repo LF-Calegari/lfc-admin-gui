@@ -3,7 +3,7 @@ import { isPagedResponseEnvelope } from './pagedResponse';
 import { apiClient } from './index';
 
 import type { PagedResponse } from './systems';
-import type { ApiClient, ApiError, SafeRequestOptions } from './types';
+import type { ApiClient, ApiError, BodyRequestOptions, SafeRequestOptions } from './types';
 
 /**
  * Cria um `ApiError(parse)` baseado em `Error` real (com stack/`name`)
@@ -498,6 +498,113 @@ async function fetchClientById(
     throw makeParseError();
   }
   return data;
+}
+
+/**
+ * Body aceito pelo `POST /clients` no `lfc-authenticator`
+ * (`ClientsController.CreateClientRequest`).
+ *
+ * **Modelagem PF/PJ (Issue #74):** o backend usa um único `Type`
+ * discriminador + campos mutuamente exclusivos. A UI envia
+ * exatamente o conjunto correspondente ao tipo selecionado:
+ *
+ * - `type === 'PF'` → `cpf` + `fullName` preenchidos; `cnpj` e
+ *   `corporateName` ausentes (não enviados como `null` para evitar
+ *   o validador backend `cnpj is not null` rejeitar com 400 "CNPJ
+ *   não deve ser informado para cliente PF.").
+ * - `type === 'PJ'` → `cnpj` + `corporateName` preenchidos; `cpf`
+ *   e `fullName` ausentes (mesma lógica inversa — backend rejeita
+ *   "CPF não deve ser informado para cliente PJ.").
+ *
+ * **Trim/normalização:** o backend já normaliza (`NormalizeRequest`)
+ * `Type` (uppercase + trim), `Cpf`/`Cnpj` (apenas dígitos via
+ * `NormalizeDigits`) e `FullName`/`CorporateName` (`Trim()`). A UI
+ * envia já normalizado para reduzir round-trips e simplificar
+ * asserts em testes.
+ *
+ * **MaxLength:** o backend valida `Type` (2), `Cpf` (11),
+ * `FullName` (140), `Cnpj` (14), `CorporateName` (180). O
+ * `clientsFormShared.ts` espelha esses limites na validação
+ * client-side.
+ */
+export interface CreateClientPayload {
+  type: ClientType;
+  cpf?: string;
+  fullName?: string;
+  cnpj?: string;
+  corporateName?: string;
+}
+
+/**
+ * Cria um novo cliente via `POST /clients` (Issue #74).
+ *
+ * Retorna o `ClientDto` recém-criado (`201 Created` com
+ * `ClientResponse` no corpo). Lança `ApiError` em qualquer falha:
+ *
+ * - `kind: 'http'` com `status === 409` → conflito de unicidade
+ *   global de `cpf` ou `cnpj`. Backend devolve mensagens distintas
+ *   ("Já existe cliente com este CPF." / "Já existe cliente com
+ *   este CNPJ."); o caller exibe inline no campo correspondente
+ *   ao tipo do cliente que está sendo criado.
+ * - `kind: 'http'` com `status === 400` → erros de validação por
+ *   campo em `details` (mesmo shape de `ValidationProblemDetails`
+ *   usado pelos demais recursos).
+ * - `kind: 'http'` com `status === 401` → cliente HTTP já lidou
+ *   com `onUnauthorized`; a UI não precisa fazer nada extra.
+ * - Outros erros → toast vermelho genérico.
+ *
+ * O parâmetro `client` é injetável para isolar testes (passa-se
+ * um stub tipado como `ApiClient`); em produção usa-se o
+ * singleton `apiClient`.
+ */
+export async function createClient(
+  payload: CreateClientPayload,
+  options?: BodyRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<ClientDto> {
+  const body = buildClientMutationBody(payload);
+  const data = await client.post<unknown>('/clients', body, options);
+  if (!isClientDto(data)) {
+    throw makeParseError();
+  }
+  return data;
+}
+
+/**
+ * Constrói o body para `POST /clients` aplicando trim defensivo e
+ * o filtro de campos por tipo (PF/PJ). Centralizar essa montagem
+ * garante que nenhum call site inclua acidentalmente o campo do
+ * tipo oposto (que o backend rejeitaria com 400).
+ *
+ * Para PF: envia `type`, `cpf`, `fullName`. Para PJ: envia `type`,
+ * `cnpj`, `corporateName`. Em ambos, qualquer campo whitespace-only
+ * vira `undefined` (omitido do JSON) para que o backend trate como
+ * ausente — evita round-trip por "FullName é obrigatório" quando o
+ * usuário digita só espaços (a validação client-side em
+ * `clientsFormShared.ts` já cobre isso, mas defendemos aqui também).
+ */
+function buildClientMutationBody(payload: CreateClientPayload): CreateClientPayload {
+  const body: CreateClientPayload = { type: payload.type };
+  if (payload.type === 'PF') {
+    const cpf = payload.cpf?.trim();
+    if (cpf && cpf.length > 0) {
+      body.cpf = cpf;
+    }
+    const fullName = payload.fullName?.trim();
+    if (fullName && fullName.length > 0) {
+      body.fullName = fullName;
+    }
+  } else {
+    const cnpj = payload.cnpj?.trim();
+    if (cnpj && cnpj.length > 0) {
+      body.cnpj = cnpj;
+    }
+    const corporateName = payload.corporateName?.trim();
+    if (corporateName && corporateName.length > 0) {
+      body.corporateName = corporateName;
+    }
+  }
+  return body;
 }
 
 /**
