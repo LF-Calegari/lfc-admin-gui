@@ -771,3 +771,100 @@ export async function removeRoleFromUser(
 ): Promise<void> {
   await client.delete<void>(`/users/${userId}/roles/${roleId}`, options);
 }
+
+/**
+ * Espelho do `ForceLogoutResponse` do `lfc-authenticator`
+ * (`UsersController.ForceLogoutResponse`).
+ *
+ * Issue #82 (EPIC #49) — invalidação remota de sessões. Após o backend
+ * incrementar o `TokenVersion` do usuário-alvo, todos os JWTs emitidos
+ * com a versão anterior passam a falhar a verificação no próximo
+ * `verify-token`. A UI consome apenas a confirmação da operação (toast
+ * verde), mas mantemos o shape completo em tipo para preservar contrato
+ * — qualquer evolução do backend (ex.: incluir `expiresAt` ou
+ * `affectedSessions`) é capturada pelo type guard antes de propagar
+ * shape inesperado para o caller.
+ *
+ * - `message`: cópia em pt-BR confirmando o sucesso
+ *   (`"Sessões do usuário invalidadas com sucesso."`).
+ * - `userId`: id do usuário-alvo (eco do path param) — usado para
+ *   diagnóstico em logs do operador, não exibido.
+ * - `newTokenVersion`: novo `TokenVersion` após o incremento. Útil em
+ *   testes de integração e auditoria; UI atual ignora.
+ */
+export interface ForceLogoutResponse {
+  message: string;
+  userId: string;
+  newTokenVersion: number;
+}
+
+/**
+ * Type guard para `ForceLogoutResponse`. Espelha `isUserDto`/
+ * `isUserRoleLinkDto`: tolera campos extras no payload (forward-compat
+ * com backend), mas exige os três campos obrigatórios com tipos
+ * corretos. Retornar `false` causa `ApiError(parse)` no caller, que
+ * traduz para "Resposta inválida do servidor." — mesmo padrão dos
+ * demais wrappers do recurso.
+ */
+function isForceLogoutResponse(value: unknown): value is ForceLogoutResponse {
+  if (typeof value !== 'object' || value === null) return false;
+  const { message, userId, newTokenVersion } = value as Record<string, unknown>;
+  return (
+    typeof message === 'string' &&
+    typeof userId === 'string' &&
+    typeof newTokenVersion === 'number'
+  );
+}
+
+/**
+ * Invalida todas as sessões ativas de um usuário via
+ * `POST /users/{id}/force-logout` (lfc-authenticator#168).
+ *
+ * O backend incrementa o `TokenVersion` do usuário-alvo: tokens antigos
+ * passam a falhar no próximo `verify-token`/`/auth/permissions`,
+ * derrubando a sessão sem precisar invalidar o JWT no servidor.
+ *
+ * Endpoint requer `Users.Update` — mesma policy de `PUT /users/{id}` e
+ * `PUT /users/{id}/password`. Backend valida via
+ * `[Authorize(Policy = PermissionPolicies.UsersUpdate)]`.
+ *
+ * **Self-target é rejeitado**: o backend retorna `400` com
+ * `{ message: "Não é possível forçar logout de si mesmo por este
+ * endpoint. Utilize GET /auth/logout." }`. A UI bloqueia
+ * preventivamente escondendo a ação na linha do próprio usuário
+ * corrente, mas mantemos a tradução do 400 como defesa em profundidade.
+ *
+ * Status codes esperados:
+ *
+ * - `200 OK` com `ForceLogoutResponse` no body.
+ * - `400 Bad Request` quando self-target (caller deve esconder a ação).
+ * - `404 Not Found` quando o usuário foi soft-deletado entre abertura
+ *   do modal e submit (caller fecha modal + dispara refetch).
+ * - `401`/`403` por gating de permissão — cliente HTTP já lidou com
+ *   `onUnauthorized`; UI exibe toast.
+ *
+ * **Por que `POST` sem body?** O backend não espera payload — o id já
+ * vem no path. Passamos `null` literal para o `client.post` porque o
+ * cliente HTTP serializa `null` como body vazio (corpo zero-length); a
+ * alternativa (`{}`) enviaria `{}` no body e o backend ignoraria, mas
+ * preservar o contrato exato facilita auditoria de logs.
+ *
+ * O parâmetro `client` é injetável para isolar testes (passa-se um
+ * stub tipado como `ApiClient`); em produção usa-se o singleton
+ * `apiClient`.
+ */
+export async function forceLogoutUser(
+  id: string,
+  options?: BodyRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<ForceLogoutResponse> {
+  const data = await client.post<unknown>(
+    `/users/${id}/force-logout`,
+    null,
+    options,
+  );
+  if (!isForceLogoutResponse(data)) {
+    throw makeParseError();
+  }
+  return data;
+}

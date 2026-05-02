@@ -12,6 +12,7 @@ import {
   assignRoleToUser,
   createUser,
   DEFAULT_USERS_PAGE_SIZE,
+  forceLogoutUser,
   getUserById,
   isPagedUsersResponse,
   isUserDto,
@@ -881,35 +882,6 @@ describe('resetUserPassword — body e path', () => {
     await resetUserPassword(
       USER_ID,
       '  senha-com-espacos  ',
-/**
- * Suíte do `getUserById` (Issue #71). Cobre a chamada do endpoint
- * `GET /users/{id}`, a propagação do array `roles`
- * (lfc-authenticator#167) e os erros típicos (404 quando o usuário
- * não existe, parse quando o shape diverge).
- */
-describe('getUserById', () => {
-  const ROLE_ID = '99999999-9999-9999-9999-999999999999';
-  const SYSTEM_ID_FOR_ROLE = '88888888-8888-8888-8888-888888888888';
-
-  function makeUserRoleSummary(
-    overrides: Partial<UserRoleSummary> = {},
-  ): UserRoleSummary {
-    return {
-      id: ROLE_ID,
-      name: 'Administrator',
-      code: 'admin',
-      systemId: SYSTEM_ID_FOR_ROLE,
-      ...overrides,
-    };
-  }
-
-  it('emite GET /users/{id} e devolve UserDto com roles preenchidas', async () => {
-    const client = createStub();
-    const userWithRoles = makeUserDto({ roles: [makeUserRoleSummary()] });
-    client.get.mockResolvedValueOnce(userWithRoles);
-
-    const result = await getUserById(
-      USER_ID,
       undefined,
       client as unknown as ApiClient,
     );
@@ -933,33 +905,6 @@ describe('getUserById', () => {
     await resetUserPassword(
       USER_ID,
       'nova-senha',
-    expect(client.get).toHaveBeenCalledTimes(1);
-    expect(client.get.mock.calls[0][0]).toBe(`/users/${USER_ID}`);
-    expect(result).toEqual(userWithRoles);
-    expect(result.roles).toHaveLength(1);
-    expect(result.roles?.[0].id).toBe(ROLE_ID);
-  });
-
-  it('aceita UserDto sem array roles (payload legado)', async () => {
-    const client = createStub();
-    client.get.mockResolvedValueOnce(makeUserDto());
-
-    const result = await getUserById(
-      USER_ID,
-      undefined,
-      client as unknown as ApiClient,
-    );
-
-    expect(result.roles).toBeUndefined();
-  });
-
-  it('passa signal/options adiante para o cliente', async () => {
-    const client = createStub();
-    client.get.mockResolvedValueOnce(makeUserDto());
-    const controller = new AbortController();
-
-    await getUserById(
-      USER_ID,
       { signal: controller.signal },
       client as unknown as ApiClient,
     );
@@ -1028,6 +973,104 @@ describe('resetUserPassword — response e erros', () => {
   });
 
   it('propaga 404 do backend (usuário removido) sem traduzir', async () => {
+    const client = createStub();
+    const apiError = {
+      kind: 'http',
+      status: 404,
+      message: 'Usuário não encontrado.',
+    };
+    client.put.mockRejectedValueOnce(apiError);
+
+    await expect(
+      resetUserPassword(USER_ID, 'nova-senha', undefined, client as unknown as ApiClient),
+    ).rejects.toEqual(apiError);
+  });
+
+  it('propaga 401/403 sem traduzir', async () => {
+    const client = createStub();
+    client.put.mockRejectedValueOnce({
+      kind: 'http',
+      status: 403,
+      message: 'Sem permissão.',
+    });
+
+    await expect(
+      resetUserPassword(USER_ID, 'nova-senha', undefined, client as unknown as ApiClient),
+    ).rejects.toMatchObject({ kind: 'http', status: 403 });
+  });
+});
+
+/**
+ * Suíte do `getUserById` (Issue #71). Cobre a chamada do endpoint
+ * `GET /users/{id}`, a propagação do array `roles`
+ * (lfc-authenticator#167) e os erros típicos (404 quando o usuário
+ * não existe, parse quando o shape diverge).
+ *
+ * **Fix incidental (Issue #82):** o merge do PR #163 (atribuir roles)
+ * com o PR #164 (reset de senha) deixou esta suíte quebrada com
+ * fragmentos enxertados dentro de `resetUserPassword`. Reescrita aqui
+ * de forma limpa para destravar o `tsc --noEmit` (e por consequência o
+ * gate pré-PR) — sem alterar a cobertura semântica original (assertion
+ * de path, propagação de roles, ApiError parse e propagação de 404).
+ */
+describe('getUserById', () => {
+  const ROLE_ID = '99999999-9999-9999-9999-999999999999';
+  const SYSTEM_ID_FOR_ROLE = '88888888-8888-8888-8888-888888888888';
+
+  function makeUserRoleSummary(
+    overrides: Partial<UserRoleSummary> = {},
+  ): UserRoleSummary {
+    return {
+      id: ROLE_ID,
+      name: 'Administrator',
+      code: 'admin',
+      systemId: SYSTEM_ID_FOR_ROLE,
+      ...overrides,
+    };
+  }
+
+  it('emite GET /users/{id} e devolve UserDto com roles preenchidas', async () => {
+    const client = createStub();
+    const userWithRoles = makeUserDto({ roles: [makeUserRoleSummary()] });
+    client.get.mockResolvedValueOnce(userWithRoles);
+
+    const result = await getUserById(
+      USER_ID,
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.get).toHaveBeenCalledTimes(1);
+    expect(client.get.mock.calls[0][0]).toBe(`/users/${USER_ID}`);
+    expect(result).toEqual(userWithRoles);
+    expect(result.roles).toHaveLength(1);
+    expect(result.roles?.[0].id).toBe(ROLE_ID);
+  });
+
+  it('aceita UserDto sem array roles (payload legado)', async () => {
+    const client = createStub();
+    client.get.mockResolvedValueOnce(makeUserDto());
+
+    const result = await getUserById(
+      USER_ID,
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(result.roles).toBeUndefined();
+  });
+
+  it('passa signal/options adiante para o cliente', async () => {
+    const client = createStub();
+    client.get.mockResolvedValueOnce(makeUserDto());
+    const controller = new AbortController();
+
+    await getUserById(
+      USER_ID,
+      { signal: controller.signal },
+      client as unknown as ApiClient,
+    );
+
     expect(client.get.mock.calls[0][1]).toEqual({ signal: controller.signal });
   });
 
@@ -1063,10 +1106,6 @@ describe('resetUserPassword — response e erros', () => {
       status: 404,
       message: 'Usuário não encontrado.',
     };
-    client.put.mockRejectedValueOnce(apiError);
-
-    await expect(
-      resetUserPassword(USER_ID, 'nova-senha', undefined, client as unknown as ApiClient),
     client.get.mockRejectedValueOnce(apiError);
 
     await expect(
@@ -1076,7 +1115,6 @@ describe('resetUserPassword — response e erros', () => {
 
   it('propaga 401/403 sem traduzir', async () => {
     const client = createStub();
-    client.put.mockRejectedValueOnce({
     client.get.mockRejectedValueOnce({
       kind: 'http',
       status: 403,
@@ -1084,7 +1122,6 @@ describe('resetUserPassword — response e erros', () => {
     });
 
     await expect(
-      resetUserPassword(USER_ID, 'nova-senha', undefined, client as unknown as ApiClient),
       getUserById(USER_ID, undefined, client as unknown as ApiClient),
     ).rejects.toMatchObject({ kind: 'http', status: 403 });
   });
@@ -1288,6 +1325,149 @@ describe('removeRoleFromUser', () => {
         undefined,
         client as unknown as ApiClient,
       ),
+    ).rejects.toMatchObject({ kind: 'http', status: 403 });
+  });
+});
+
+/**
+ * Suíte do `forceLogoutUser` (Issue #82). Cobre a chamada do endpoint
+ * `POST /users/{id}/force-logout` (lfc-authenticator#168), validação do
+ * shape `ForceLogoutResponse` (`message`/`userId`/`newTokenVersion`) e
+ * propagação de erros tipados (`ApiError`):
+ *
+ * - 200 OK → devolve `ForceLogoutResponse` válido.
+ * - 200 OK com payload mal formatado → `ApiError(parse)`.
+ * - 400 (self-target) → propagado sem traduzir; UI bloqueia
+ *   preventivamente o botão na linha do próprio operador.
+ * - 401/403 → propagado sem traduzir; cliente HTTP já lidou com
+ *   `onUnauthorized`.
+ * - 404 (usuário soft-deletado entre abertura e submit) → propagado
+ *   sem traduzir; UI fecha modal + dispara refetch.
+ *
+ * Espelha o padrão de `assignRoleToUser`/`removeRoleFromUser` —
+ * stubamos o `ApiClient` injetável e validamos path/body/options sem
+ * bater na camada de transporte (responsabilidade de `client.test.ts`).
+ */
+describe('forceLogoutUser', () => {
+  function makeForceLogoutResponse() {
+    return {
+      message: 'Sessões do usuário invalidadas com sucesso.',
+      userId: USER_ID,
+      newTokenVersion: 5,
+    };
+  }
+
+  it('emite POST /users/{id}/force-logout sem body (null)', async () => {
+    const client = createStub();
+    client.post.mockResolvedValueOnce(makeForceLogoutResponse());
+
+    await forceLogoutUser(
+      USER_ID,
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.post).toHaveBeenCalledTimes(1);
+    expect(client.post.mock.calls[0][0]).toBe(
+      `/users/${USER_ID}/force-logout`,
+    );
+    // Body literal `null` para o cliente HTTP omitir o payload no
+    // request — o backend rejeita Content-Length > 0 num endpoint
+    // sem body declarado. Garantir `null` (não `undefined`,
+    // não `{}`) preserva paridade com o contrato.
+    expect(client.post.mock.calls[0][1]).toBeNull();
+  });
+
+  it('passa options adiante para o cliente (signal/abort)', async () => {
+    const client = createStub();
+    client.post.mockResolvedValueOnce(makeForceLogoutResponse());
+    const controller = new AbortController();
+
+    await forceLogoutUser(
+      USER_ID,
+      { signal: controller.signal },
+      client as unknown as ApiClient,
+    );
+
+    expect(client.post.mock.calls[0][2]).toEqual({ signal: controller.signal });
+  });
+
+  it('devolve ForceLogoutResponse válido', async () => {
+    const client = createStub();
+    const response = makeForceLogoutResponse();
+    client.post.mockResolvedValueOnce(response);
+
+    const result = await forceLogoutUser(
+      USER_ID,
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(result).toEqual(response);
+    expect(result.newTokenVersion).toBe(5);
+  });
+
+  it('lança ApiError(parse) quando o response não é ForceLogoutResponse', async () => {
+    const client = createStub();
+    client.post.mockResolvedValueOnce({ malformed: true });
+
+    await expect(
+      forceLogoutUser(USER_ID, undefined, client as unknown as ApiClient),
+    ).rejects.toMatchObject({ kind: 'parse' });
+  });
+
+  it('lança ApiError(parse) quando newTokenVersion não é number', async () => {
+    const client = createStub();
+    client.post.mockResolvedValueOnce({
+      message: 'ok',
+      userId: USER_ID,
+      newTokenVersion: '5', // string ao invés de number — drift de contrato
+    });
+
+    await expect(
+      forceLogoutUser(USER_ID, undefined, client as unknown as ApiClient),
+    ).rejects.toMatchObject({ kind: 'parse' });
+  });
+
+  it('propaga 400 (self-target) sem traduzir', async () => {
+    const client = createStub();
+    const apiError = {
+      kind: 'http',
+      status: 400,
+      message:
+        'Não é possível forçar logout de si mesmo por este endpoint. Utilize GET /auth/logout.',
+    };
+    client.post.mockRejectedValueOnce(apiError);
+
+    await expect(
+      forceLogoutUser(USER_ID, undefined, client as unknown as ApiClient),
+    ).rejects.toEqual(apiError);
+  });
+
+  it('propaga 404 (usuário não encontrado/removido) sem traduzir', async () => {
+    const client = createStub();
+    const apiError = {
+      kind: 'http',
+      status: 404,
+      message: 'Usuário não encontrado.',
+    };
+    client.post.mockRejectedValueOnce(apiError);
+
+    await expect(
+      forceLogoutUser(USER_ID, undefined, client as unknown as ApiClient),
+    ).rejects.toEqual(apiError);
+  });
+
+  it('propaga 401/403 sem traduzir', async () => {
+    const client = createStub();
+    client.post.mockRejectedValueOnce({
+      kind: 'http',
+      status: 403,
+      message: 'Sem permissão.',
+    });
+
+    await expect(
+      forceLogoutUser(USER_ID, undefined, client as unknown as ApiClient),
     ).rejects.toMatchObject({ kind: 'http', status: 403 });
   });
 });

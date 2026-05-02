@@ -1,4 +1,4 @@
-import { KeyRound, Pencil, Plus, Power } from 'lucide-react';
+import { KeyRound, LogOut, Pencil, Plus, Power } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { PageHeader } from '../../components/layout/PageHeader';
@@ -48,6 +48,7 @@ import {
 } from '../../shared/listing';
 
 import { EditUserModal } from './EditUserModal';
+import { ForceLogoutUserConfirm } from './ForceLogoutUserConfirm';
 import { NewUserModal } from './NewUserModal';
 import { ResetUserPasswordConfirm } from './ResetUserPasswordConfirm';
 import { ToggleUserActiveConfirm } from './ToggleUserActiveConfirm';
@@ -155,9 +156,19 @@ function deriveStatusDeletedAt(user: UserDto): string | null {
 export const UsersListShellPage: React.FC<UsersListShellPageProps> = ({
   client,
 }) => {
-  const { hasPermission } = useAuth();
+  const { hasPermission, user: currentUser } = useAuth();
   const canCreateUser = hasPermission(USERS_CREATE_PERMISSION);
   const canUpdateUser = hasPermission(USERS_UPDATE_PERMISSION);
+  /**
+   * Id do usuário autenticado — usado para esconder a ação "Forçar
+   * logout" na própria linha (Issue #82). O backend rejeita self-target
+   * com 400 (`UsersController.ForceLogout`, mensagem
+   * "Não é possível forçar logout de si mesmo por este endpoint."), e
+   * orientar o operador a usar `GET /auth/logout` para encerrar a
+   * própria sessão. Esconder a ação preventivamente preserva UX
+   * coerente — clique nunca cai no servidor para receber 400.
+   */
+  const currentUserId = currentUser?.id ?? null;
 
   // Termo digitado pelo usuário em tempo real (input controlado).
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -211,20 +222,40 @@ export const UsersListShellPage: React.FC<UsersListShellPageProps> = ({
     close: handleCloseResetPassword,
   } = useListModalState<UserDto>();
 
+  // Usuário selecionado para forçar logout remoto (Issue #82). Mantemos
+  // o objeto completo para que o `ForceLogoutUserConfirm` exiba
+  // `name`/`email` na descrição do diálogo. O endpoint dedicado
+  // (`POST /users/{id}/force-logout`) consome apenas o `id` no path —
+  // demais campos servem de contexto visual para o operador confirmar
+  // a ação destrutiva.
+  const {
+    selected: forceLoggingOutUser,
+    open: handleOpenForceLogout,
+    close: handleCloseForceLogout,
+  } = useListModalState<UserDto>();
+
   /**
-   * Renderiza o bloco de ações por linha (Editar + Desativar/Ativar)
-   * para uma linha de usuário. Reutilizado pelo desktop (coluna
-   * "Ações" da tabela) e pelo mobile (rodapé dos cards) — única
-   * diferença é o prefixo dos `data-testid` (`users-edit`/
-   * `users-toggle-active` no desktop vs `users-card-edit`/
-   * `users-card-toggle-active` no mobile, para que cada surface
-   * tenha seu próprio seletor sem colidir).
+   * Renderiza o bloco de ações por linha (Editar + Redefinir senha +
+   * Forçar logout + Desativar/Ativar) para uma linha de usuário.
+   * Reutilizado pelo desktop (coluna "Ações" da tabela) e pelo mobile
+   * (rodapé dos cards) — única diferença é o prefixo dos `data-testid`
+   * (`users-edit`/`users-toggle-active`/`users-force-logout` no
+   * desktop vs `users-card-edit`/`users-card-toggle-active`/
+   * `users-card-force-logout` no mobile, para que cada surface tenha
+   * seu próprio seletor sem colidir).
    *
    * Centralizar aqui em uma única função evita o BLOCKER de
-   * duplicação JSCPD/Sonar — o `<Button>` do toggle ativo (~11
-   * linhas) repetido entre a tabela e os cards mobile foi marcado
-   * como clone (lição PR #128/#134/#135 — bloco ≥10 linhas idêntico
-   * em 2 surfaces do mesmo arquivo é tokenizado como duplicação).
+   * duplicação JSCPD/Sonar — cada `<Button>` (~7 linhas) repetido entre
+   * a tabela e os cards mobile seria marcado como clone (lição PR
+   * #128/#134/#135 — bloco ≥10 linhas idêntico em 2 surfaces do
+   * mesmo arquivo é tokenizado como duplicação).
+   *
+   * **Issue #82 — gating de "Forçar logout":** o botão é escondido na
+   * linha do **próprio** usuário corrente porque o backend rejeita
+   * self-target com 400 (orienta uso de `GET /auth/logout`). Comparar
+   * `currentUserId === row.id` evita clique inútil e preserva UX
+   * coerente. O gating de permissão (`Users.Update`) é responsabilidade
+   * do caller (mesmo critério de Editar/Toggle/Reset).
    *
    * Caller é responsável por filtrar quando NÃO chamar (gating de
    * permissão e `deletedAt !== null`) — a função sempre devolve o
@@ -234,6 +265,7 @@ export const UsersListShellPage: React.FC<UsersListShellPageProps> = ({
     (row: UserDto, testIdPrefix: 'users' | 'users-card'): React.ReactNode => {
       const toggleLabel = row.active ? 'Desativar' : 'Ativar';
       const toggleVariant = row.active ? 'danger' : 'primary';
+      const isSelf = currentUserId !== null && currentUserId === row.id;
       return (
         <RowActions>
           <Button
@@ -256,6 +288,18 @@ export const UsersListShellPage: React.FC<UsersListShellPageProps> = ({
           >
             Redefinir senha
           </Button>
+          {!isSelf && (
+            <Button
+              variant="danger"
+              size="sm"
+              icon={<LogOut size={14} strokeWidth={1.5} />}
+              onClick={() => handleOpenForceLogout(row)}
+              aria-label={`Forçar logout do usuário ${row.name}`}
+              data-testid={`${testIdPrefix}-force-logout-${row.id}`}
+            >
+              Forçar logout
+            </Button>
+          )}
           <Button
             variant={toggleVariant}
             size="sm"
@@ -269,7 +313,13 @@ export const UsersListShellPage: React.FC<UsersListShellPageProps> = ({
         </RowActions>
       );
     },
-    [handleOpenEditModal, handleOpenResetPassword, handleOpenToggleConfirm],
+    [
+      currentUserId,
+      handleOpenEditModal,
+      handleOpenForceLogout,
+      handleOpenResetPassword,
+      handleOpenToggleConfirm,
+    ],
   );
 
   /**
@@ -691,6 +741,16 @@ export const UsersListShellPage: React.FC<UsersListShellPageProps> = ({
           user={resettingUser}
           onClose={handleCloseResetPassword}
           onResetCompleted={handleRefetch}
+          client={client}
+        />
+      )}
+
+      {canUpdateUser && (
+        <ForceLogoutUserConfirm
+          open={forceLoggingOutUser !== null}
+          user={forceLoggingOutUser}
+          onClose={handleCloseForceLogout}
+          onLoggedOut={handleRefetch}
           client={client}
         />
       )}

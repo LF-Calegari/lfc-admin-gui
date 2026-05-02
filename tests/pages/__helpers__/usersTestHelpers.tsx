@@ -560,6 +560,11 @@ export function buildUsersCloseCases(
  *   ignora a copy do verbo e usa o fallback exato do
  *   `ResetUserPasswordConfirm` (`'Não foi possível redefinir a senha.
  *   Tente novamente.'`), preservando a UX coerente.
+ * - `'forçar logout do'` — usado pelo logout remoto (Issue #82).
+ *   Mesma estratégia: o sufixo "do" gera concordância quebrada se
+ *   concatenado com " o usuário", então o helper faz override e usa o
+ *   fallback exato do `ForceLogoutUserConfirm` (`'Não foi possível
+ *   forçar logout do usuário. Tente novamente.'`).
  *
  * Centralizar o tipo aqui (em vez de declarar dois alias paralelos)
  * permite que `buildSharedUserMutationErrorCases` cubra todos os
@@ -571,7 +576,8 @@ export type UserMutationVerb =
   | 'atualizar'
   | 'ativar'
   | 'desativar'
-  | 'redefinir senha do';
+  | 'redefinir senha do'
+  | 'forçar logout do';
 
 /**
  * Constrói os cenários comuns de erro 401/403/network para qualquer
@@ -590,13 +596,21 @@ export function buildSharedUserMutationErrorCases(
   verb: UserMutationVerb,
 ): ReadonlyArray<UsersErrorCase> {
   // Reset de senha tem copy genérica distinta — refere ao recurso
-  // ("a senha"), não ao usuário. Mantemos o branch isolado para que
-  // os demais verbos preservem o template "Não foi possível {verb}
-  // o usuário..." sem regredir.
-  const networkExpectedText =
-    verb === 'redefinir senha do'
-      ? 'Não foi possível redefinir a senha. Tente novamente.'
-      : `Não foi possível ${verb} o usuário. Tente novamente.`;
+  // ("a senha"), não ao usuário. Force logout idem (sufixo "do" no
+  // verbo geraria "Não foi possível forçar logout do o usuário..." —
+  // gramática quebrada). Mantemos branches isolados para que os demais
+  // verbos preservem o template "Não foi possível {verb} o usuário..."
+  // sem regredir.
+  let networkExpectedText: string;
+  if (verb === 'redefinir senha do') {
+    networkExpectedText =
+      'Não foi possível redefinir a senha. Tente novamente.';
+  } else if (verb === 'forçar logout do') {
+    networkExpectedText =
+      'Não foi possível forçar logout do usuário. Tente novamente.';
+  } else {
+    networkExpectedText = `Não foi possível ${verb} o usuário. Tente novamente.`;
+  }
   return [
     {
       name: '401 dispara toast vermelho com mensagem do backend',
@@ -709,4 +723,73 @@ export async function submitResetUserPasswordForm(
     await Promise.resolve();
   });
   await waitFor(() => expect(client.put).toHaveBeenCalledTimes(expectedPutCalls));
+}
+
+/* ─── Helpers para suíte de force logout (Issue #82) ────── */
+
+/**
+ * Mocka a resposta inicial (listagem com o usuário-alvo), renderiza a
+ * `UsersListShellPage`, espera a lista carregar e clica no botão
+ * "Forçar logout" da linha do usuário informado. Espelha
+ * `openToggleUserActiveConfirm` mas dispara o
+ * `ForceLogoutUserConfirm` — Issue #82. Reusa a mesma estratégia
+ * de mocks pré-existentes (`getMockImplementation()` check) para
+ * preservar fila customizada de respostas em cenários de erro.
+ *
+ * Observação: o gating do botão "Forçar logout" depende de
+ * `currentUserId !== row.id` (defesa contra self-target). Por padrão
+ * o `buildAuthMock` devolve `user: null`, ou seja, `currentUserId` é
+ * `null` e o botão aparece em todas as linhas. Cenários que precisam
+ * exercitar o gating de self-target devem mockar
+ * `useAuth().user = { id: row.id, ... }` antes de renderizar.
+ */
+export async function openForceLogoutConfirm(
+  client: ApiClientStub,
+  options: { user?: UserDto } = {},
+): Promise<void> {
+  const user = options.user ?? makeUser();
+  if (
+    client.get.getMockImplementation() === undefined &&
+    client.get.mock.calls.length === 0 &&
+    client.get.mock.results.length === 0
+  ) {
+    client.get.mockImplementation((path: string) => {
+      if (typeof path === 'string' && path.startsWith('/users')) {
+        return Promise.resolve(makeUsersPagedResponse([user]));
+      }
+      if (typeof path === 'string' && path.startsWith('/clients/')) {
+        return Promise.resolve(null);
+      }
+      return Promise.reject(new Error(`unexpected path: ${String(path)}`));
+    });
+  }
+  renderUsersPage(client);
+  await waitForInitialList(client);
+  fireEvent.click(screen.getByTestId(`users-force-logout-${user.id}`));
+  // Aguarda a abertura do modal — verifica a presença do botão de
+  // confirmação que existe apenas quando o `MutationConfirmModal`
+  // está renderizado.
+  await waitFor(() => {
+    expect(screen.getByTestId('force-logout-user-confirm')).toBeInTheDocument();
+  });
+}
+
+/**
+ * Confirma o force logout clicando em "Forçar logout" no
+ * `ForceLogoutUserConfirm` e aguarda o `client.post` ser chamado pelo
+ * menos `expectedPostCalls` vezes (default `1`). Espelha
+ * `confirmToggleUserActive` mas com POST em vez de PUT — o endpoint
+ * dedicado (`POST /users/{id}/force-logout`) não exige body. Faz
+ * `act(async)` para flushar a microtask do click handler antes do
+ * `waitFor`.
+ */
+export async function confirmForceLogout(
+  client: ApiClientStub,
+  expectedPostCalls = 1,
+): Promise<void> {
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('force-logout-user-confirm'));
+    await Promise.resolve();
+  });
+  await waitFor(() => expect(client.post).toHaveBeenCalledTimes(expectedPostCalls));
 }

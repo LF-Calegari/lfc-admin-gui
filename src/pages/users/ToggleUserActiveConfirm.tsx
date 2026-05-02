@@ -6,6 +6,8 @@ import {
   type MutationConfirmCopy,
 } from '../systems/MutationConfirmModal';
 
+import { toUserTarget, type UserTarget } from './userMutationTarget';
+
 import type {
   ApiClient,
   UpdateUserPayload,
@@ -68,24 +70,6 @@ const ACTIVATE_COPY: MutationConfirmCopy = {
       'Usuário não encontrado ou foi removido. Atualize a lista.',
   },
 };
-
-/**
- * Adapter `MutationTarget` para `UserDto`. O shell `MutationConfirmModal`
- * exibe `target.name` em destaque + `target.code` em monoespaçado entre
- * parênteses — para usuários, o "código" semântico é o e-mail (único
- * por usuário, identificador legível). Mantemos o shell intacto e
- * apenas mapeamos o `code` para `email` neste adapter — Systems/Routes
- * continuam usando `code` literal sem regressão.
- */
-interface UserTarget {
-  name: string;
-  code: string;
-}
-
-function toTarget(user: UserDto | null): UserTarget | null {
-  if (!user) return null;
-  return { name: user.name, code: user.email };
-}
 
 interface ToggleUserActiveConfirmProps {
   /** Estado de visibilidade controlado pelo pai. */
@@ -150,7 +134,7 @@ interface ToggleUserActiveConfirmProps {
 export const ToggleUserActiveConfirm: React.FC<
   ToggleUserActiveConfirmProps
 > = ({ open, user, onClose, onToggled, client }) => {
-  const target = toTarget(user);
+  const target = toUserTarget(user);
 
   /**
    * Decide a copy ("Desativar?" vs "Ativar?") com base no estado atual

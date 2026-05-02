@@ -55,6 +55,7 @@ const systemId: string = resolveSystemId();
 export const apiClient: ApiClient = createApiClient({ baseUrl, systemId });
 
 export { createApiClient } from './client';
+export { extractErrorMessage, isFetchAborted } from './fetchHelpers';
 export { isApiError } from './types';
 export type {
   ApiClient,
@@ -165,19 +166,18 @@ export {
   DEFAULT_USERS_INCLUDE_DELETED,
   DEFAULT_USERS_PAGE,
   DEFAULT_USERS_PAGE_SIZE,
+  forceLogoutUser,
   getUserById,
   isPagedUsersResponse,
   isUserDto,
   listUsers,
-<<<<<<< HEAD
-  resetUserPassword,
-=======
   removeRoleFromUser,
->>>>>>> 493c844 (feat(users): atribuir roles ao usuário com matriz por sistema (#71))
+  resetUserPassword,
   updateUser,
 } from './users';
 export type {
   CreateUserPayload,
+  ForceLogoutResponse,
   ListUsersParams,
   ResetUserPasswordPayload,
   UpdateUserPayload,
