@@ -133,10 +133,12 @@ export {
   DEFAULT_CLIENTS_INCLUDE_DELETED,
   DEFAULT_CLIENTS_PAGE,
   DEFAULT_CLIENTS_PAGE_SIZE,
+  getClientById,
   getClientsByIds,
   isClientDto,
   isPagedClientsResponse,
   listClients,
+  updateClient,
 } from './clients';
 export type {
   ClientDto,
@@ -146,6 +148,7 @@ export type {
   ClientType,
   CreateClientPayload,
   ListClientsParams,
+  UpdateClientPayload,
 } from './clients';
 export {
   isTokenTypeArray,

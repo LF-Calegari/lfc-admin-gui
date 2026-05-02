@@ -5,7 +5,7 @@ import {
   type ApiSubmitErrorCopy,
 } from '../../shared/forms';
 
-import type { ClientType } from '../../shared/api';
+import type { ClientDto, ClientType } from '../../shared/api';
 
 /**
  * Helpers compartilhados pelos formulários de criação (Issue #74) e,
@@ -92,6 +92,37 @@ export const INITIAL_CLIENT_FORM_STATE: ClientFormState = {
   cnpj: '',
   corporateName: '',
 };
+
+/**
+ * Constrói o estado inicial do form de edição (Issue #75) a partir
+ * de um `ClientDto` já carregado pelo backend. Cada campo tem
+ * fallback para string vazia para que o input controlado nunca
+ * receba `null`/`undefined` — o backend devolve `null` nos campos
+ * do tipo oposto (PF → `cnpj`/`corporateName` `null`; PJ inverso),
+ * e o React proíbe inputs alternarem entre controlado e
+ * descontrolado.
+ *
+ * Mantemos os campos do tipo oposto como string vazia para que, se
+ * o usuário trocar para o tipo oposto (cenário improvável porque o
+ * `<Select>` fica disabled em modo edit), o estado já esteja
+ * inicializado. Defesa em profundidade — o backend rejeita a troca
+ * com 400, mas a UI não quebra.
+ *
+ * Espelha `stateFromUser` em `EditUserModal.tsx`. Mantido em
+ * `clientsFormShared.ts` em vez de inline na `ClientDataTab` para
+ * centralizar a lógica de mapeamento DTO → form e permitir reuso
+ * pelas próximas sub-issues (#146/#147 — emails/telefones podem
+ * precisar do mesmo bridge).
+ */
+export function stateFromClient(client: ClientDto): ClientFormState {
+  return {
+    type: client.type,
+    cpf: client.cpf ?? '',
+    fullName: client.fullName ?? '',
+    cnpj: client.cnpj ?? '',
+    corporateName: client.corporateName ?? '',
+  };
+}
 
 /* ─── Validação de documento (espelha o backend) ─────────── */
 

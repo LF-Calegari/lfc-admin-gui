@@ -193,10 +193,19 @@ interface ClientFormBodyProps {
   submitLabel: string;
   /**
    * Quando `true`, o `<Select>` de tipo fica desabilitado. Default
-   * `false` (criação). `EditClientModal` (#75) passará `true` —
-   * tipo é imutável após criação.
+   * `false` (criação). `ClientDataTab` (#75) passa `true` — tipo é
+   * imutável após criação.
    */
   typeDisabled?: boolean;
+  /**
+   * Quando `true`, todos os campos do form ficam desabilitados e o
+   * footer (Cancelar/Submit) é ocultado. Usado pelo `ClientDataTab`
+   * (#75) quando o usuário não tem `AUTH_V1_CLIENTS_UPDATE` — o
+   * conteúdo do cliente continua visível (a página `/clientes/:id`
+   * é gateada por `GET_BY_ID`, não por `UPDATE`), mas nenhuma
+   * mutação é possível. Default `false`.
+   */
+  readonly?: boolean;
 }
 
 /**
@@ -219,60 +228,70 @@ export const ClientFormBody: React.FC<ClientFormBodyProps> = ({
   isSubmitting,
   submitLabel,
   typeDisabled = false,
-}) => (
-  <FormShell onSubmit={onSubmit} noValidate data-testid={`${idPrefix}-form`}>
-    {submitError && (
-      <Alert variant="danger" data-testid={`${idPrefix}-submit-error`}>
-        {submitError}
-      </Alert>
-    )}
-    <FieldStack>
-      <Select
-        label="Tipo"
-        size="md"
-        value={values.type}
-        onChange={(value) => {
-          // O `<Select>` só emite os literais que listamos como
-          // `<option>`, mas validamos defensivamente para preservar o
-          // tipo estreito `ClientType` no caller.
-          if (value === 'PF' || value === 'PJ') {
-            onChangeType(value);
-          }
-        }}
-        error={errors.type}
-        disabled={isSubmitting || typeDisabled}
-        helperText={typeDisabled ? 'Tipo é imutável após a criação.' : undefined}
-        data-testid={`${idPrefix}-type`}
-        aria-label="Tipo do cliente (PF ou PJ)"
-      >
-        <option value="PF">Pessoa física</option>
-        <option value="PJ">Pessoa jurídica</option>
-      </Select>
-      {values.type === 'PF' ? (
-        <PfFields
+  readonly = false,
+}) => {
+  // `fieldsDisabled` cobre tanto o caminho `isSubmitting` (request em
+  // andamento) quanto `readonly` (sem permissão de update). Centralizar
+  // num único cálculo evita repetir `isSubmitting || readonly` em três
+  // pontos abaixo (`<Select>`, `<PfFields disabled>`, `<PjFields disabled>`).
+  const fieldsDisabled = isSubmitting || readonly;
+  return (
+    <FormShell onSubmit={onSubmit} noValidate data-testid={`${idPrefix}-form`}>
+      {submitError && (
+        <Alert variant="danger" data-testid={`${idPrefix}-submit-error`}>
+          {submitError}
+        </Alert>
+      )}
+      <FieldStack>
+        <Select
+          label="Tipo"
+          size="md"
+          value={values.type}
+          onChange={(value) => {
+            // O `<Select>` só emite os literais que listamos como
+            // `<option>`, mas validamos defensivamente para preservar o
+            // tipo estreito `ClientType` no caller.
+            if (value === 'PF' || value === 'PJ') {
+              onChangeType(value);
+            }
+          }}
+          error={errors.type}
+          disabled={fieldsDisabled || typeDisabled}
+          helperText={typeDisabled ? 'Tipo é imutável após a criação.' : undefined}
+          data-testid={`${idPrefix}-type`}
+          aria-label="Tipo do cliente (PF ou PJ)"
+        >
+          <option value="PF">Pessoa física</option>
+          <option value="PJ">Pessoa jurídica</option>
+        </Select>
+        {values.type === 'PF' ? (
+          <PfFields
+            idPrefix={idPrefix}
+            values={values}
+            errors={errors}
+            disabled={fieldsDisabled}
+            onChangeCpf={onChangeCpf}
+            onChangeFullName={onChangeFullName}
+          />
+        ) : (
+          <PjFields
+            idPrefix={idPrefix}
+            values={values}
+            errors={errors}
+            disabled={fieldsDisabled}
+            onChangeCnpj={onChangeCnpj}
+            onChangeCorporateName={onChangeCorporateName}
+          />
+        )}
+      </FieldStack>
+      {!readonly && (
+        <FormFooter
           idPrefix={idPrefix}
-          values={values}
-          errors={errors}
-          disabled={isSubmitting}
-          onChangeCpf={onChangeCpf}
-          onChangeFullName={onChangeFullName}
-        />
-      ) : (
-        <PjFields
-          idPrefix={idPrefix}
-          values={values}
-          errors={errors}
-          disabled={isSubmitting}
-          onChangeCnpj={onChangeCnpj}
-          onChangeCorporateName={onChangeCorporateName}
+          onCancel={onCancel}
+          isSubmitting={isSubmitting}
+          submitLabel={submitLabel}
         />
       )}
-    </FieldStack>
-    <FormFooter
-      idPrefix={idPrefix}
-      onCancel={onCancel}
-      isSubmitting={isSubmitting}
-      submitLabel={submitLabel}
-    />
-  </FormShell>
-);
+    </FormShell>
+  );
+};

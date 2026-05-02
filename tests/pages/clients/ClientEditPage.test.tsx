@@ -1,18 +1,23 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+/* eslint-disable import/order */
+import { buildAuthMock } from '../__helpers__/mockUseAuth';
+import { ToastProvider } from '@/components/ui';
 import { ClientEditPage } from '@/pages/clients';
+/* eslint-enable import/order */
 
 /**
  * Suíte do `ClientEditPage` (Issue #144).
  *
- * **Por que não mockar `useAuth`:** a página `ClientEditPage` é
- * renderizada por `<RequirePermission>` no `AppRoutes`, mas a
- * página em si **não chama** `useAuth` diretamente (o gating fica
- * acima dela). Por isso renderizamos com `<MemoryRouter>` direto sem
- * Provider — espelha o padrão de `tests/pages/shellPages.test.tsx`.
+ * **Mock de `useAuth`:** a página `ClientEditPage` é renderizada por
+ * `<RequirePermission>` no `AppRoutes`, mas a aba "Dados" — entregue
+ * pela Issue #75 — chama `useAuth()` para gatear o submit (precisa
+ * de `AUTH_V1_CLIENTS_UPDATE`). Mockamos com `buildAuthMock` para
+ * preservar a flexibilidade de alternar permissões por teste e
+ * isolar a página da `AuthProvider` real.
  *
  * **Cenários cobertos (critérios da issue):**
  *
@@ -33,18 +38,63 @@ import { ClientEditPage } from '@/pages/clients';
  *   Clientes" e botão de ação global.
  */
 
+let permissionsMock: ReadonlyArray<string> = [];
+
+vi.mock('@/shared/auth', () => buildAuthMock(() => permissionsMock));
+
+/**
+ * Mock de `@/shared/api` específico desta suíte: `getClientById`
+ * devolve uma `Promise` que nunca resolve, mantendo a aba "Dados"
+ * em loading silencioso. Os testes deste arquivo cobrem a estrutura
+ * do `ClientEditPage` (tablist/headers/teclado) — o conteúdo da
+ * aba "Dados" tem suíte própria (`ClientDataTab.test.tsx`).
+ *
+ * Manter `Promise` pendente é mais simples que mockar um DTO completo
+ * e evita assert ruidoso sobre estado pós-fetch — a aba fica no
+ * spinner, e cada teste verifica os atributos da árvore externa.
+ */
+vi.mock('@/shared/api', async () => {
+  const actual = await vi.importActual<typeof import('@/shared/api')>('@/shared/api');
+  return {
+    ...actual,
+    getClientById: vi.fn(
+      () =>
+        new Promise(() => {
+          // intencional: nunca resolve, mantém aba "Dados" em loading.
+        }),
+    ),
+    updateClient: vi.fn(),
+  };
+});
+
+beforeEach(() => {
+  permissionsMock = [];
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 /**
  * Helper para renderizar a página com router controlado. Centralizar
  * evita duplicação entre os testes (lição PR #123/PR #127 — blocos
  * idênticos de setup viram fixture).
+ *
+ * O `<ToastProvider>` e o mock de `useAuth` são necessários porque
+ * a aba "Dados" (Issue #75) chama `useToast()` e `useAuth()` em
+ * runtime — o teste do header/tablist em si não exercita esses
+ * caminhos, mas a árvore React precisa do contexto montado para
+ * renderizar a aba sem crashar.
  */
 function renderClientEditPage(initialEntries: ReadonlyArray<string> = ['/clientes/abc-123']) {
   return render(
-    <MemoryRouter initialEntries={[...initialEntries]}>
-      <Routes>
-        <Route path="/clientes/:id" element={<ClientEditPage />} />
-      </Routes>
-    </MemoryRouter>,
+    <ToastProvider>
+      <MemoryRouter initialEntries={[...initialEntries]}>
+        <Routes>
+          <Route path="/clientes/:id" element={<ClientEditPage />} />
+        </Routes>
+      </MemoryRouter>
+    </ToastProvider>,
   );
 }
 
