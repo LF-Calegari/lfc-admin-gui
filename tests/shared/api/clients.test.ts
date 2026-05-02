@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { ApiClient, ClientDto } from '@/shared/api';
+import type { ApiClient, ClientDto, PagedResponse } from '@/shared/api';
 
 import {
   clientDisplayName,
@@ -12,19 +12,22 @@ import {
 } from '@/shared/api';
 
 /**
- * Suíte do módulo `src/shared/api/clients.ts` (Issue #77, EPIC #49).
+ * Suíte do módulo `src/shared/api/clients.ts` (Issue #73, EPIC #49).
  *
- * Esta sub-issue não exige a tela de Clientes propriamente dita —
- * apenas o lookup batch (`getClientsByIds`) consumido pela
- * `UsersListShellPage` para denormalizar o nome do cliente vinculado
- * a cada usuário. Os helpers `listClients`/`isClientDto`/etc. são
- * pré-fabricados aqui para evitar refatoração destrutiva quando a
- * issue dedicada da listagem de clientes da EPIC #49 chegar (lição
- * PR #128 — projetar shared helpers desde o primeiro PR do recurso).
+ * Cobre dois consumidores convergentes: a listagem própria de
+ * clientes (Issue #73) que valida `listClients`/querystring/type
+ * guards completos, e o lookup batch (`getClientsByIds`) consumido
+ * pela `UsersListShellPage` (Issue #77 mergeada antes deste PR) para
+ * denormalizar nome do cliente vinculado a cada usuário.
+ *
+ * Estratégia: stubar o `ApiClient` injetado e validar paths, type
+ * guards e propagação de `ApiError`. Não bate em `fetch` real —
+ * cobertura de transporte HTTP é responsabilidade dos testes em
+ * `client.test.ts`.
  */
 
-const CLIENT_ID = '11111111-1111-1111-1111-111111111111';
-const CLIENT_PJ_ID = '22222222-2222-2222-2222-222222222222';
+const CLIENT_PF_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+const CLIENT_PJ_ID = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
 
 interface ClientStub {
   get: ReturnType<typeof vi.fn>;
@@ -37,7 +40,7 @@ interface ClientStub {
   getSystemId: ReturnType<typeof vi.fn>;
 }
 
-function createStub(): ClientStub {
+function makeClientStub(): ClientStub {
   return {
     request: vi.fn(),
     get: vi.fn(),
@@ -50,117 +53,187 @@ function createStub(): ClientStub {
   };
 }
 
-function makeClientPF(overrides: Partial<ClientDto> = {}): ClientDto {
+function makeRawClientPf(overrides: Partial<ClientDto> = {}): ClientDto {
   return {
-    id: CLIENT_ID,
+    id: CLIENT_PF_ID,
     type: 'PF',
     cpf: '12345678901',
-    fullName: 'Alice Cliente',
+    fullName: 'Ana Cliente',
     cnpj: null,
     corporateName: null,
     createdAt: '2026-01-10T12:00:00Z',
     updatedAt: '2026-01-10T12:00:00Z',
     deletedAt: null,
+    userIds: [],
+    extraEmails: [],
+    mobilePhones: [],
+    landlinePhones: [],
     ...overrides,
   };
 }
 
-function makeClientPJ(overrides: Partial<ClientDto> = {}): ClientDto {
+function makeRawClientPj(overrides: Partial<ClientDto> = {}): ClientDto {
   return {
     id: CLIENT_PJ_ID,
     type: 'PJ',
     cpf: null,
     fullName: null,
     cnpj: '12345678000190',
-    corporateName: 'Empresa LTDA',
+    corporateName: 'Acme Indústria S/A',
     createdAt: '2026-01-10T12:00:00Z',
     updatedAt: '2026-01-10T12:00:00Z',
     deletedAt: null,
+    userIds: [],
+    extraEmails: [],
+    mobilePhones: [],
+    landlinePhones: [],
+    ...overrides,
+  };
+}
+
+function makePaged(
+  data: ReadonlyArray<ClientDto>,
+  overrides: Partial<PagedResponse<ClientDto>> = {},
+): PagedResponse<ClientDto> {
+  return {
+    data,
+    page: 1,
+    pageSize: DEFAULT_CLIENTS_PAGE_SIZE,
+    total: data.length,
     ...overrides,
   };
 }
 
 describe('isClientDto', () => {
-  it('aceita payload PF com fullName/cpf', () => {
-    expect(isClientDto(makeClientPF())).toBe(true);
+  it('aceita PF com cpf/fullName e arrays vazios', () => {
+    expect(isClientDto(makeRawClientPf())).toBe(true);
   });
 
-  it('aceita payload PJ com corporateName/cnpj', () => {
-    expect(isClientDto(makeClientPJ())).toBe(true);
+  it('aceita PJ com cnpj/corporateName e arrays vazios', () => {
+    expect(isClientDto(makeRawClientPj())).toBe(true);
   });
 
-  it('aceita payload com todos os opcionais ausentes', () => {
+  it('aceita extraEmails/mobilePhones/landlinePhones populados', () => {
+    expect(
+      isClientDto(
+        makeRawClientPf({
+          extraEmails: [
+            { id: 'e1', email: 'extra@example.com', createdAt: '2026-01-10T12:00:00Z' },
+          ],
+          mobilePhones: [
+            { id: 'p1', number: '+5511999999999', createdAt: '2026-01-10T12:00:00Z' },
+          ],
+          landlinePhones: [
+            { id: 'p2', number: '+551133334444', createdAt: '2026-01-10T12:00:00Z' },
+          ],
+          userIds: ['u1', 'u2'],
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it('aceita payload minimalista sem coleções (lookup #77)', () => {
+    // Issue #77 (`getClientsByIds`) consome `GET /clients/{id}` e
+    // pode receber um payload reduzido em testes — o type guard
+    // tolera ausência das 4 coleções sem perder a validação dos
+    // campos obrigatórios (`id`/`type`/`createdAt`/`updatedAt`).
     const lean = {
-      id: CLIENT_ID,
-      type: 'PF',
+      id: CLIENT_PF_ID,
+      type: 'PF' as const,
+      cpf: null,
+      fullName: 'Ana Cliente',
+      cnpj: null,
+      corporateName: null,
       createdAt: '2026-01-10T12:00:00Z',
       updatedAt: '2026-01-10T12:00:00Z',
+      deletedAt: null,
     };
     expect(isClientDto(lean)).toBe(true);
   });
 
-  it('rejeita objetos sem campos obrigatórios', () => {
-    expect(isClientDto(null)).toBe(false);
-    expect(isClientDto(undefined)).toBe(false);
-    expect(isClientDto({})).toBe(false);
-    expect(isClientDto({ id: 1, type: 'PF' })).toBe(false);
+  it('rejeita type fora de PF/PJ', () => {
+    expect(isClientDto({ ...makeRawClientPf(), type: 'XX' })).toBe(false);
   });
 
-  it('rejeita campos opcionais com tipo inválido', () => {
+  it('rejeita registro sem id', () => {
+    const { id: _id, ...rest } = makeRawClientPf();
+    expect(isClientDto(rest)).toBe(false);
+  });
+
+  it('rejeita coleções com tipo inválido (quando presentes)', () => {
     expect(
-      isClientDto(makeClientPF({ fullName: 0 as unknown as string })),
+      isClientDto({ ...makeRawClientPf(), userIds: 'not-an-array' as unknown }),
     ).toBe(false);
     expect(
-      isClientDto(makeClientPJ({ cnpj: 0 as unknown as string })),
+      isClientDto({ ...makeRawClientPf(), extraEmails: [{ wrong: 'shape' }] as unknown }),
     ).toBe(false);
+  });
+
+  it('aceita deletedAt como string ISO', () => {
+    expect(
+      isClientDto(makeRawClientPf({ deletedAt: '2026-02-01T00:00:00Z' })),
+    ).toBe(true);
+  });
+
+  it('rejeita primitivos e null', () => {
+    expect(isClientDto(null)).toBe(false);
+    expect(isClientDto('string')).toBe(false);
+    expect(isClientDto(42)).toBe(false);
   });
 });
 
 describe('isPagedClientsResponse', () => {
-  it('aceita envelope válido', () => {
-    expect(
-      isPagedClientsResponse({
-        data: [makeClientPF()],
-        page: 1,
-        pageSize: 20,
-        total: 1,
-      }),
-    ).toBe(true);
+  it('aceita envelope completo com data válido', () => {
+    expect(isPagedClientsResponse(makePaged([makeRawClientPf()]))).toBe(true);
   });
 
-  it('rejeita envelope com data com itens inválidos', () => {
+  it('rejeita data não-array', () => {
     expect(
       isPagedClientsResponse({
-        data: [{ broken: true }],
+        data: 'not-array' as unknown,
         page: 1,
         pageSize: 20,
-        total: 1,
+        total: 0,
       }),
+    ).toBe(false);
+  });
+
+  it('rejeita campos numéricos ausentes', () => {
+    expect(
+      isPagedClientsResponse({ data: [], page: 1, pageSize: 20 }),
+    ).toBe(false);
+  });
+
+  it('rejeita item interno inválido (propaga falha de isClientDto)', () => {
+    expect(
+      isPagedClientsResponse(
+        makePaged([{ ...makeRawClientPf(), type: 'XX' } as unknown as ClientDto]),
+      ),
     ).toBe(false);
   });
 });
 
 describe('clientDisplayName', () => {
   it('retorna fullName para PF', () => {
-    expect(clientDisplayName(makeClientPF())).toBe('Alice Cliente');
+    expect(clientDisplayName(makeRawClientPf())).toBe('Ana Cliente');
   });
 
   it('retorna corporateName para PJ', () => {
-    expect(clientDisplayName(makeClientPJ())).toBe('Empresa LTDA');
+    expect(clientDisplayName(makeRawClientPj())).toBe('Acme Indústria S/A');
   });
 
   it('cai no id quando ambos os labels estão ausentes', () => {
-    const orphan = makeClientPF({ fullName: null, corporateName: null });
-    expect(clientDisplayName(orphan)).toBe(CLIENT_ID);
+    const orphan = makeRawClientPf({ fullName: null, corporateName: null });
+    expect(clientDisplayName(orphan)).toBe(CLIENT_PF_ID);
   });
 
   it('cai no id quando os labels são apenas whitespace', () => {
-    const orphan = makeClientPF({ fullName: '   ', corporateName: '' });
-    expect(clientDisplayName(orphan)).toBe(CLIENT_ID);
+    const orphan = makeRawClientPf({ fullName: '   ', corporateName: '' });
+    expect(clientDisplayName(orphan)).toBe(CLIENT_PF_ID);
   });
 
   it('prioriza fullName sobre corporateName se ambos estiverem preenchidos', () => {
-    const both = makeClientPF({
+    const both = makeRawClientPf({
       fullName: 'PF Name',
       corporateName: 'PJ Name',
     });
@@ -168,74 +241,151 @@ describe('clientDisplayName', () => {
   });
 });
 
-describe('listClients — querystring', () => {
-  it('emite GET /clients sem querystring quando params são default', async () => {
-    const client = createStub();
-    client.get.mockResolvedValueOnce({
-      data: [],
-      page: 1,
-      pageSize: DEFAULT_CLIENTS_PAGE_SIZE,
-      total: 0,
-    });
+describe('listClients', () => {
+  it('chama GET /clients sem querystring quando params são defaults', async () => {
+    const client = makeClientStub();
+    const paged = makePaged([makeRawClientPf()]);
+    client.get.mockResolvedValueOnce(paged);
 
-    await listClients({}, undefined, client as unknown as ApiClient);
-    expect(client.get.mock.calls[0][0]).toBe('/clients');
+    const result = await listClients({}, undefined, client as unknown as ApiClient);
+
+    expect(client.get).toHaveBeenCalledTimes(1);
+    expect(client.get).toHaveBeenCalledWith('/clients', undefined);
+    expect(result).toBe(paged);
   });
 
-  it('serializa q + type + active + page + pageSize', async () => {
-    const client = createStub();
-    client.get.mockResolvedValueOnce({
-      data: [],
-      page: 2,
-      pageSize: 50,
-      total: 100,
-    });
+  it('inclui q quando informado e trim aplicado', async () => {
+    const client = makeClientStub();
+    client.get.mockResolvedValueOnce(makePaged([]));
+
+    await listClients({ q: '  Ana  ' }, undefined, client as unknown as ApiClient);
+
+    expect(client.get).toHaveBeenCalledWith('/clients?q=Ana', undefined);
+  });
+
+  it('inclui type=PF quando informado', async () => {
+    const client = makeClientStub();
+    client.get.mockResolvedValueOnce(makePaged([]));
+
+    await listClients({ type: 'PF' }, undefined, client as unknown as ApiClient);
+
+    expect(client.get).toHaveBeenCalledWith('/clients?type=PF', undefined);
+  });
+
+  it('inclui type=PJ quando informado', async () => {
+    const client = makeClientStub();
+    client.get.mockResolvedValueOnce(makePaged([]));
+
+    await listClients({ type: 'PJ' }, undefined, client as unknown as ApiClient);
+
+    expect(client.get).toHaveBeenCalledWith('/clients?type=PJ', undefined);
+  });
+
+  it('inclui active quando boolean (true)', async () => {
+    const client = makeClientStub();
+    client.get.mockResolvedValueOnce(makePaged([]));
+
+    await listClients({ active: true }, undefined, client as unknown as ApiClient);
+
+    expect(client.get).toHaveBeenCalledWith('/clients?active=true', undefined);
+  });
+
+  it('inclui active=false quando explicitamente false', async () => {
+    const client = makeClientStub();
+    client.get.mockResolvedValueOnce(makePaged([]));
+
+    await listClients({ active: false }, undefined, client as unknown as ApiClient);
+
+    expect(client.get).toHaveBeenCalledWith('/clients?active=false', undefined);
+  });
+
+  it('inclui page quando ≠ 1 (default)', async () => {
+    const client = makeClientStub();
+    client.get.mockResolvedValueOnce(makePaged([], { page: 2 }));
+
+    await listClients({ page: 2 }, undefined, client as unknown as ApiClient);
+
+    expect(client.get).toHaveBeenCalledWith('/clients?page=2', undefined);
+  });
+
+  it('inclui pageSize quando ≠ 20 (default)', async () => {
+    const client = makeClientStub();
+    client.get.mockResolvedValueOnce(makePaged([], { pageSize: 50 }));
+
+    await listClients({ pageSize: 50 }, undefined, client as unknown as ApiClient);
+
+    expect(client.get).toHaveBeenCalledWith('/clients?pageSize=50', undefined);
+  });
+
+  it('inclui includeDeleted quando true', async () => {
+    const client = makeClientStub();
+    client.get.mockResolvedValueOnce(makePaged([]));
 
     await listClients(
-      {
-        q: 'alice',
-        type: 'PF',
-        active: true,
-        page: 2,
-        pageSize: 50,
-      },
+      { includeDeleted: true },
       undefined,
       client as unknown as ApiClient,
     );
 
-    expect(client.get.mock.calls[0][0]).toBe(
-      '/clients?q=alice&type=PF&active=true&page=2&pageSize=50',
+    expect(client.get).toHaveBeenCalledWith('/clients?includeDeleted=true', undefined);
+  });
+
+  it('combina vários params na ordem esperada', async () => {
+    const client = makeClientStub();
+    client.get.mockResolvedValueOnce(makePaged([]));
+
+    await listClients(
+      { q: 'ana', type: 'PF', page: 2, pageSize: 50, includeDeleted: true },
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.get).toHaveBeenCalledWith(
+      '/clients?q=ana&type=PF&page=2&pageSize=50&includeDeleted=true',
+      undefined,
     );
   });
 
-  it('omite type quando não é PF/PJ', async () => {
-    const client = createStub();
-    client.get.mockResolvedValueOnce({
-      data: [],
-      page: 1,
-      pageSize: DEFAULT_CLIENTS_PAGE_SIZE,
-      total: 0,
-    });
+  it('omite q vazio (após trim) e omite type fora de PF/PJ', async () => {
+    const client = makeClientStub();
+    client.get.mockResolvedValueOnce(makePaged([]));
 
-    // @ts-expect-error — propositalmente passa tipo inválido para
-    // garantir que o builder ignora valores fora do enum.
-    await listClients({ type: 'XX' }, undefined, client as unknown as ApiClient);
-    expect(client.get.mock.calls[0][0]).toBe('/clients');
+    await listClients(
+      { q: '   ', type: undefined },
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.get).toHaveBeenCalledWith('/clients', undefined);
   });
 
-  it('lança ApiError(parse) quando o backend devolve payload inválido', async () => {
-    const client = createStub();
-    client.get.mockResolvedValueOnce({ malformed: true });
+  it('lança ApiError(parse) quando o backend devolve envelope inválido', async () => {
+    const client = makeClientStub();
+    client.get.mockResolvedValueOnce({ wrong: 'shape' });
 
     await expect(
       listClients({}, undefined, client as unknown as ApiClient),
     ).rejects.toMatchObject({ kind: 'parse' });
   });
+
+  it('propaga signal via options', async () => {
+    const client = makeClientStub();
+    client.get.mockResolvedValueOnce(makePaged([]));
+    const controller = new AbortController();
+
+    await listClients(
+      {},
+      { signal: controller.signal },
+      client as unknown as ApiClient,
+    );
+
+    expect(client.get).toHaveBeenCalledWith('/clients', { signal: controller.signal });
+  });
 });
 
 describe('getClientsByIds', () => {
   it('retorna Map vazio quando ids está vazio (sem chamadas ao client)', async () => {
-    const client = createStub();
+    const client = makeClientStub();
     const result = await getClientsByIds(
       [],
       undefined,
@@ -246,9 +396,9 @@ describe('getClientsByIds', () => {
   });
 
   it('busca cada id e popula o Map preservando o id-chave', async () => {
-    const client = createStub();
-    const pf = makeClientPF();
-    const pj = makeClientPJ();
+    const client = makeClientStub();
+    const pf = makeRawClientPf();
+    const pj = makeRawClientPj();
     client.get.mockResolvedValueOnce(pf).mockResolvedValueOnce(pj);
 
     const result = await getClientsByIds(
@@ -265,8 +415,8 @@ describe('getClientsByIds', () => {
   });
 
   it('skipa ids duplicados sem refazer chamada', async () => {
-    const client = createStub();
-    const pf = makeClientPF();
+    const client = makeClientStub();
+    const pf = makeRawClientPf();
     client.get.mockResolvedValueOnce(pf);
 
     await getClientsByIds(
@@ -279,8 +429,8 @@ describe('getClientsByIds', () => {
   });
 
   it('é best-effort: lookup falho silenciosamente skipa o id', async () => {
-    const client = createStub();
-    const pf = makeClientPF();
+    const client = makeClientStub();
+    const pf = makeRawClientPf();
     client.get
       .mockRejectedValueOnce({ kind: 'http', status: 404, message: 'x' })
       .mockResolvedValueOnce(pf);
@@ -297,13 +447,13 @@ describe('getClientsByIds', () => {
   });
 
   it('lança AbortError quando a requisição é cancelada', async () => {
-    const client = createStub();
+    const client = makeClientStub();
     const abort = new DOMException('aborted', 'AbortError');
     client.get.mockRejectedValueOnce(abort);
 
     await expect(
       getClientsByIds(
-        [CLIENT_ID],
+        [CLIENT_PF_ID],
         undefined,
         client as unknown as ApiClient,
       ),
@@ -311,7 +461,7 @@ describe('getClientsByIds', () => {
   });
 
   it('lança ApiError de network com cancelamento explícito', async () => {
-    const client = createStub();
+    const client = makeClientStub();
     const networkAbort = {
       kind: 'network' as const,
       message: 'Requisição cancelada.',
@@ -320,7 +470,7 @@ describe('getClientsByIds', () => {
 
     await expect(
       getClientsByIds(
-        [CLIENT_ID],
+        [CLIENT_PF_ID],
         undefined,
         client as unknown as ApiClient,
       ),

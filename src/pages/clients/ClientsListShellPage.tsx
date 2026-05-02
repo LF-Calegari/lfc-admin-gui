@@ -1,21 +1,409 @@
-import React from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 
-import { PlaceholderPage } from '../PlaceholderPage';
+import { PageHeader } from '../../components/layout/PageHeader';
+import { Button, Select, Table } from '../../components/ui';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue';
+import { usePaginatedFetch } from '../../hooks/usePaginatedFetch';
+import { usePaginationControls } from '../../hooks/usePaginationControls';
+import {
+  DEFAULT_CLIENTS_INCLUDE_DELETED,
+  DEFAULT_CLIENTS_PAGE,
+  DEFAULT_CLIENTS_PAGE_SIZE,
+  listClients,
+} from '../../shared/api';
+import {
+  EmptyHint,
+  EmptyMessage,
+  EmptyTitle,
+  ErrorRetryBlock,
+  InitialLoadingSpinner,
+  ListingToolbar,
+  LiveRegion,
+  Mono,
+  PaginationFooter,
+  Placeholder,
+  RefetchOverlay,
+  StatusBadge,
+  TableShell,
+  useListingLiveMessage,
+} from '../../shared/listing';
+
+import type { TableColumn } from '../../components/ui';
+import type {
+  ApiClient,
+  ClientDto,
+  ClientType,
+  SafeRequestOptions,
+} from '../../shared/api';
 
 /**
- * Página-shell da listagem de clientes (`/clientes`).
- *
- * Esta página é parte do esqueleto de navegação introduzido pela
- * Issue #145. O conteúdo real (filtros, tabela, paginação, ações de
- * CRUD) será entregue por sub-issues subsequentes da EPIC #49 — o
- * objetivo aqui é apenas registrar a rota, vincular ao item de menu
- * e disparar o `RequirePermission` correto, mantendo a navegação
- * consistente com as demais áreas do painel.
+ * Atraso entre a última tecla e o disparo da request de busca. 300 ms
+ * é o ponto de equilíbrio observado em UIs administrativas: rápido o
+ * suficiente para parecer instantâneo, lento o suficiente para que
+ * uma digitação fluida não dispare 1 request por caractere. Espelha
+ * o valor usado por `SystemsPage`/`RolesPage`.
  */
-export const ClientsListShellPage: React.FC = () => (
-  <PlaceholderPage
-    eyebrow="05 Clientes"
-    title="Clientes"
-    desc="Pessoas e empresas cadastradas no ecossistema. A listagem completa será habilitada nas próximas iterações da EPIC de Clientes."
-  />
-);
+const SEARCH_DEBOUNCE_MS = 300;
+
+/**
+ * Valor sentinel usado pelo `<Select>` de filtro de tipo para
+ * representar "todos" (sem filtro). Mantido fora de `'PF'/'PJ'` para
+ * que a comparação no callback continue restrita à união
+ * `ClientType`. O valor `'ALL'` é apenas uma string de UI; quando
+ * detectado, omitimos `type` da request, mantendo a URL canônica.
+ */
+const TYPE_FILTER_ALL = 'ALL' as const;
+
+interface ClientsListShellPageProps {
+  /**
+   * Cliente HTTP injetável para isolar testes. Em produção, omitido —
+   * a página usa o singleton `apiClient` por trás de `listClients`.
+   * Em testes, o caller passa um stub tipado.
+   */
+  client?: ApiClient;
+}
+
+/**
+ * Aplica máscara visual ao CPF (`xxx.xxx.xxx-xx`). Os 11 dígitos vêm
+ * apenas de `digits` numéricos do backend (que armazena sem
+ * formatação após `NormalizeDigits`); valores inesperados (≠ 11
+ * dígitos) são devolvidos como-vieram para que a UI não corrompa o
+ * dado real — só mascara quando confiar no shape.
+ *
+ * Centralizado aqui (e não em `shared/`) porque é hoje específico da
+ * listagem de clientes; quando `EditClientModal` (#75) precisar do
+ * mesmo helper, o move para `src/shared/format/cpfCnpj.ts` em uma
+ * extração isolada — sem fazer extração antecipada no primeiro PR
+ * para não criar shared util "fantasma" sem consumidor real.
+ */
+function formatCpf(digits: string): string {
+  if (!/^\d{11}$/.test(digits)) {
+    return digits;
+  }
+  return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9, 11)}`;
+}
+
+/**
+ * Aplica máscara visual ao CNPJ (`xx.xxx.xxx/xxxx-xx`). Mesma
+ * estratégia defensiva de `formatCpf`: backend devolve 14 dígitos
+ * crus após `NormalizeDigits`; valores inesperados retornam
+ * inalterados para preservar visibilidade do dado real.
+ */
+function formatCnpj(digits: string): string {
+  if (!/^\d{14}$/.test(digits)) {
+    return digits;
+  }
+  return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8, 12)}-${digits.slice(12, 14)}`;
+}
+
+/**
+ * Resolve o "Nome" exibido na tabela conforme o `type`:
+ *
+ * - `PF` → `fullName` (obrigatório no contrato do backend para PF).
+ * - `PJ` → `corporateName` (obrigatório no contrato do backend para PJ).
+ *
+ * Se o backend devolver ambos `null` (cenário fora do contrato, mas
+ * que o frontend deve tolerar para não quebrar a UI), exibimos um
+ * placeholder "—" — sinal visual claro de que aquele registro está
+ * incompleto sem corromper o resto da tabela.
+ */
+function resolveClientName(row: ClientDto): string | null {
+  if (row.type === 'PF') {
+    return row.fullName;
+  }
+  return row.corporateName;
+}
+
+/**
+ * Resolve o "Documento" exibido na tabela conforme o `type`,
+ * aplicando a máscara visual correspondente. Backend grava sempre
+ * apenas dígitos; a máscara só toca a renderização — qualquer
+ * mutação futura (#75 editar) deve normalizar para dígitos antes de
+ * enviar (espelhando o `NormalizeDigits` do backend), evitando
+ * inconsistência.
+ */
+function resolveClientDocument(row: ClientDto): string | null {
+  if (row.type === 'PF') {
+    return row.cpf ? formatCpf(row.cpf) : null;
+  }
+  return row.cnpj ? formatCnpj(row.cnpj) : null;
+}
+
+export const ClientsListShellPage: React.FC<ClientsListShellPageProps> = ({ client }) => {
+  // Termo digitado pelo usuário em tempo real (input controlado).
+  const [searchTerm, setSearchTerm] = useState<string>('');
+  const debouncedSearch = useDebouncedValue(searchTerm, SEARCH_DEBOUNCE_MS);
+
+  // Filtro de tipo (PF/PJ/Todos). 'ALL' é o sentinel — quando ativo,
+  // omitimos o param da request e o backend devolve ambos os tipos.
+  const [typeFilter, setTypeFilter] = useState<typeof TYPE_FILTER_ALL | ClientType>(
+    TYPE_FILTER_ALL,
+  );
+
+  const [includeDeleted, setIncludeDeleted] = useState<boolean>(
+    DEFAULT_CLIENTS_INCLUDE_DELETED,
+  );
+  const [page, setPage] = useState<number>(DEFAULT_CLIENTS_PAGE);
+
+  /**
+   * Reseta a página para 1 sempre que muda um filtro/busca — evita o
+   * caso "estou na página 5 com 100 itens, busco 'auth' que filtra
+   * para 3 itens, mas continuo na página 5 vazia". Espelha a
+   * `SystemsPage`/`RolesPage`.
+   */
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchTerm(value);
+    setPage(DEFAULT_CLIENTS_PAGE);
+  }, []);
+
+  const handleClearSearch = useCallback(() => {
+    setSearchTerm('');
+    setPage(DEFAULT_CLIENTS_PAGE);
+  }, []);
+
+  const handleIncludeDeletedChange = useCallback((value: boolean) => {
+    setIncludeDeleted(value);
+    setPage(DEFAULT_CLIENTS_PAGE);
+  }, []);
+
+  const handleTypeFilterChange = useCallback((value: string) => {
+    if (value === 'PF' || value === 'PJ') {
+      setTypeFilter(value);
+    } else {
+      setTypeFilter(TYPE_FILTER_ALL);
+    }
+    setPage(DEFAULT_CLIENTS_PAGE);
+  }, []);
+
+  /**
+   * `fetcher` memoizado para o `usePaginatedFetch`. Captura os params
+   * derivados (busca debounced, page, filtros) e devolve uma função
+   * que aceita `signal` no `options`. O hook reage à mudança de
+   * identidade do `fetcher` para reexecutar — `useCallback` com as
+   * deps corretas mantém o ciclo previsível.
+   */
+  const trimmedSearchInput = debouncedSearch.trim();
+  const effectiveTypeParam: ClientType | undefined =
+    typeFilter === TYPE_FILTER_ALL ? undefined : typeFilter;
+  const fetcher = useCallback(
+    (options: SafeRequestOptions) =>
+      listClients(
+        {
+          q: trimmedSearchInput.length > 0 ? trimmedSearchInput : undefined,
+          type: effectiveTypeParam,
+          page,
+          pageSize: DEFAULT_CLIENTS_PAGE_SIZE,
+          includeDeleted,
+        },
+        options,
+        client,
+      ),
+    [client, effectiveTypeParam, includeDeleted, page, trimmedSearchInput],
+  );
+
+  const {
+    rows,
+    pageSize: appliedPageSize,
+    total,
+    isInitialLoading,
+    isFetching,
+    errorMessage,
+    refetch: handleRefetch,
+  } = usePaginatedFetch<ClientDto>({
+    fetcher,
+    fallbackErrorMessage: 'Falha ao carregar a lista de clientes. Tente novamente.',
+  });
+
+  const { totalPages, isFirstPage, isLastPage, handlePrevPage, handleNextPage } =
+    usePaginationControls({
+      total,
+      appliedPageSize,
+      defaultPageSize: DEFAULT_CLIENTS_PAGE_SIZE,
+      page,
+      setPage,
+    });
+
+  const trimmedSearch = debouncedSearch.trim();
+  const hasActiveSearch = trimmedSearch.length > 0;
+
+  /**
+   * Decide qual mensagem renderizar quando `rows` está vazio:
+   *
+   * - Vazio com busca ativa → cita o termo + sugere limpar.
+   * - Vazio sem busca → "nenhum cliente cadastrado" + dica sobre o
+   *   toggle "Mostrar inativos" caso esteja desligado.
+   */
+  const emptyContent = useMemo<React.ReactNode>(() => {
+    if (hasActiveSearch) {
+      return (
+        <EmptyMessage>
+          <EmptyTitle>
+            Nenhum cliente encontrado para <Mono>{trimmedSearch}</Mono>.
+          </EmptyTitle>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleClearSearch}
+            data-testid="clients-empty-clear"
+          >
+            Limpar busca
+          </Button>
+        </EmptyMessage>
+      );
+    }
+    return (
+      <EmptyMessage>
+        <EmptyTitle>Nenhum cliente cadastrado.</EmptyTitle>
+        {!includeDeleted && (
+          <EmptyHint>
+            Clientes removidos podem ser visualizados ativando &quot;Mostrar inativos&quot;.
+          </EmptyHint>
+        )}
+      </EmptyMessage>
+    );
+  }, [handleClearSearch, hasActiveSearch, includeDeleted, trimmedSearch]);
+
+  const columns = useMemo<ReadonlyArray<TableColumn<ClientDto>>>(
+    () => [
+      {
+        key: 'name',
+        label: 'Nome',
+        render: (row) => {
+          const name = resolveClientName(row);
+          if (name === null || name.trim().length === 0) {
+            return <Placeholder>—</Placeholder>;
+          }
+          return name;
+        },
+      },
+      {
+        key: 'document',
+        label: 'Documento',
+        render: (row) => {
+          const document = resolveClientDocument(row);
+          if (document === null) {
+            return <Placeholder>—</Placeholder>;
+          }
+          return <Mono>{document}</Mono>;
+        },
+      },
+      {
+        key: 'type',
+        label: 'Tipo',
+        width: '90px',
+        render: (row) => <Mono>{row.type}</Mono>,
+      },
+      {
+        key: 'status',
+        label: 'Status',
+        width: '120px',
+        render: (row) => <StatusBadge deletedAt={row.deletedAt} gender="m" />,
+      },
+    ],
+    [],
+  );
+
+  const showOverlay = isFetching && !isInitialLoading;
+
+  /**
+   * ARIA-live: anuncia o estado da listagem quando muda. Em loading
+   * subsequente, anunciamos "Atualizando..."; em sucesso, anunciamos
+   * o total. Em erro, o `<Alert role="alert">` já cobre. O hook
+   * `useListingLiveMessage` centraliza a árvore de decisão (lição PR
+   * #134/#135 — bloco duplicado entre listagens reprovou Sonar).
+   */
+  const liveMessage = useListingLiveMessage({
+    isInitialLoading,
+    isFetching,
+    errorMessage,
+    total,
+    page,
+    totalPages,
+    hasActiveSearch,
+    trimmedSearch,
+    copy: {
+      singular: 'cliente',
+      pluralCarregando: 'clientes',
+      vazioSemBusca: 'Nenhum cliente cadastrado.',
+      gender: 'm',
+    },
+  });
+
+  return (
+    <>
+      <PageHeader
+        eyebrow="05 Clientes"
+        title="Clientes cadastrados"
+        desc="Pessoas físicas e jurídicas registradas no ecossistema. Cada cliente pode ter usuários vinculados, emails extras e múltiplos contatos telefônicos."
+      />
+
+      <ListingToolbar
+        searchValue={searchTerm}
+        onSearchChange={handleSearchChange}
+        searchPlaceholder="Nome, documento (CPF/CNPJ)"
+        searchAriaLabel="Buscar clientes por nome ou documento"
+        searchTestId="clients-search"
+        includeDeletedValue={includeDeleted}
+        onIncludeDeletedChange={handleIncludeDeletedChange}
+        includeDeletedHelperText="Inclui clientes com remoção lógica."
+        includeDeletedTestId="clients-include-deleted"
+        extraFilter={
+          <Select
+            label="Tipo"
+            size="sm"
+            value={typeFilter}
+            onChange={handleTypeFilterChange}
+            data-testid="clients-type-filter"
+            aria-label="Filtrar clientes por tipo"
+          >
+            <option value={TYPE_FILTER_ALL}>Todos</option>
+            <option value="PF">Pessoa física</option>
+            <option value="PJ">Pessoa jurídica</option>
+          </Select>
+        }
+      />
+
+      <LiveRegion message={liveMessage} testId="clients-live" />
+
+      {isInitialLoading && (
+        <InitialLoadingSpinner testId="clients-loading" label="Carregando clientes" />
+      )}
+
+      {!isInitialLoading && errorMessage && (
+        <ErrorRetryBlock
+          message={errorMessage}
+          onRetry={handleRefetch}
+          retryTestId="clients-retry"
+        />
+      )}
+
+      {!isInitialLoading && !errorMessage && (
+        <TableShell>
+          <Table<ClientDto>
+            caption="Lista de clientes cadastrados no auth-service."
+            columns={columns}
+            data={rows}
+            getRowKey={(row) => row.id}
+            emptyState={emptyContent}
+          />
+          {showOverlay && <RefetchOverlay testId="clients-overlay" />}
+        </TableShell>
+      )}
+
+      {!isInitialLoading && !errorMessage && total > 0 && (
+        <PaginationFooter
+          page={page}
+          totalPages={totalPages}
+          total={total}
+          isFirstPage={isFirstPage}
+          isLastPage={isLastPage}
+          onPrev={handlePrevPage}
+          onNext={handleNextPage}
+          pageInfoTestId="clients-page-info"
+          prevTestId="clients-prev"
+          nextTestId="clients-next"
+        />
+      )}
+    </>
+  );
+};

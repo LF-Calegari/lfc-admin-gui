@@ -123,6 +123,24 @@ export type {
   UpdateRolePayload,
 } from './roles';
 export {
+  clientDisplayName,
+  DEFAULT_CLIENTS_INCLUDE_DELETED,
+  DEFAULT_CLIENTS_PAGE,
+  DEFAULT_CLIENTS_PAGE_SIZE,
+  getClientsByIds,
+  isClientDto,
+  isPagedClientsResponse,
+  listClients,
+} from './clients';
+export type {
+  ClientDto,
+  ClientEmailDto,
+  ClientLookupDto,
+  ClientPhoneDto,
+  ClientType,
+  ListClientsParams,
+} from './clients';
+export {
   isTokenTypeArray,
   isTokenTypeDto,
   listTokenTypes,
@@ -137,21 +155,6 @@ export {
   listUsers,
 } from './users';
 export type { ListUsersParams, UserDto } from './users';
-export {
-  clientDisplayName,
-  DEFAULT_CLIENTS_INCLUDE_DELETED,
-  DEFAULT_CLIENTS_PAGE,
-  DEFAULT_CLIENTS_PAGE_SIZE,
-  getClientsByIds,
-  isClientDto,
-  isPagedClientsResponse,
-  listClients,
-} from './clients';
-export type {
-  ClientDto,
-  ClientLookupDto,
-  ListClientsParams,
-} from './clients';
 export {
   assignPermissionToUser,
   DEFAULT_PERMISSIONS_INCLUDE_DELETED,

@@ -1,3 +1,5 @@
+import { isPagedResponseEnvelope } from "./pagedResponse";
+
 import { apiClient } from "./index";
 
 import type { PagedResponse } from "./systems";
@@ -146,19 +148,7 @@ export function isRoleDto(value: unknown): value is RoleDto {
 export function isPagedRolesResponse(
   value: unknown,
 ): value is PagedResponse<RoleDto> {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-  const record = value as Record<string, unknown>;
-  if (
-    typeof record.page !== "number" ||
-    typeof record.pageSize !== "number" ||
-    typeof record.total !== "number" ||
-    !Array.isArray(record.data)
-  ) {
-    return false;
-  }
-  return record.data.every(isRoleDto);
+  return isPagedResponseEnvelope(value, isRoleDto);
 }
 
 /**
