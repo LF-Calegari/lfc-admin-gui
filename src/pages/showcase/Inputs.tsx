@@ -41,6 +41,8 @@ const Row = styled.div`
 
 export const Inputs: React.FC = () => {
   const [text, setText] = useState('admin@lfc.com.br');
+  const [password, setPassword] = useState('senha-revelavel');
+  const [secret, setSecret] = useState('senha-cega');
   const [bio, setBio] = useState('');
   const [system, setSystem] = useState('auth');
   const [agree, setAgree] = useState(false);
@@ -76,6 +78,29 @@ export const Inputs: React.FC = () => {
             value="senha123"
             error="Senha incorreta"
             onChange={() => undefined}
+          />
+        </Grid>
+      </Stack>
+
+      <Stack>
+        <Label>Input · senha (toggle de visibilidade)</Label>
+        <Grid>
+          <Input
+            label="Senha (com toggle)"
+            type="password"
+            value={password}
+            onChange={setPassword}
+            placeholder="Sua senha"
+            autoComplete="new-password"
+          />
+          <Input
+            label="Senha (sem toggle, opt-out)"
+            type="password"
+            value={secret}
+            onChange={setSecret}
+            placeholder="Sua senha"
+            autoComplete="new-password"
+            revealable={false}
           />
         </Grid>
       </Stack>
