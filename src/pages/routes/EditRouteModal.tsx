@@ -131,11 +131,16 @@ const EMPTY_INITIAL_STATE: RouteFormState = {
  * token type foi soft-deletado (LEFT JOIN no controller). Cobrimos os
  * dois casos com fallbacks.
  */
+function resolveInactiveDisplayName(name: string, code: string): string {
+  if (name.length > 0) return name;
+  if (code.length > 0) return code;
+  return 'Política inativa';
+}
+
 function buildInactiveTokenTypePlaceholder(route: RouteDto): TokenTypeDto {
   const baseName = route.systemTokenTypeName.trim();
   const baseCode = route.systemTokenTypeCode.trim();
-  const displayName =
-    baseName.length > 0 ? baseName : baseCode.length > 0 ? baseCode : 'Política inativa';
+  const displayName = resolveInactiveDisplayName(baseName, baseCode);
   return {
     id: route.systemTokenTypeId,
     name: `${displayName} (inativo)`,

@@ -16,7 +16,6 @@
 
 import {
   groupPermissionsBySystem,
-  type PermissionId,
   type PermissionSystemGroup,
 } from "../users/userPermissionsHelpers";
 
@@ -30,7 +29,7 @@ import {
  * extensão quando/se for hora de promover o agrupamento para
  * `src/shared/permissions/`.
  */
-export type { PermissionId, PermissionSystemGroup };
+export type { PermissionSystemGroup };
 export { groupPermissionsBySystem };
 
 /**
@@ -50,8 +49,8 @@ export { groupPermissionsBySystem };
  * `expiresAt` que vínculos user-permission não têm).
  */
 export interface RolePermissionAssignmentDiff {
-  toAdd: ReadonlyArray<PermissionId>;
-  toRemove: ReadonlyArray<PermissionId>;
+  toAdd: ReadonlyArray<string>;
+  toRemove: ReadonlyArray<string>;
 }
 
 /**
@@ -64,7 +63,7 @@ export interface RolePermissionAssignmentDiff {
  * de `PermissionAssignmentFailure` em `userPermissionsHelpers`.
  */
 export interface RolePermissionAssignmentFailure {
-  permissionId: PermissionId;
+  permissionId: string;
   kind: "add" | "remove";
   message: string;
 }
@@ -88,12 +87,12 @@ function compareStrings(a: string, b: string): number {
  * a role ou tem ou não tem.
  *
  * Set imutável (do ponto de vista do caller). Valor retornado é um
- * `Set<PermissionId>` real para que `has(id)` em renders seja O(1).
+ * `Set<string>` real para que `has(id)` em renders seja O(1).
  */
 export function buildInitialRolePermissionIds(
   permissionIds: ReadonlyArray<string>,
-): Set<PermissionId> {
-  return new Set<PermissionId>(permissionIds);
+): Set<string> {
+  return new Set<string>(permissionIds);
 }
 
 /**
@@ -117,11 +116,11 @@ export function buildInitialRolePermissionIds(
  * distinto (ver `RolePermissionAssignmentDiff`).
  */
 export function computeRolePermissionDiff(
-  originalAssigned: ReadonlySet<PermissionId>,
-  selectedAssigned: ReadonlySet<PermissionId>,
+  originalAssigned: ReadonlySet<string>,
+  selectedAssigned: ReadonlySet<string>,
 ): RolePermissionAssignmentDiff {
-  const toAdd: PermissionId[] = [];
-  const toRemove: PermissionId[] = [];
+  const toAdd: string[] = [];
+  const toRemove: string[] = [];
 
   for (const id of selectedAssigned) {
     if (!originalAssigned.has(id)) {

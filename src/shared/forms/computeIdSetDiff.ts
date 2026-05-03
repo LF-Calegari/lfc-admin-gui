@@ -55,8 +55,8 @@ function compareStrings(a: string, b: string): number {
  * - `toRemove` = `original \ selected` (presentes em original, ausentes em selected).
  *
  * Tipagem: aceita `ReadonlySet<string>` para que callers possam usar
- * `Set<PermissionId>` ou `Set<RoleId>` (aliases) sem coerção. O retorno
- * é `ReadonlyArray<string>` para preservar imutabilidade da resposta.
+ * sets de ids (permissões, roles etc.) sem coerção. O retorno é
+ * `ReadonlyArray<string>` para preservar imutabilidade da resposta.
  *
  * Casos de borda:
  *

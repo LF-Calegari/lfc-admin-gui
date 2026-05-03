@@ -22,16 +22,9 @@ import type { SystemGroup } from '../../shared/listing';
  * `userRolesHelpers.ts`) tokeniza como bloco duplicado no Sonar
  * (lição PR #134/#135 — quando o **corpo** é idêntico entre recursos,
  * extrair em helper genérico). Os wrappers preservam os tipos
- * específicos do recurso (`PermissionId`, `PermissionAssignmentDiff`)
+ * específicos do recurso (`string`, `PermissionAssignmentDiff`)
  * para que call-sites continuem expressivos.
  */
-
-/**
- * Identifica de forma estável uma permissão pelo seu `id`. Tipado como
- * alias para tornar a intenção explícita nos sets/maps (`Set<PermissionId>`
- * lê melhor do que `Set<string>`).
- */
-export type PermissionId = string;
 
 /**
  * Bloco visual: todas as permissões pertencentes a um mesmo sistema.
@@ -72,7 +65,7 @@ export type PermissionAssignmentDiff = IdSetDiff;
  * porque a operação é idempotente (refetch normaliza).
  */
 export interface PermissionAssignmentFailure {
-  permissionId: PermissionId;
+  permissionId: string;
   kind: 'add' | 'remove';
   message: string;
 }
@@ -159,12 +152,12 @@ function hasDirectSource(sources: ReadonlyArray<EffectivePermissionSource>): boo
  * não fazem parte do diff.
  *
  * Set imutável (do ponto de vista do caller). Valor retornado é um
- * `Set<PermissionId>` real para que `has(id)` em renders seja O(1).
+ * `Set<string>` real para que `has(id)` em renders seja O(1).
  */
 export function buildInitialDirectPermissionIds(
   effective: ReadonlyArray<EffectivePermissionDto>,
-): Set<PermissionId> {
-  const ids = new Set<PermissionId>();
+): Set<string> {
+  const ids = new Set<string>();
   for (const item of effective) {
     if (hasDirectSource(item.sources)) {
       ids.add(item.permissionId);
@@ -180,7 +173,7 @@ export function buildInitialDirectPermissionIds(
  * `Map.get(id)?.length ?? 0` resolve sem branch).
  */
 export type RoleMembershipsByPermission = ReadonlyMap<
-  PermissionId,
+  string,
   ReadonlyArray<{ roleId: string; roleCode: string; roleName: string }>
 >;
 
@@ -197,7 +190,7 @@ export function buildRoleMembershipsByPermission(
   effective: ReadonlyArray<EffectivePermissionDto>,
 ): RoleMembershipsByPermission {
   const map = new Map<
-    PermissionId,
+    string,
     Array<{ roleId: string; roleCode: string; roleName: string }>
   >();
 
@@ -240,8 +233,8 @@ export function buildRoleMembershipsByPermission(
  * Sonar tokenizaria.
  */
 export function computeAssignmentDiff(
-  originalDirect: ReadonlySet<PermissionId>,
-  selectedDirect: ReadonlySet<PermissionId>,
+  originalDirect: ReadonlySet<string>,
+  selectedDirect: ReadonlySet<string>,
 ): PermissionAssignmentDiff {
   return computeIdSetDiff(originalDirect, selectedDirect);
 }

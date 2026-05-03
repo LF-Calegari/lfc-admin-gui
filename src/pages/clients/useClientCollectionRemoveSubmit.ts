@@ -139,7 +139,7 @@ export function useClientCollectionRemoveSubmit<TAction>({
         // antes do fluxo padrão. Quando `customAction` consome a
         // ação (retorna `true`), encerramos sem delegar ao
         // `applyRemoveCollectionAction`.
-        if (customAction !== undefined && customAction(action)) {
+        if (customAction?.(action) === true) {
           return;
         }
         // Cast seguro — `customAction` intercepta variantes próprias
