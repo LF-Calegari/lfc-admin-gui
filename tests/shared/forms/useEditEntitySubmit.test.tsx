@@ -46,7 +46,7 @@ const COPY: EditEntitySubmitCopy = {
 };
 
 interface SetupOverrides {
-  prepareSubmit?: () => unknown | null;
+  prepareSubmit?: () => object | null;
   mutationFn?: (payload: unknown) => Promise<unknown>;
   copy?: EditEntitySubmitCopy;
 }

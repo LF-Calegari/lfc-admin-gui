@@ -264,7 +264,7 @@ export const ClientDataTab: React.FC<ClientDataTabProps> = ({ client }) => {
    * mover a lógica para dentro de `useEditEntitySubmit` (lição PR
    * #135).
    */
-  const prepareSubmitSafe = useCallback((): Record<string, unknown> | null => {
+  const prepareSubmitSafe = useCallback((): object | null => {
     if (isSubmitting || loadedClient === null) return null;
     return prepareUpdateSubmit();
   }, [isSubmitting, loadedClient, prepareUpdateSubmit]);

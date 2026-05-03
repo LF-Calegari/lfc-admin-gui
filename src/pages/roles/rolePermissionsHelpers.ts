@@ -14,8 +14,6 @@
  * desde o primeiro consumer adicional.
  */
 
-import type { PermissionSystemGroup } from "../users/userPermissionsHelpers";
-
 /**
  * Re-exports dos tipos compartilhados — evita que `RolePermissionsShellPage`
  * tenha que importar diretamente de `pages/users/userPermissionsHelpers`,

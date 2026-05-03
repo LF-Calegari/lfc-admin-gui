@@ -294,7 +294,7 @@ export const EditRouteModal: React.FC<EditRouteModalProps> = ({
    * preserva o dedupe original ao mover a lógica para dentro de
    * `useEditEntitySubmit` (lição PR #135, 6ª recorrência de Sonar).
    */
-  const prepareSubmitSafe = useCallback((): Record<string, unknown> | null => {
+  const prepareSubmitSafe = useCallback((): object | null => {
     if (isSubmitting || !route) return null;
     return prepareSubmit(route.systemId);
   }, [isSubmitting, prepareSubmit, route]);
