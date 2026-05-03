@@ -105,7 +105,7 @@ export interface CreateEntitySubmitCallbacks {
    * `prepareSubmit(systemId)` para rotas — para rotas, basta o caller
    * fechar sobre o `systemId` antes de injetar).
    */
-  prepareSubmit: () => unknown | null;
+  prepareSubmit: () => Record<string, unknown> | null;
   /**
    * Executa a mutação remota com o payload validado. Tipicamente
    * `(payload) => createSystem(payload, undefined, client)`,

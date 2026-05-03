@@ -207,7 +207,7 @@ export const EditRoleModal: React.FC<EditRoleModalProps> = ({
    * dentro de `useEditEntitySubmit` (lição PR #135, 6ª recorrência
    * de Sonar).
    */
-  const prepareSubmitSafe = useCallback((): unknown | null => {
+  const prepareSubmitSafe = useCallback((): Record<string, unknown> | null => {
     if (isSubmitting || !role) return null;
     return prepareSubmit(systemId);
   }, [isSubmitting, prepareSubmit, role, systemId]);

@@ -124,7 +124,7 @@ export const NewClientModal: React.FC<NewClientModalProps> = ({
    * `isSubmitting` falhar — preserva o dedupe ao mover a lógica
    * para dentro de `useCreateEntitySubmit`.
    */
-  const prepareSubmitSafe = useCallback((): unknown | null => {
+  const prepareSubmitSafe = useCallback((): Record<string, unknown> | null => {
     if (isSubmitting) return null;
     return prepareSubmit();
   }, [isSubmitting, prepareSubmit]);

@@ -173,7 +173,7 @@ export const EditSystemModal: React.FC<EditSystemModalProps> = ({
    * mover a lógica para dentro de `useEditEntitySubmit` (lição PR
    * #135, 6ª recorrência de Sonar).
    */
-  const prepareSubmitSafe = useCallback((): unknown | null => {
+  const prepareSubmitSafe = useCallback((): Record<string, unknown> | null => {
     if (isSubmitting || !system) return null;
     return prepareSubmit();
   }, [isSubmitting, prepareSubmit, system]);

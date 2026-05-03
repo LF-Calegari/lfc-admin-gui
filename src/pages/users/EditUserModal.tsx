@@ -200,7 +200,7 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
    * mover a lógica para dentro de `useEditEntitySubmit` (lição PR
    * #135, 6ª recorrência de Sonar).
    */
-  const prepareSubmitSafe = useCallback((): unknown | null => {
+  const prepareSubmitSafe = useCallback((): Record<string, unknown> | null => {
     if (isSubmitting || !user) return null;
     return prepareUpdateSubmit();
   }, [isSubmitting, prepareUpdateSubmit, user]);
