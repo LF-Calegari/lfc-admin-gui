@@ -266,6 +266,16 @@ interface RouteFormBodyProps {
    * token types está sendo carregada. Repassado para `RouteFormFields`.
    */
   tokenTypesHelperText?: string;
+  /**
+   * Slot opcional renderizado **acima** dos campos padrão (Nome/Código/
+   * Descrição/Política JWT) e **abaixo** do Alert de `submitError`.
+   * Usado pelo modo "criar rota global" (Issue #187) para injetar o
+   * `<Select>` de sistema sem expandir o `RouteFormState` compartilhado
+   * com `EditRouteModal` — o caller controla `selectedSystemId` e o
+   * erro inline localmente. No fluxo per-system (`RoutesPage` da
+   * #63/#64), o slot é omitido e o body renderiza igual ao original.
+   */
+  headerSlot?: React.ReactNode;
 }
 
 /**
@@ -301,6 +311,7 @@ export const RouteFormBody: React.FC<RouteFormBodyProps> = ({
   submitLabel,
   submitDisabled = false,
   tokenTypesHelperText,
+  headerSlot,
 }) => (
   <RouteFormShell onSubmit={onSubmit} noValidate data-testid={`${idPrefix}-form`}>
     {submitError && (
@@ -308,6 +319,7 @@ export const RouteFormBody: React.FC<RouteFormBodyProps> = ({
         {submitError}
       </Alert>
     )}
+    {headerSlot}
     <RouteFormFields
       idPrefix={idPrefix}
       values={values}

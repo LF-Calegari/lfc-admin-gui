@@ -1,10 +1,12 @@
+import { Plus } from 'lucide-react';
 import React, { useCallback, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import styled from 'styled-components';
 
 import { PageHeader } from '../../components/layout/PageHeader';
-import { Select, Table } from '../../components/ui';
+import { Button, Select, Table } from '../../components/ui';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
+import { useToggleModalState } from '../../hooks/useListModalState';
 import { usePaginatedFetch } from '../../hooks/usePaginatedFetch';
 import { useSingleFetchWithAbort } from '../../hooks/useSingleFetchWithAbort';
 import {
@@ -14,6 +16,7 @@ import {
   listRoutes,
   listSystems,
 } from '../../shared/api';
+import { useAuth } from '../../shared/auth';
 import {
   CardListForMobile,
   CardMeta,
@@ -29,6 +32,7 @@ import {
   useListingLiveMessage,
 } from '../../shared/listing';
 
+import { NewRouteModal } from './NewRouteModal';
 import {
   RouteCardTopSection,
   renderRouteDescription,
@@ -75,6 +79,19 @@ const SYSTEM_FILTER_ALL = 'ALL' as const;
  * nome do sistema na coluna Sistema, em vez de "—".
  */
 const SYSTEMS_LOOKUP_PAGE_SIZE = 100;
+
+/**
+ * Code de permissão exigido para o botão "Nova rota" — Issue #187.
+ *
+ * Espelha o `AUTH_V1_SYSTEMS_ROUTES_CREATE` cadastrado pelo
+ * `AuthenticatorRoutesSeeder` no `lfc-authenticator` e o usado na
+ * `RoutesPage` (per-system). O backend é a fonte autoritativa
+ * (`POST /systems/routes` valida via
+ * `[Authorize(Policy = PermissionPolicies.SystemsRoutesCreate)]`); o
+ * gating client-side é apenas UX — esconder ações que o usuário não
+ * pode executar.
+ */
+const ROUTES_CREATE_PERMISSION = 'AUTH_V1_SYSTEMS_ROUTES_CREATE';
 
 interface RoutesGlobalListShellPageProps {
   /**
@@ -178,10 +195,18 @@ export const RoutesGlobalListShellPage: React.FC<RoutesGlobalListShellPageProps>
 }) => {
   // A rota inteira é gateada por
   // `RequirePermission code="AUTH_V1_SYSTEMS_ROUTES_LIST"` em
-  // `AppRoutes`, então a página não precisa chamar `useAuth()` para
-  // gating local — caso futuras sub-issues adicionem ações por linha
-  // condicionais (ex.: drill-down restrito), reintroduzir o hook na
-  // ocasião.
+  // `AppRoutes`. A partir da Issue #187 também usamos `useAuth` para
+  // gating local do botão "Nova rota" — esconde a ação para operadores
+  // sem `AUTH_V1_SYSTEMS_ROUTES_CREATE`.
+  const { hasPermission } = useAuth();
+  const canCreateRoute = hasPermission(ROUTES_CREATE_PERMISSION);
+
+  // Estado de abertura do modal "Nova rota" (Issue #187 — paridade
+  // visual com `SystemsPage`/`RoutesPage`/`RolesGlobalListShellPage`).
+  // Usamos `useToggleModalState` para colapsar o trio
+  // `[isOpen, open, close]` e evitar a 7ª recorrência potencial de
+  // duplicação Sonar (lição PR #134/#135).
+  const createModal = useToggleModalState();
 
   // Termo digitado pelo usuário em tempo real (input controlado).
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -555,11 +580,33 @@ export const RoutesGlobalListShellPage: React.FC<RoutesGlobalListShellPageProps>
         includeDeletedHelperText="Inclui rotas com remoção lógica."
         includeDeletedTestId="routes-global-include-deleted"
         extraFilter={systemFilterSelect}
+        actions={
+          canCreateRoute && (
+            <Button
+              variant="primary"
+              size="md"
+              icon={<Plus size={14} strokeWidth={1.75} />}
+              onClick={createModal.open}
+              data-testid="routes-global-create-open"
+            >
+              Nova rota
+            </Button>
+          )
+        }
       />
 
       <LiveRegion message={liveMessage} testId="routes-global-live" />
 
       {resultArea}
+
+      {canCreateRoute && (
+        <NewRouteModal
+          open={createModal.isOpen}
+          onClose={createModal.close}
+          onCreated={handleRefetch}
+          client={client}
+        />
+      )}
     </>
   );
 };

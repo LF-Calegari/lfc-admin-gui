@@ -6,6 +6,7 @@ import { buildAuthMock } from '../__helpers__/mockUseAuth';
 import {
   countRoutesListCalls,
   createRoutesGlobalClientStub,
+  fillNewRouteForm,
   ID_ROUTE_LIST,
   ID_ROUTE_CREATE,
   ID_SYS_AUTH,
@@ -16,8 +17,12 @@ import {
   makePagedSystems,
   makeRoute,
   makeSystem,
+  makeTokenType,
   mockGlobalRoutesInitialResponses,
+  mockGlobalRoutesWithCreateModalResponses,
+  openCreateRouteModalFromGlobalShell,
   renderRoutesGlobalListPage,
+  submitNewRouteForm,
   waitForInitialGlobalList,
 } from '../__helpers__/routesTestHelpers';
 /* eslint-enable import/order */
@@ -26,17 +31,25 @@ import type { RouteDto } from '@/shared/api';
 
 /**
  * Suíte da `RoutesGlobalListShellPage` (Issue #172 — listagem global
- * cross-system de rotas).
+ * cross-system de rotas; Issue #187 — botão "Nova rota" cross-system).
  *
  * Estratégia espelha `ClientsListShellPage.test.tsx`/`SystemsPage.test.tsx`:
  * stub de `ApiClient` injetado, asserts sobre estados visuais, busca
  * debounced, paginação, filtro por sistema (dropdown), toggle "Mostrar
  * inativas", coluna Sistema com `<Link>` clicável e cards mobile.
+ *
+ * A partir da Issue #187, `permissionsMock` é mutável (em vez do
+ * static array original) para que o gating do botão "Nova rota" possa
+ * ser exercido sem mexer no `vi.mock`. Mesmo padrão usado pelas
+ * suítes de mutação per-system (ex.: `RoutesPage.create.test.tsx`).
  */
 
-vi.mock('@/shared/auth', () =>
-  buildAuthMock(() => ['AUTH_V1_SYSTEMS_ROUTES_LIST']),
-);
+const ROUTES_LIST_PERMISSION = 'AUTH_V1_SYSTEMS_ROUTES_LIST';
+const ROUTES_CREATE_PERMISSION = 'AUTH_V1_SYSTEMS_ROUTES_CREATE';
+
+let permissionsMock: ReadonlyArray<string> = [ROUTES_LIST_PERMISSION];
+
+vi.mock('@/shared/auth', () => buildAuthMock(() => permissionsMock));
 
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -71,6 +84,7 @@ const SAMPLE_SYSTEMS = [
 
 beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
+  permissionsMock = [ROUTES_LIST_PERMISSION];
 });
 
 afterEach(() => {
@@ -564,5 +578,241 @@ describe('RoutesGlobalListShellPage — erro de listagem', () => {
 
     expect(screen.getByText('Erro interno ao listar rotas.')).toBeInTheDocument();
     expect(screen.getByTestId('routes-global-retry')).toBeInTheDocument();
+  });
+});
+
+/**
+ * Issue #187 — botão "Nova rota" cross-system na listagem global.
+ *
+ * Diferenças vs. fluxo per-system (`RoutesPage.create.test.tsx`):
+ *
+ * - Botão vive no toolbar da `RoutesGlobalListShellPage` (testid
+ *   `routes-global-create-open` em vez de `routes-create-open`).
+ * - O modal é aberto **sem** prop `systemId` — renderiza um
+ *   `<Select>` adicional no topo do form (`new-route-system-id`)
+ *   que o operador precisa preencher antes de submeter.
+ * - Após sucesso, a listagem global recarrega via `handleRefetch`.
+ */
+describe('RoutesGlobalListShellPage — botão "Nova rota" (Issue #187)', () => {
+  describe('gating do botão', () => {
+    it('não exibe o botão quando o usuário não possui AUTH_V1_SYSTEMS_ROUTES_CREATE', async () => {
+      // Apenas LIST: o botão de criação fica oculto.
+      permissionsMock = [ROUTES_LIST_PERMISSION];
+      const client = createRoutesGlobalClientStub();
+      mockGlobalRoutesInitialResponses(client, {
+        routes: SAMPLE_ROUTES,
+        systems: SAMPLE_SYSTEMS,
+      });
+
+      renderRoutesGlobalListPage(client);
+      await waitForInitialGlobalList(client);
+
+      expect(
+        screen.queryByTestId('routes-global-create-open'),
+      ).not.toBeInTheDocument();
+    });
+
+    it('exibe o botão quando o usuário possui AUTH_V1_SYSTEMS_ROUTES_CREATE', async () => {
+      permissionsMock = [ROUTES_LIST_PERMISSION, ROUTES_CREATE_PERMISSION];
+      const client = createRoutesGlobalClientStub();
+      mockGlobalRoutesInitialResponses(client, {
+        routes: SAMPLE_ROUTES,
+        systems: SAMPLE_SYSTEMS,
+      });
+
+      renderRoutesGlobalListPage(client);
+      await waitForInitialGlobalList(client);
+
+      const openBtn = screen.getByTestId('routes-global-create-open');
+      expect(openBtn).toBeInTheDocument();
+      expect(openBtn).toHaveTextContent(/Nova rota/i);
+    });
+  });
+
+  describe('abertura do modal e dropdown de sistema', () => {
+    beforeEach(() => {
+      permissionsMock = [ROUTES_LIST_PERMISSION, ROUTES_CREATE_PERMISSION];
+    });
+
+    it('clicar em "Nova rota" abre o diálogo com dropdown de sistema visível', async () => {
+      const client = createRoutesGlobalClientStub();
+      await openCreateRouteModalFromGlobalShell(client, {
+        systems: SAMPLE_SYSTEMS,
+      });
+
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+      // O `<Select>` extra do modo global aparece (test id dedicado).
+      expect(screen.getByTestId('new-route-system-id')).toBeInTheDocument();
+      // Os campos padrão também estão presentes.
+      expect(screen.getByTestId('new-route-name')).toBeInTheDocument();
+      expect(screen.getByTestId('new-route-code')).toBeInTheDocument();
+      expect(
+        screen.getByTestId('new-route-system-token-type-id'),
+      ).toBeInTheDocument();
+    });
+
+    it('dropdown de sistema lista os sistemas em ordem alfabética', async () => {
+      const client = createRoutesGlobalClientStub();
+      await openCreateRouteModalFromGlobalShell(client, {
+        // Inversão proposital — o `<Select>` deve ordenar.
+        systems: [
+          makeSystem({ id: ID_SYS_KURTTO, name: 'lfc-kurtto', code: 'KURTTO' }),
+          makeSystem({ id: ID_SYS_AUTH, name: 'lfc-authenticator', code: 'AUTH' }),
+        ],
+      });
+
+      const select = screen.getByTestId('new-route-system-id') as HTMLSelectElement;
+      const optionTexts = Array.from(select.options).map((opt) => opt.textContent);
+      // Placeholder + 2 sistemas em ordem alfabética.
+      expect(optionTexts[0]).toBe('Selecione um sistema');
+      expect(optionTexts[1]).toBe('lfc-authenticator');
+      expect(optionTexts[2]).toBe('lfc-kurtto');
+    });
+  });
+
+  describe('validação e submissão do modal global', () => {
+    beforeEach(() => {
+      permissionsMock = [ROUTES_LIST_PERMISSION, ROUTES_CREATE_PERMISSION];
+    });
+
+    it('submeter sem escolher sistema mostra erro inline e não chama POST', async () => {
+      const client = createRoutesGlobalClientStub();
+      await openCreateRouteModalFromGlobalShell(client, {
+        systems: SAMPLE_SYSTEMS,
+      });
+
+      // Preenche os outros campos para isolar o erro do `<Select>`
+      // de sistema. O usuário tenta submeter sem escolher sistema.
+      fillNewRouteForm({
+        name: 'Listar X',
+        code: 'X_LIST',
+        systemTokenTypeId: ID_TOKEN_TYPE_DEFAULT,
+      });
+      fireEvent.submit(screen.getByTestId('new-route-form'));
+
+      expect(screen.getByText('Selecione um sistema.')).toBeInTheDocument();
+      expect(client.post).not.toHaveBeenCalled();
+    });
+
+    it('escolher sistema, preencher campos e submeter envia POST com systemId selecionado', async () => {
+      const created = makeRoute({
+        id: ID_ROUTE_CREATE,
+        systemId: ID_SYS_KURTTO,
+        name: 'Criar pedido',
+        code: 'KURTTO_V1_ORDERS_CREATE',
+        description: null,
+      });
+      const client = createRoutesGlobalClientStub();
+      mockGlobalRoutesWithCreateModalResponses(client, {
+        routes: SAMPLE_ROUTES,
+        systems: SAMPLE_SYSTEMS,
+        tokenTypes: [makeTokenType()],
+      });
+      client.post.mockResolvedValueOnce(created);
+
+      await openCreateRouteModalFromGlobalShell(client);
+
+      // Escolhe o segundo sistema do dropdown (KURTTO) — deliberado
+      // para validar que o systemId enviado vem do dropdown e não de
+      // um valor hardcoded.
+      fireEvent.change(screen.getByTestId('new-route-system-id'), {
+        target: { value: ID_SYS_KURTTO },
+      });
+      fillNewRouteForm({
+        name: 'Criar pedido',
+        code: 'KURTTO_V1_ORDERS_CREATE',
+        systemTokenTypeId: ID_TOKEN_TYPE_DEFAULT,
+      });
+      await submitNewRouteForm(client);
+
+      expect(client.post).toHaveBeenCalledWith(
+        '/systems/routes',
+        {
+          systemId: ID_SYS_KURTTO,
+          name: 'Criar pedido',
+          code: 'KURTTO_V1_ORDERS_CREATE',
+          systemTokenTypeId: ID_TOKEN_TYPE_DEFAULT,
+        },
+        undefined,
+      );
+
+      // Modal fecha após sucesso.
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      });
+
+      // Toast verde "Rota criada.".
+      expect(await screen.findByText('Rota criada.')).toBeInTheDocument();
+    });
+
+    it('após sucesso, a listagem global é refetch (chamada extra a /systems/routes)', async () => {
+      const created = makeRoute({
+        id: ID_ROUTE_CREATE,
+        systemId: ID_SYS_AUTH,
+        name: 'Nova',
+        code: 'NEW_ROUTE',
+      });
+      const client = createRoutesGlobalClientStub();
+      mockGlobalRoutesWithCreateModalResponses(client, {
+        routes: SAMPLE_ROUTES,
+        systems: SAMPLE_SYSTEMS,
+      });
+      client.post.mockResolvedValueOnce(created);
+
+      await openCreateRouteModalFromGlobalShell(client);
+      const callsBefore = countRoutesListCalls(client);
+
+      fireEvent.change(screen.getByTestId('new-route-system-id'), {
+        target: { value: ID_SYS_AUTH },
+      });
+      fillNewRouteForm({
+        name: 'Nova',
+        code: 'NEW_ROUTE',
+        systemTokenTypeId: ID_TOKEN_TYPE_DEFAULT,
+      });
+      await submitNewRouteForm(client);
+
+      // O refetch da listagem global após sucesso aumenta o contador
+      // de chamadas a `/systems/routes`.
+      await waitFor(() =>
+        expect(countRoutesListCalls(client)).toBe(callsBefore + 1),
+      );
+    });
+
+    it('409 (code duplicado) exibe mensagem inline no campo code', async () => {
+      const client = createRoutesGlobalClientStub();
+      mockGlobalRoutesWithCreateModalResponses(client, {
+        routes: SAMPLE_ROUTES,
+        systems: SAMPLE_SYSTEMS,
+      });
+      client.post.mockRejectedValueOnce({
+        kind: 'http',
+        status: 409,
+        message: 'Já existe uma route com este Code.',
+      });
+
+      await openCreateRouteModalFromGlobalShell(client);
+
+      fireEvent.change(screen.getByTestId('new-route-system-id'), {
+        target: { value: ID_SYS_AUTH },
+      });
+      fillNewRouteForm({
+        name: 'Conflito',
+        code: 'CONFLICT_CODE',
+        systemTokenTypeId: ID_TOKEN_TYPE_DEFAULT,
+      });
+      await submitNewRouteForm(client);
+
+      // Mensagem inline custom citando "neste sistema" (NewRouteModal
+      // sobrescreve a copy do backend).
+      expect(
+        await screen.findByText(
+          /Já existe uma rota com este código neste sistema/i,
+        ),
+      ).toBeInTheDocument();
+
+      // Modal continua aberto.
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+    });
   });
 });
