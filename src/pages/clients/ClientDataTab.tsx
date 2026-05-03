@@ -198,7 +198,7 @@ export const ClientDataTab: React.FC<ClientDataTabProps> = ({ client }) => {
    * `setState` em componente desmontado.
    *
    * Reload key (`reloadCounter`) permite que `ErrorRetryBlock`
-   * dispare um novo fetch sem precisar resetar todo o estado da
+   * dispare um novo fetch sem precisar resetar o estado inteiro da
    * aba — incrementar o número faz o `useEffect` rodar de novo.
    */
   const [reloadCounter, setReloadCounter] = useState<number>(0);

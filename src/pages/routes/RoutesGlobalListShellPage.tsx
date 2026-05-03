@@ -202,7 +202,7 @@ export const RoutesGlobalListShellPage: React.FC<RoutesGlobalListShellPageProps>
    * Carrega o catálogo de sistemas para alimentar (i) o dropdown de
    * filtro e (ii) o lookup `systemId → systemName` da coluna Sistema.
    *
-   * `pageSize: SYSTEMS_LOOKUP_PAGE_SIZE` cobre todo o catálogo em um
+   * `pageSize: SYSTEMS_LOOKUP_PAGE_SIZE` cobre o catálogo inteiro em um
    * único request — o ecossistema é pequeno (~10 sistemas projetados).
    * `includeDeleted: true` inclui sistemas inativados para que rotas
    * órfãs ainda exibam o nome do sistema; o backend devolve o

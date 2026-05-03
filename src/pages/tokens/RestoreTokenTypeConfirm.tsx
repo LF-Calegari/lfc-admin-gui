@@ -92,7 +92,7 @@ interface RestoreTokenTypeConfirmProps {
  *   do modal nas suítes de teste sem colidir com o
  *   `restore-system`/`restore-client`.
  *
- * O `MutationConfirmModal` cuida de todo o ciclo (confirmação,
+ * O `MutationConfirmModal` cuida do ciclo inteiro (confirmação,
  * submissão, mapeamento de erros 404/401/403/network, refetch após
  * sucesso ou 404).
  */

@@ -27,7 +27,7 @@ export {
  * `systems`/`routes`/`roles`. Centralizamos tipos, validação client-side
  * e parsing de `ValidationProblemDetails` neste módulo desde o
  * **primeiro PR de mutação do recurso** — quando alguma sub-issue
- * extra chegar, ela herda todo este boilerplate sem copiar uma linha
+ * extra chegar, ela herda o boilerplate inteiro sem copiar uma linha
  * sequer (lição PR #128 — projetar shared helpers desde o primeiro PR
  * do recurso).
  *

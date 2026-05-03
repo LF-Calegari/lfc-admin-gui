@@ -99,7 +99,7 @@ interface UsePaginatedFetchConfig<T> {
  *    precisam evitar a request quando params são inválidos (ex.:
  *    `RoutesPage` com `:systemId` ausente). Em vez de exigir que cada
  *    caller faça `if (invalid) return early` antes do hook (impossível
- *    porque o hook **deve** ser chamado em todo render), passamos
+ *    porque o hook **deve** ser chamado a cada render), passamos
  *    `skip` como flag. Quando `true`, o hook desliga `isInitialLoading`
  *    e mantém o resto do estado quieto.
  *

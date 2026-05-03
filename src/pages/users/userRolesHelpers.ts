@@ -56,7 +56,7 @@ export interface RoleAssignmentFailure {
 /**
  * Lookup `systemId -> {code, name}` carregado pela página via
  * `listSystems`. Necessário porque o `RoleDto` ainda **não traz**
- * `systemCode`/`systemName` denormalizados (TODO no backend).
+ * `systemCode`/`systemName` denormalizados (pendente no backend).
  * Quando o backend evoluir para projetar esses campos, este lookup
  * pode ser removido.
  */

@@ -174,7 +174,8 @@ export const RolesGlobalListShellPage: React.FC<
    * Carrega a lista de sistemas para popular o `<Select>` de filtro e
    * para denormalizar a coluna "Sistema" na tabela. `pageSize` máximo
    * espelha `MAX_ROLES_PAGE_SIZE` (100) — quando o catálogo crescer
-   * além disso, a issue pede revisitar (mesmo TODO de `UserRolesShellPage`).
+   * além disso, a issue pede revisitar (mesma pendência registrada em
+   * `UserRolesShellPage`).
    *
    * `useSingleFetchWithAbort` cuida do AbortController e do retry
    * bumper. O fetch é independente do refetch da listagem principal

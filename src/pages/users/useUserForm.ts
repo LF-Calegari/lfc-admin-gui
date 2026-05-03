@@ -46,7 +46,7 @@ const USER_FORM_TEXT_FIELDS = [
  *
  * Centralizamos aqui desde o **primeiro PR do recurso** (#78) para
  * evitar a 6ª recorrência de duplicação Sonar (lição PR #128 — quando
- * a issue de edição chegar, ela vai herdar todo este boilerplate sem
+ * a issue de edição chegar, ela vai herdar o boilerplate inteiro sem
  * copiar uma linha sequer). Os handlers seriam idênticos entre os
  * dois modals (~24 linhas × 2 arquivos = 48 linhas duplicadas).
  *
