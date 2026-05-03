@@ -14,10 +14,7 @@
  * desde o primeiro consumer adicional.
  */
 
-import {
-  groupPermissionsBySystem,
-  type PermissionSystemGroup,
-} from "../users/userPermissionsHelpers";
+import type { PermissionSystemGroup } from "../users/userPermissionsHelpers";
 
 /**
  * Re-exports dos tipos compartilhados — evita que `RolePermissionsShellPage`
@@ -29,8 +26,10 @@ import {
  * extensão quando/se for hora de promover o agrupamento para
  * `src/shared/permissions/`.
  */
-export type { PermissionSystemGroup };
-export { groupPermissionsBySystem };
+export {
+  groupPermissionsBySystem,
+  type PermissionSystemGroup,
+} from "../users/userPermissionsHelpers";
 
 /**
  * Diff entre o estado original (permissões atualmente vinculadas à

@@ -642,7 +642,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
         const loginData = await client.post<LoginResponse>('/auth/login', {
           email,
           password,
-          ...(systemId !== null ? { systemId } : {}),
+          ...(systemId === null ? {} : { systemId }),
         });
         // Setar `tokenRef` ANTES do /auth/permissions é crítico: o
         // cliente HTTP injeta `Authorization: Bearer ${getToken()}`

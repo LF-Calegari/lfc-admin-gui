@@ -274,13 +274,13 @@ export const Modal: React.FC<ModalProps> = ({
       }
     }
 
-    if (typeof window !== 'undefined') {
-      window.addEventListener('keydown', handleEsc, true);
+    if (typeof globalThis.window !== 'undefined') {
+      globalThis.addEventListener('keydown', handleEsc, true);
     }
 
     return () => {
-      if (typeof window !== 'undefined') {
-        window.removeEventListener('keydown', handleEsc, true);
+      if (typeof globalThis.window !== 'undefined') {
+        globalThis.removeEventListener('keydown', handleEsc, true);
       }
       if (typeof document !== 'undefined') {
         document.documentElement.style.overflow = previousOverflow;

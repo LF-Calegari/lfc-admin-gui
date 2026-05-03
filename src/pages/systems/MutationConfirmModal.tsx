@@ -219,7 +219,7 @@ export function MutationConfirmModal<T extends MutationTarget>({
   copy,
   confirmVariant,
   testIdPrefix,
-}: MutationConfirmModalProps<T>): React.ReactElement | null {
+}: Readonly<MutationConfirmModalProps<T>>): React.ReactElement | null {
   const { show } = useToast();
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 

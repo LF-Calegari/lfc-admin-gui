@@ -2,15 +2,18 @@ import {
   classifyApiSubmitError,
   decideNameCodeDescriptionBadRequestHandling,
   extractNameCodeDescriptionValidationErrors,
-  NAME_CODE_DESCRIPTION_CODE_MAX,
-  NAME_CODE_DESCRIPTION_DESCRIPTION_MAX,
-  NAME_CODE_DESCRIPTION_NAME_MAX,
   validateNameCodeDescriptionForm,
   type ApiSubmitErrorAction,
   type ApiSubmitErrorCopy,
   type NameCodeDescriptionFieldErrors,
   type NameCodeDescriptionFormState,
   type NameCodeDescriptionSubmitDecision,
+} from "../../shared/forms";
+
+export {
+  NAME_CODE_DESCRIPTION_NAME_MAX as NAME_MAX,
+  NAME_CODE_DESCRIPTION_CODE_MAX as CODE_MAX,
+  NAME_CODE_DESCRIPTION_DESCRIPTION_MAX as DESCRIPTION_MAX,
 } from "../../shared/forms";
 
 /**
@@ -42,12 +45,13 @@ import {
  * mudanças genéricas ficam em `shared/forms`).
  */
 
-/** Tamanho máximo do campo `Name` (espelha `RoleRequestBase.Name`). */
-export const NAME_MAX = NAME_CODE_DESCRIPTION_NAME_MAX;
-/** Tamanho máximo do campo `Code` (espelha `RoleRequestBase.Code`). */
-export const CODE_MAX = NAME_CODE_DESCRIPTION_CODE_MAX;
-/** Tamanho máximo do campo `Description` (espelha `RoleRequestBase.Description`). */
-export const DESCRIPTION_MAX = NAME_CODE_DESCRIPTION_DESCRIPTION_MAX;
+/*
+ * `NAME_MAX`/`CODE_MAX`/`DESCRIPTION_MAX` são re-exports de
+ * `src/shared/forms` (ver bloco `export { … as … } from …` acima).
+ * Espelham `RoleRequestBase.Name`/`.Code`/`.Description` do backend
+ * `lfc-authenticator`. Refatoração de `S7763` (Sonar pediu
+ * `export…from` em vez de `const = ...`).
+ */
 
 /**
  * Estado controlado dos campos do form de role. Alias estrutural de

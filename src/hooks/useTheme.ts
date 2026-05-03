@@ -69,7 +69,8 @@ interface UseThemeResult {
   /**
    * Persiste nova preferência. `system` remove a chave do `localStorage`
    * para que outros consumidores (script anti-FOUC) percebam ausência
-   * de escolha persistida.
+   * de escolha persistida. Mantemos o nome `setTheme` por compat com
+   * call-sites pré-existentes (`ThemeToggle`, fixtures de showcase).
    */
   setTheme: (preference: ThemePreference) => void;
   /** Alterna binariamente entre `light` ↔ `dark`. Ignora `system`. */
@@ -102,7 +103,7 @@ interface UseThemeResult {
  *   `system`) é compatível com este hook sem quebra de API.
  */
 export const useTheme = (): UseThemeResult => {
-  const [theme, setThemeState] = useState<ThemePreference>(() => readStoredPreference());
+  const [theme, setTheme] = useState<ThemePreference>(() => readStoredPreference());
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() =>
     resolveTheme(readStoredPreference()),
   );
@@ -141,8 +142,8 @@ export const useTheme = (): UseThemeResult => {
     return () => media.removeEventListener('change', handleChange);
   }, [theme]);
 
-  const setTheme = useCallback((preference: ThemePreference) => {
-    setThemeState(preference);
+  const persistTheme = useCallback((preference: ThemePreference) => {
+    setTheme(preference);
     if (typeof globalThis === 'undefined') return;
     try {
       if (preference === 'system') {
@@ -157,7 +158,7 @@ export const useTheme = (): UseThemeResult => {
   }, []);
 
   const toggleTheme = useCallback(() => {
-    setThemeState(prev => {
+    setTheme(prev => {
       // Se estiver em `system`, decide com base no resolvido atual e
       // promove para escolha explícita oposta.
       const current: ResolvedTheme = prev === 'system' ? resolveTheme(prev) : prev;
@@ -167,11 +168,11 @@ export const useTheme = (): UseThemeResult => {
           globalThis.localStorage.setItem(THEME_STORAGE_KEY, next);
         }
       } catch {
-        // ver comentário em `setTheme`.
+        // ver comentário em `persistTheme`.
       }
       return next;
     });
   }, []);
 
-  return { theme, resolvedTheme, setTheme, toggleTheme };
+  return { theme, resolvedTheme, setTheme: persistTheme, toggleTheme };
 };
