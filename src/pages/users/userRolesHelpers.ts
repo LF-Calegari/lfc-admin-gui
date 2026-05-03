@@ -31,13 +31,6 @@ import type { RoleDto, UserRoleSummary } from '../../shared/api';
  */
 
 /**
- * Identifica de forma estável uma role pelo seu `id`. Tipado como
- * alias para tornar a intenção explícita nos sets/maps
- * (`Set<RoleId>` lê melhor do que `Set<string>`).
- */
-export type RoleId = string;
-
-/**
  * Bloco visual: todas as roles pertencentes a um mesmo sistema.
  * Wrapper sobre `SystemGroup<RoleDto>` — preserva o nome
  * `RoleSystemGroup` para legibilidade local sem reabrir o tipo
@@ -55,7 +48,7 @@ export type RoleSystemGroup = SystemGroup<RoleDto & { systemCode: string; system
  * (refetch normaliza). Espelha `PermissionAssignmentFailure`.
  */
 export interface RoleAssignmentFailure {
-  roleId: RoleId;
+  roleId: string;
   kind: 'add' | 'remove';
   message: string;
 }
@@ -63,7 +56,7 @@ export interface RoleAssignmentFailure {
 /**
  * Lookup `systemId -> {code, name}` carregado pela página via
  * `listSystems`. Necessário porque o `RoleDto` ainda **não traz**
- * `systemCode`/`systemName` denormalizados (TODO no backend).
+ * `systemCode`/`systemName` denormalizados (pendente no backend).
  * Quando o backend evoluir para projetar esses campos, este lookup
  * pode ser removido.
  */
@@ -150,12 +143,12 @@ export function groupRolesBySystem(
  * proxies/cache desalinhados), devolve set vazio em vez de quebrar.
  *
  * Set imutável (do ponto de vista do caller). Valor retornado é um
- * `Set<RoleId>` real para que `has(id)` em renders seja O(1).
+ * `Set<string>` real para que `has(id)` em renders seja O(1).
  */
 export function buildInitialUserRoleIds(
   userRoles: ReadonlyArray<UserRoleSummary> | undefined,
-): Set<RoleId> {
-  const ids = new Set<RoleId>();
+): Set<string> {
+  const ids = new Set<string>();
   if (!userRoles) return ids;
   for (const role of userRoles) {
     ids.add(role.id);

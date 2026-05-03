@@ -61,7 +61,6 @@ import {
 } from "./rolePermissionsHelpers";
 
 import type {
-  PermissionId,
   PermissionSystemGroup,
   RolePermissionAssignmentFailure,
 } from "./rolePermissionsHelpers";
@@ -177,16 +176,16 @@ export const RolePermissionsShellPage: React.FC<
     isSaving: boolean;
     errorMessage: string | null;
     fetched: FetchedState | null;
-    selectedAssigned: ReadonlySet<PermissionId>;
-    originalAssigned: ReadonlySet<PermissionId>;
+    selectedAssigned: ReadonlySet<string>;
+    originalAssigned: ReadonlySet<string>;
     refetchNonce: number;
   }>({
     isInitialLoading: true,
     isSaving: false,
     errorMessage: null,
     fetched: null,
-    selectedAssigned: new Set<PermissionId>(),
-    originalAssigned: new Set<PermissionId>(),
+    selectedAssigned: new Set<string>(),
+    originalAssigned: new Set<string>(),
     refetchNonce: 0,
   });
 
@@ -271,7 +270,7 @@ export const RolePermissionsShellPage: React.FC<
   const hasUnsavedChanges = rolePermissionDiffHasChanges(diff);
 
   const handleTogglePermission = useCallback(
-    (permissionId: PermissionId, checked: boolean) => {
+    (permissionId: string, checked: boolean) => {
       setState((prev) => {
         const next = new Set(prev.selectedAssigned);
         if (checked) {
@@ -520,10 +519,10 @@ export const RolePermissionsShellPage: React.FC<
 
 interface PermissionGroupProps {
   group: PermissionSystemGroup;
-  selectedAssigned: ReadonlySet<PermissionId>;
-  originalAssigned: ReadonlySet<PermissionId>;
+  selectedAssigned: ReadonlySet<string>;
+  originalAssigned: ReadonlySet<string>;
   isSaving: boolean;
-  onToggle: (permissionId: PermissionId, checked: boolean) => void;
+  onToggle: (permissionId: string, checked: boolean) => void;
 }
 
 const PermissionGroup: React.FC<PermissionGroupProps> = ({

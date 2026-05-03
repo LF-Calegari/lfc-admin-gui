@@ -69,23 +69,13 @@ interface UseThemeResult {
   /**
    * Persiste nova preferência. `system` remove a chave do `localStorage`
    * para que outros consumidores (script anti-FOUC) percebam ausência
-   * de escolha persistida.
+   * de escolha persistida. Mantemos o nome `setTheme` por compat com
+   * call-sites pré-existentes (`ThemeToggle`, fixtures de showcase).
    */
   setTheme: (preference: ThemePreference) => void;
   /** Alterna binariamente entre `light` ↔ `dark`. Ignora `system`. */
   toggleTheme: () => void;
 }
-
-/**
- * Tipo helper para manter compat com Safari < 14, que ainda expõe a API
- * legada `addListener`/`removeListener` em `MediaQueryList` (atualmente
- * marcada como deprecated no DOM lib). Tratamos como métodos opcionais
- * para evitar `as` de cast.
- */
-type LegacyMediaQueryList = MediaQueryList & {
-  addListener?: (cb: (event: MediaQueryListEvent) => void) => void;
-  removeListener?: (cb: (event: MediaQueryListEvent) => void) => void;
-};
 
 /**
  * Hook unificado para tema.
@@ -113,7 +103,7 @@ type LegacyMediaQueryList = MediaQueryList & {
  *   `system`) é compatível com este hook sem quebra de API.
  */
 export const useTheme = (): UseThemeResult => {
-  const [theme, setThemeState] = useState<ThemePreference>(() => readStoredPreference());
+  const [theme, setTheme] = useState<ThemePreference>(() => readStoredPreference());
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() =>
     resolveTheme(readStoredPreference()),
   );
@@ -137,26 +127,23 @@ export const useTheme = (): UseThemeResult => {
     if (theme !== 'system') return;
     if (typeof globalThis === 'undefined' || typeof globalThis.matchMedia !== 'function') return;
 
-    const media = globalThis.matchMedia('(prefers-color-scheme: dark)') as LegacyMediaQueryList;
+    const media = globalThis.matchMedia('(prefers-color-scheme: dark)');
     const handleChange = (event: MediaQueryListEvent) => {
       const next: ResolvedTheme = event.matches ? 'dark' : 'light';
       setResolvedTheme(next);
       applyDocumentTheme(next);
     };
 
-    // Compat: Safari < 14 expõe addListener/removeListener no lugar
-    // dos eventos modernos. Preferimos o caminho moderno e fallbackamos
-    // para a API legada apenas quando `addEventListener` não existe.
-    if (typeof media.addEventListener === 'function') {
-      media.addEventListener('change', handleChange);
-      return () => media.removeEventListener('change', handleChange);
-    }
-    media.addListener?.(handleChange);
-    return () => media.removeListener?.(handleChange);
+    // `addEventListener('change', …)` é o caminho oficial em todos os
+    // browsers suportados pelo produto (Safari 14+/Chrome/Firefox/Edge
+    // modernos). A API legada `addListener` foi removida deste hook
+    // por ser deprecated no DOM lib (Sonar `S1874`).
+    media.addEventListener('change', handleChange);
+    return () => media.removeEventListener('change', handleChange);
   }, [theme]);
 
-  const setTheme = useCallback((preference: ThemePreference) => {
-    setThemeState(preference);
+  const persistTheme = useCallback((preference: ThemePreference) => {
+    setTheme(preference);
     if (typeof globalThis === 'undefined') return;
     try {
       if (preference === 'system') {
@@ -171,7 +158,7 @@ export const useTheme = (): UseThemeResult => {
   }, []);
 
   const toggleTheme = useCallback(() => {
-    setThemeState(prev => {
+    setTheme(prev => {
       // Se estiver em `system`, decide com base no resolvido atual e
       // promove para escolha explícita oposta.
       const current: ResolvedTheme = prev === 'system' ? resolveTheme(prev) : prev;
@@ -181,11 +168,11 @@ export const useTheme = (): UseThemeResult => {
           globalThis.localStorage.setItem(THEME_STORAGE_KEY, next);
         }
       } catch {
-        // ver comentário em `setTheme`.
+        // ver comentário em `persistTheme`.
       }
       return next;
     });
   }, []);
 
-  return { theme, resolvedTheme, setTheme, toggleTheme };
+  return { theme, resolvedTheme, setTheme: persistTheme, toggleTheme };
 };

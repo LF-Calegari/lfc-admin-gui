@@ -32,12 +32,6 @@ import type { SystemGroup } from '../../shared/listing';
  * extrair em helper genérico).
  */
 
-/** Identifica de forma estável uma permissão pelo seu `id`. */
-export type PermissionId = string;
-
-/** Identifica de forma estável uma role pelo seu `id`. */
-export type RoleId = string;
-
 /**
  * Bloco visual: todas as permissões efetivas de um usuário pertencentes
  * a um mesmo sistema. Ordenadas por `routeCode` + `permissionTypeCode`
@@ -62,7 +56,7 @@ export interface EffectivePermissionSystemGroup {
  * `roleName` é o texto humano da badge.
  */
 export interface EffectivePermissionRoleSource {
-  roleId: RoleId;
+  roleId: string;
   roleCode: string;
   roleName: string;
 }

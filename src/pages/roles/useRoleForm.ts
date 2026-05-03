@@ -2,7 +2,6 @@ import { useCallback } from "react";
 
 import {
   useNameCodeDescriptionForm,
-  useNameCodeDescriptionFormFieldProps,
   type NameCodeDescriptionFormFieldProps,
   type UseNameCodeDescriptionFormReturn,
 } from "../../shared/forms";
@@ -10,6 +9,8 @@ import {
 import { type RoleFormState } from "./rolesFormShared";
 
 import type { CreateRolePayload } from "../../shared/api";
+
+export { useNameCodeDescriptionFormFieldProps as useRoleFormFieldProps } from "../../shared/forms";
 
 /**
  * Hook compartilhado pelo modal de edição (`EditRoleModal` — Issue
@@ -91,18 +92,3 @@ export function useRoleForm(initialState: RoleFormState): UseRoleFormReturn {
  */
 export type RoleFormFieldProps = NameCodeDescriptionFormFieldProps;
 
-/**
- * Constrói o objeto de props para `<RoleFormBody>` a partir de uma
- * instância de `useRoleForm` + handlers do modal pai. Delegação
- * direta para `useNameCodeDescriptionFormFieldProps` (helper genérico
- * em `src/shared/forms/`) — mantém o nome de domínio
- * (`useRoleFormFieldProps`) por simetria com hooks de outros recursos
- * (call-sites importam por recurso).
- *
- * **Lição PR #134/#135 reforçada (Issue #175):** o corpo do hook
- * (`useMemo` retornando `{ submitError, values, errors, ... }` com a
- * mesma deps array) era idêntico ao de `useTokenTypeFormFieldProps`
- * (~27 linhas). Extrair para o helper genérico colapsou ambos os
- * call sites para `export const ... = useNameCodeDescriptionFormFieldProps`.
- */
-export const useRoleFormFieldProps = useNameCodeDescriptionFormFieldProps;

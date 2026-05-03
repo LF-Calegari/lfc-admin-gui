@@ -43,7 +43,6 @@ import {
 
 import type {
   RoleAssignmentFailure,
-  RoleId,
   RoleSystemGroup,
   SystemLookupMap,
 } from './userRolesHelpers';
@@ -141,16 +140,16 @@ export const UserRolesShellPage: React.FC<UserRolesShellPageProps> = ({
     isSaving: boolean;
     errorMessage: string | null;
     fetched: FetchedState | null;
-    chosenRoleIds: ReadonlySet<RoleId>;
-    baselineRoleIds: ReadonlySet<RoleId>;
+    chosenRoleIds: ReadonlySet<string>;
+    baselineRoleIds: ReadonlySet<string>;
     refreshTick: number;
   }>({
     isInitialLoading: true,
     isSaving: false,
     errorMessage: null,
     fetched: null,
-    chosenRoleIds: new Set<RoleId>(),
-    baselineRoleIds: new Set<RoleId>(),
+    chosenRoleIds: new Set<string>(),
+    baselineRoleIds: new Set<string>(),
     refreshTick: 0,
   });
 
@@ -228,7 +227,7 @@ export const UserRolesShellPage: React.FC<UserRolesShellPageProps> = ({
   );
   const hasUnsavedChanges = idSetDiffHasChanges(diff);
 
-  const handleToggleRole = useCallback((roleId: RoleId, checked: boolean) => {
+  const handleToggleRole = useCallback((roleId: string, checked: boolean) => {
     setMatrixState((prev) => {
       const next = new Set(prev.chosenRoleIds);
       if (checked) {
@@ -298,8 +297,9 @@ export const UserRolesShellPage: React.FC<UserRolesShellPageProps> = ({
     } else {
       const appliedCount = addedSuccess + removedSuccess;
       const failureCount = failures.length;
+      const appliedSuffix = appliedCount > 0 ? `, ${appliedCount} aplicada(s)` : '';
       toast.show(
-        `${failureCount} alteração(ões) falharam${appliedCount > 0 ? `, ${appliedCount} aplicada(s)` : ''}. Revise e tente novamente.`,
+        `${failureCount} alteração(ões) falharam${appliedSuffix}. Revise e tente novamente.`,
         { variant: 'warning', title: 'Algumas atualizações falharam' },
       );
     }
@@ -379,10 +379,10 @@ export const UserRolesShellPage: React.FC<UserRolesShellPageProps> = ({
 
 interface RoleGroupProps {
   group: RoleSystemGroup;
-  chosenRoleIds: ReadonlySet<RoleId>;
-  baselineRoleIds: ReadonlySet<RoleId>;
+  chosenRoleIds: ReadonlySet<string>;
+  baselineRoleIds: ReadonlySet<string>;
   isSaving: boolean;
-  onToggle: (roleId: RoleId, checked: boolean) => void;
+  onToggle: (roleId: string, checked: boolean) => void;
 }
 
 const RoleGroup: React.FC<RoleGroupProps> = ({

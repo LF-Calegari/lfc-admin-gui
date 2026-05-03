@@ -58,7 +58,6 @@ import {
 
 import type {
   PermissionAssignmentFailure,
-  PermissionId,
   PermissionSystemGroup,
   RoleMembershipsByPermission,
 } from './userPermissionsHelpers';
@@ -126,16 +125,16 @@ export const UserPermissionsShellPage: React.FC<UserPermissionsShellPageProps> =
     isSaving: boolean;
     errorMessage: string | null;
     fetched: FetchedState | null;
-    selectedDirect: ReadonlySet<PermissionId>;
-    originalDirect: ReadonlySet<PermissionId>;
+    selectedDirect: ReadonlySet<string>;
+    originalDirect: ReadonlySet<string>;
     refetchNonce: number;
   }>({
     isInitialLoading: true,
     isSaving: false,
     errorMessage: null,
     fetched: null,
-    selectedDirect: new Set<PermissionId>(),
-    originalDirect: new Set<PermissionId>(),
+    selectedDirect: new Set<string>(),
+    originalDirect: new Set<string>(),
     refetchNonce: 0,
   });
 
@@ -229,7 +228,7 @@ export const UserPermissionsShellPage: React.FC<UserPermissionsShellPageProps> =
   const hasUnsavedChanges = diffHasChanges(diff);
 
   const handleTogglePermission = useCallback(
-    (permissionId: PermissionId, checked: boolean) => {
+    (permissionId: string, checked: boolean) => {
       setState((prev) => {
         const next = new Set(prev.selectedDirect);
         if (checked) {
@@ -301,8 +300,9 @@ export const UserPermissionsShellPage: React.FC<UserPermissionsShellPageProps> =
     } else {
       const totalApplied = succeededAdd + succeededRemove;
       const failedCount = failures.length;
+      const appliedSuffix = totalApplied > 0 ? `, ${totalApplied} aplicada(s)` : '';
       toast.show(
-        `${failedCount} alteração(ões) falharam${totalApplied > 0 ? `, ${totalApplied} aplicada(s)` : ''}. Revise e tente novamente.`,
+        `${failedCount} alteração(ões) falharam${appliedSuffix}. Revise e tente novamente.`,
         { variant: 'warning', title: 'Algumas atualizações falharam' },
       );
     }
@@ -457,11 +457,11 @@ export const UserPermissionsShellPage: React.FC<UserPermissionsShellPageProps> =
 
 interface PermissionGroupProps {
   group: PermissionSystemGroup;
-  selectedDirect: ReadonlySet<PermissionId>;
-  originalDirect: ReadonlySet<PermissionId>;
+  selectedDirect: ReadonlySet<string>;
+  originalDirect: ReadonlySet<string>;
   roleMemberships: RoleMembershipsByPermission;
   isSaving: boolean;
-  onToggle: (permissionId: PermissionId, checked: boolean) => void;
+  onToggle: (permissionId: string, checked: boolean) => void;
 }
 
 const PermissionGroup: React.FC<PermissionGroupProps> = ({

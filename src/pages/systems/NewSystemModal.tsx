@@ -112,7 +112,7 @@ export const NewSystemModal: React.FC<NewSystemModalProps> = ({
   }, [isSubmitting, onClose, setFormState, setFieldErrors, setSubmitError]);
 
   const handleSubmit = useCallback(
-    async (event: React.FormEvent<HTMLFormElement>) => {
+    async (event: React.SyntheticEvent<HTMLFormElement>) => {
       event.preventDefault();
       if (isSubmitting) return;
 

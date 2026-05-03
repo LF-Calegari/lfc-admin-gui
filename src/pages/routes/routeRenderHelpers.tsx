@@ -233,7 +233,7 @@ export function useRoutesListShellState(
  * aqui mantém a estrutura única do card sem importar de uma página
  * para a outra (que criaria dependência cruzada entre pages-shell).
  */
-export function RouteCardTopSection({ row }: { row: RouteDto }): React.ReactElement {
+export function RouteCardTopSection({ row }: Readonly<{ row: RouteDto }>): React.ReactElement {
   return (
     <>
       <CardHeader>

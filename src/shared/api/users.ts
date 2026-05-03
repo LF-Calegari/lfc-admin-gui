@@ -113,8 +113,9 @@ export interface UserDto {
  * O campo `systemId` viabiliza o agrupamento por sistema na Issue #71
  * (lfc-authenticator#163 — Role agora tem `SystemId` no model).
  *
- * `description` é opcional/`null` no model (`AppRole.Description` é
- * TODO no backend); mantemos no shape para consistência futura.
+ * `description` é opcional/`null` no model (`AppRole.Description`
+ * permanece pendente no backend); mantemos no shape para
+ * consistência futura.
  */
 export interface UserRoleSummary {
   id: string;

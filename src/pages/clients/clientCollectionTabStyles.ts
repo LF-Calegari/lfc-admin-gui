@@ -189,7 +189,7 @@ export const ListRowLeft = styled.div`
  * Valor textual da linha — ellipsis quando longo. Cada consumidor
  * passa a `font-family` desejada (sans para email, mono para
  * telefone) via `$mono` para preservar a hierarquia tipográfica
- * intencional sem precisar duplicar todo o styled component.
+ * intencional sem precisar duplicar o styled component inteiro.
  */
 export const ListRowValue = styled.span<{ $mono?: boolean }>`
   font-family: ${({ $mono }) => ($mono ? 'var(--font-mono)' : 'var(--font-sans)')};

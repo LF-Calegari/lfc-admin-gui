@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useMemo, useState, type SyntheticEvent } from 'react';
 
 import { useApplyBadRequest, useFieldChangeHandlers } from '../../shared/forms';
 
@@ -234,7 +234,7 @@ export interface ClientFormFieldProps {
   onChangeFullName: (value: string) => void;
   onChangeCnpj: (value: string) => void;
   onChangeCorporateName: (value: string) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onSubmit: (event: SyntheticEvent<HTMLFormElement>) => void;
   onCancel: () => void;
   isSubmitting: boolean;
 }
@@ -254,7 +254,7 @@ export interface ClientFormFieldProps {
  */
 export function useClientFormFieldProps(
   clientForm: UseClientFormReturn,
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void,
+  onSubmit: (event: SyntheticEvent<HTMLFormElement>) => void,
   onCancel: () => void,
 ): ClientFormFieldProps {
   const {

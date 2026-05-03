@@ -262,7 +262,7 @@ interface AuthProviderProps {
  *    `{ valid, issuedAt, expiresAt }`. Não re-hidrata user/permissions;
  *    serve apenas como sinal de validade do token + autorização da
  *    rota corrente.
- * 4. **`X-Route-Code` em todo verify-token** — header obrigatório no
+ * 4. **`X-Route-Code` em cada verify-token** — header obrigatório no
  *    novo contrato. Resolvido pelo caller (login/hidratação periódica
  *    usa rota corrente; navegação usa rota destino via `verifyRoute`).
  * 5. **Tolerância a falha de rede** — quando `verify-token` falha por
@@ -642,7 +642,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
         const loginData = await client.post<LoginResponse>('/auth/login', {
           email,
           password,
-          ...(systemId !== null ? { systemId } : {}),
+          ...(systemId === null ? {} : { systemId }),
         });
         // Setar `tokenRef` ANTES do /auth/permissions é crítico: o
         // cliente HTTP injeta `Authorization: Bearer ${getToken()}`
