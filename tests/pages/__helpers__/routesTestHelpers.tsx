@@ -871,3 +871,122 @@ export function countRoutesListCalls(client: ApiClientStub): number {
       (call[0] as string).startsWith("/systems/routes"),
   ).length;
 }
+
+/* ─── Helpers para criação global (Issue #187) ──────────────── */
+
+/**
+ * Mocka as respostas do backend para a sequência típica da
+ * `RoutesGlobalListShellPage` quando o modal "Nova rota" é aberto:
+ *
+ * 1. `GET /systems/routes` (listagem global de rotas — disparado no
+ *    mount).
+ * 2. `GET /systems` (catálogo de sistemas — disparado no mount para
+ *    popular o dropdown de filtro **e** novamente quando o modal
+ *    abrir, para popular o `<Select>` de sistema dono da nova rota).
+ * 3. `GET /tokens/types` (carregamento da lista do `<Select>` de
+ *    política JWT ao abrir o modal).
+ *
+ * Usa `mockImplementation` em vez de `mockResolvedValueOnce` em
+ * sequência porque os GETs disparam em paralelo (mount da página +
+ * efeitos do modal). Roteamento por `path` elimina a fragilidade de
+ * ordem — espelha `mockGlobalRoutesInitialResponses` mas inclui o
+ * caminho de `/tokens/types` que vive só no modal.
+ *
+ * Lição PR #128/#134/#135 — projetar shared helpers desde o primeiro
+ * PR do recurso, não esperar a duplicação aparecer e refatorar.
+ */
+export function mockGlobalRoutesWithCreateModalResponses(
+  client: ApiClientStub,
+  options: {
+    /** Linhas devolvidas pelo GET de rotas. Default: 1 rota fake. */
+    routes?: ReadonlyArray<RouteDto>;
+    /** Sistemas devolvidos pelo GET de sistemas. Default: `[lfc-authenticator]`. */
+    systems?: ReadonlyArray<SystemDto>;
+    /** Token types devolvidos pelo GET. Default: `[default]`. */
+    tokenTypes?: ReadonlyArray<TokenTypeDto>;
+    /** Overrides do envelope paginado de rotas. */
+    routesPagedOverrides?: Partial<PagedResponse<RouteDto>>;
+  } = {},
+): void {
+  const routes = options.routes ?? [makeRoute()];
+  const systems = options.systems ?? [makeSystem()];
+  const tokenTypes = options.tokenTypes ?? [makeTokenType()];
+  client.get.mockImplementation((path: string) => {
+    if (path.startsWith("/systems/routes")) {
+      return Promise.resolve(
+        makePagedRoutes(routes, options.routesPagedOverrides),
+      );
+    }
+    if (path.startsWith("/tokens/types")) {
+      return Promise.resolve(tokenTypes);
+    }
+    if (path.startsWith("/systems")) {
+      return Promise.resolve(makePagedSystems(systems));
+    }
+    return Promise.reject(
+      new Error(
+        `mockGlobalRoutesWithCreateModalResponses: path inesperado ${path}`,
+      ),
+    );
+  });
+}
+
+/**
+ * Mocka as respostas iniciais (rotas + sistemas + token types),
+ * renderiza a `RoutesGlobalListShellPage`, espera a listagem inicial
+ * carregar e clica no botão "Nova rota" do toolbar para abrir o
+ * modal global. Aguarda o `<Select>` de política JWT sair do estado
+ * disabled (request de token types resolvida) — assim os asserts
+ * subsequentes podem interagir com o form sem race.
+ *
+ * Análogo a `openCreateRouteModal` (per-system) mas para o caminho
+ * global da Issue #187. Mantém a fila de respostas via
+ * `mockGlobalRoutesWithCreateModalResponses` — pré-fabricado para
+ * cada teste que precise abrir o modal não duplicar ~10 linhas de
+ * "render + waitFor + click + waitFor" (lição PR #127 — Sonar marca
+ * trechos de 5+ linhas em 2+ testes como duplicação).
+ *
+ * Quem precisar de mocks diferentes pode chamar `client.get.mockXxx`
+ * antes para sobrescrever — a detecção de mocks pré-existentes
+ * preserva o caso "fila customizada" (ex.: cenários de erro 5xx no
+ * carregamento de sistemas dentro do modal).
+ */
+export async function openCreateRouteModalFromGlobalShell(
+  client: ApiClientStub,
+  options: {
+    routes?: ReadonlyArray<RouteDto>;
+    systems?: ReadonlyArray<SystemDto>;
+    tokenTypes?: ReadonlyArray<TokenTypeDto>;
+  } = {},
+): Promise<void> {
+  // Detecta mocks pré-existentes via `mock.calls`/`results` **e** via
+  // `getMockImplementation()` — caller que rodou
+  // `mockGlobalRoutesWithCreateModalResponses(...)` antes não tem
+  // chamadas registradas ainda, mas tem implementação setada. Sem essa
+  // segunda checagem, o helper sobrescreveria o mock pré-existente
+  // com defaults vazios.
+  const hasPreExistingMocks =
+    client.get.mock.calls.length > 0 ||
+    client.get.mock.results.length > 0 ||
+    client.get.getMockImplementation() !== undefined;
+  if (!hasPreExistingMocks) {
+    mockGlobalRoutesWithCreateModalResponses(client, options);
+  }
+  renderRoutesGlobalListPage(client);
+  await waitForInitialGlobalList(client);
+  fireEvent.click(screen.getByTestId("routes-global-create-open"));
+  // Aguarda os GETs do modal (tokenTypes + systems) e que ambos os
+  // `<Select>` saiam do estado disabled — assim os asserts
+  // subsequentes podem interagir com o form sem race.
+  await waitFor(() => {
+    expect(screen.getByTestId("new-route-form")).toBeInTheDocument();
+  });
+  await waitFor(() => {
+    expect(screen.getByTestId("new-route-system-id")).not.toBeDisabled();
+  });
+  await waitFor(() => {
+    expect(
+      screen.getByTestId("new-route-system-token-type-id"),
+    ).not.toBeDisabled();
+  });
+}
