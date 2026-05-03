@@ -126,14 +126,14 @@ describe('LoginPage — render inicial', () => {
 
     expect(screen.getByRole('img', { name: /LF Calegari Admin/i })).toBeInTheDocument();
     expect(screen.getByLabelText(/E-mail/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Senha/i)).toBeInTheDocument();
+    expect(screen.getByLabelText('Senha')).toBeInTheDocument();
     expect(screen.getByTestId('login-submit')).toBeInTheDocument();
   });
 
   it('campos começam vazios e botão habilitado', () => {
     renderLogin();
     const email = screen.getByLabelText(/E-mail/i) as HTMLInputElement;
-    const password = screen.getByLabelText(/Senha/i) as HTMLInputElement;
+    const password = screen.getByLabelText('Senha') as HTMLInputElement;
     const submit = screen.getByTestId('login-submit');
 
     expect(email.value).toBe('');
@@ -216,7 +216,7 @@ describe('LoginPage — validação client-side', () => {
     fireEvent.change(screen.getByLabelText(/E-mail/i), {
       target: { value: 'naoeumemail' },
     });
-    fireEvent.change(screen.getByLabelText(/Senha/i), {
+    fireEvent.change(screen.getByLabelText('Senha'), {
       target: { value: 'segredo' },
     });
     fireEvent.click(screen.getByRole('button', { name: /Entrar/i }));
@@ -261,7 +261,7 @@ describe('LoginPage — submit feliz', () => {
     fireEvent.change(screen.getByLabelText(/E-mail/i), {
       target: { value: 'ada@lfc.com.br' },
     });
-    fireEvent.change(screen.getByLabelText(/Senha/i), {
+    fireEvent.change(screen.getByLabelText('Senha'), {
       target: { value: 'segredo' },
     });
     fireEvent.click(screen.getByRole('button', { name: /Entrar/i }));
@@ -291,7 +291,7 @@ describe('LoginPage — submit feliz', () => {
     fireEvent.change(screen.getByLabelText(/E-mail/i), {
       target: { value: 'ada@lfc.com.br' },
     });
-    fireEvent.change(screen.getByLabelText(/Senha/i), {
+    fireEvent.change(screen.getByLabelText('Senha'), {
       target: { value: 'segredo' },
     });
     fireEvent.click(screen.getByRole('button', { name: /Entrar/i }));
@@ -308,7 +308,7 @@ describe('LoginPage — submit feliz', () => {
     fireEvent.change(screen.getByLabelText(/E-mail/i), {
       target: { value: '  ada@lfc.com.br  ' },
     });
-    fireEvent.change(screen.getByLabelText(/Senha/i), {
+    fireEvent.change(screen.getByLabelText('Senha'), {
       target: { value: 'segredo' },
     });
     fireEvent.click(screen.getByRole('button', { name: /Entrar/i }));
@@ -338,7 +338,7 @@ describe('LoginPage — submit com erro', () => {
     fireEvent.change(screen.getByLabelText(/E-mail/i), {
       target: { value: 'ada@lfc.com.br' },
     });
-    fireEvent.change(screen.getByLabelText(/Senha/i), {
+    fireEvent.change(screen.getByLabelText('Senha'), {
       target: { value: 'errada' },
     });
     fireEvent.click(screen.getByRole('button', { name: /Entrar/i }));
@@ -361,7 +361,7 @@ describe('LoginPage — submit com erro', () => {
     fireEvent.change(screen.getByLabelText(/E-mail/i), {
       target: { value: 'ada@lfc.com.br' },
     });
-    fireEvent.change(screen.getByLabelText(/Senha/i), {
+    fireEvent.change(screen.getByLabelText('Senha'), {
       target: { value: 'segredo' },
     });
     fireEvent.click(screen.getByRole('button', { name: /Entrar/i }));
@@ -378,7 +378,7 @@ describe('LoginPage — submit com erro', () => {
     fireEvent.change(screen.getByLabelText(/E-mail/i), {
       target: { value: 'ada@lfc.com.br' },
     });
-    fireEvent.change(screen.getByLabelText(/Senha/i), {
+    fireEvent.change(screen.getByLabelText('Senha'), {
       target: { value: 'segredo' },
     });
     fireEvent.click(screen.getByRole('button', { name: /Entrar/i }));
@@ -409,7 +409,7 @@ describe('LoginPage — submit com erro', () => {
     fireEvent.change(screen.getByLabelText(/E-mail/i), {
       target: { value: 'ada@lfc.com.br' },
     });
-    fireEvent.change(screen.getByLabelText(/Senha/i), {
+    fireEvent.change(screen.getByLabelText('Senha'), {
       target: { value: 'segredo' },
     });
     fireEvent.click(screen.getByRole('button', { name: /Entrar/i }));
@@ -439,13 +439,13 @@ describe('LoginPage — submit com erro', () => {
     fireEvent.change(screen.getByLabelText(/E-mail/i), {
       target: { value: 'ada@lfc.com.br' },
     });
-    fireEvent.change(screen.getByLabelText(/Senha/i), {
+    fireEvent.change(screen.getByLabelText('Senha'), {
       target: { value: 'errada' },
     });
     fireEvent.click(screen.getByRole('button', { name: /Entrar/i }));
     await screen.findByRole('alert');
 
-    fireEvent.change(screen.getByLabelText(/Senha/i), {
+    fireEvent.change(screen.getByLabelText('Senha'), {
       target: { value: 'errada2' },
     });
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
@@ -471,7 +471,7 @@ describe('LoginPage — estado loading', () => {
     fireEvent.change(screen.getByLabelText(/E-mail/i), {
       target: { value: 'ada@lfc.com.br' },
     });
-    fireEvent.change(screen.getByLabelText(/Senha/i), {
+    fireEvent.change(screen.getByLabelText('Senha'), {
       target: { value: 'segredo' },
     });
     fireEvent.click(screen.getByTestId('login-submit'));
@@ -496,7 +496,7 @@ describe('LoginPage — já autenticado', () => {
     fireEvent.change(screen.getByLabelText(/E-mail/i), {
       target: { value: 'ada@lfc.com.br' },
     });
-    fireEvent.change(screen.getByLabelText(/Senha/i), {
+    fireEvent.change(screen.getByLabelText('Senha'), {
       target: { value: 'segredo' },
     });
     fireEvent.click(screen.getByRole('button', { name: /Entrar/i }));
