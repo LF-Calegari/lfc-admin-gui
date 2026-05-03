@@ -215,7 +215,7 @@ export interface NameCodeDescriptionFormBodyProps {
   onChangeCode: (value: string) => void;
   onChangeDescription: (value: string) => void;
   /** Handler do submit do form. */
-  onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
+  onSubmit: (event: React.SyntheticEvent<HTMLFormElement>) => void;
   /** Handler do botão Cancelar (bloqueado durante submit). */
   onCancel: () => void;
   /** Flag de submissão em andamento. */

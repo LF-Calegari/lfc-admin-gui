@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useMemo, useState, type SyntheticEvent } from 'react';
 
 import { useFieldChangeHandlers } from '../../shared/forms';
 
@@ -222,7 +222,7 @@ export interface UserFormFieldProps {
   onChangeIdentity: (value: string) => void;
   onChangeClientId: (value: string) => void;
   onChangeActive: (value: boolean) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onSubmit: (event: SyntheticEvent<HTMLFormElement>) => void;
   onCancel: () => void;
   isSubmitting: boolean;
 }
@@ -241,7 +241,7 @@ export interface UserFormFieldProps {
  */
 export function useUserFormFieldProps(
   userForm: UseUserFormReturn,
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void,
+  onSubmit: (event: SyntheticEvent<HTMLFormElement>) => void,
   onCancel: () => void,
 ): UserFormFieldProps {
   const {

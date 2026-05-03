@@ -77,17 +77,6 @@ interface UseThemeResult {
 }
 
 /**
- * Tipo helper para manter compat com Safari < 14, que ainda expõe a API
- * legada `addListener`/`removeListener` em `MediaQueryList` (atualmente
- * marcada como deprecated no DOM lib). Tratamos como métodos opcionais
- * para evitar `as` de cast.
- */
-type LegacyMediaQueryList = MediaQueryList & {
-  addListener?: (cb: (event: MediaQueryListEvent) => void) => void;
-  removeListener?: (cb: (event: MediaQueryListEvent) => void) => void;
-};
-
-/**
  * Hook unificado para tema.
  *
  * Persistência em `localStorage` (`lfc-admin-theme`) e detecção do
@@ -137,22 +126,19 @@ export const useTheme = (): UseThemeResult => {
     if (theme !== 'system') return;
     if (typeof globalThis === 'undefined' || typeof globalThis.matchMedia !== 'function') return;
 
-    const media = globalThis.matchMedia('(prefers-color-scheme: dark)') as LegacyMediaQueryList;
+    const media = globalThis.matchMedia('(prefers-color-scheme: dark)');
     const handleChange = (event: MediaQueryListEvent) => {
       const next: ResolvedTheme = event.matches ? 'dark' : 'light';
       setResolvedTheme(next);
       applyDocumentTheme(next);
     };
 
-    // Compat: Safari < 14 expõe addListener/removeListener no lugar
-    // dos eventos modernos. Preferimos o caminho moderno e fallbackamos
-    // para a API legada apenas quando `addEventListener` não existe.
-    if (typeof media.addEventListener === 'function') {
-      media.addEventListener('change', handleChange);
-      return () => media.removeEventListener('change', handleChange);
-    }
-    media.addListener?.(handleChange);
-    return () => media.removeListener?.(handleChange);
+    // `addEventListener('change', …)` é o caminho oficial em todos os
+    // browsers suportados pelo produto (Safari 14+/Chrome/Firefox/Edge
+    // modernos). A API legada `addListener` foi removida deste hook
+    // por ser deprecated no DOM lib (Sonar `S1874`).
+    media.addEventListener('change', handleChange);
+    return () => media.removeEventListener('change', handleChange);
   }, [theme]);
 
   const setTheme = useCallback((preference: ThemePreference) => {

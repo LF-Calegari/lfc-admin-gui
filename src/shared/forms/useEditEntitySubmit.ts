@@ -168,7 +168,7 @@ export function useEditEntitySubmit<TField extends string>({
   callbacks,
   conflictField,
 }: UseEditEntitySubmitArgs<TField>): (
-  event: React.FormEvent<HTMLFormElement>,
+  event: React.SyntheticEvent<HTMLFormElement>,
 ) => Promise<void> {
   const { setFieldErrors, setSubmitError, setIsSubmitting, applyBadRequest, showToast } =
     dispatchers;
@@ -176,7 +176,7 @@ export function useEditEntitySubmit<TField extends string>({
   const { prepareSubmit, mutationFn, onUpdated, onClose } = callbacks;
 
   return useCallback(
-    async (event: React.FormEvent<HTMLFormElement>) => {
+    async (event: React.SyntheticEvent<HTMLFormElement>) => {
       event.preventDefault();
 
       // `prepareSubmit` valida + zera erros + marca submitting + devolve

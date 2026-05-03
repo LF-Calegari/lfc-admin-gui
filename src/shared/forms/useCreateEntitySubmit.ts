@@ -194,7 +194,7 @@ export function useCreateEntitySubmit<TField extends string>({
   callbacks,
   conflictField,
 }: UseCreateEntitySubmitArgs<TField>): (
-  event: React.FormEvent<HTMLFormElement>,
+  event: React.SyntheticEvent<HTMLFormElement>,
 ) => Promise<void> {
   const {
     setFieldErrors,
@@ -208,7 +208,7 @@ export function useCreateEntitySubmit<TField extends string>({
   const { prepareSubmit, mutationFn, onCreated, onClose } = callbacks;
 
   return useCallback(
-    async (event: React.FormEvent<HTMLFormElement>) => {
+    async (event: React.SyntheticEvent<HTMLFormElement>) => {
       event.preventDefault();
 
       // `prepareSubmit` valida + zera erros + marca submitting + devolve

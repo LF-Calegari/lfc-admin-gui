@@ -57,7 +57,7 @@ export interface UseClientAddCollectionModalResult {
     validate: (trimmed: string) => string | null;
   }) => {
     handleOpen: () => void;
-    handleSubmit: (event?: React.FormEvent<HTMLFormElement>) => void;
+    handleSubmit: (event?: React.SyntheticEvent<HTMLFormElement>) => void;
   };
 }
 
@@ -150,7 +150,7 @@ export function useClientAddCollectionModal(): UseClientAddCollectionModalResult
         if (params.isLimitReached) return;
         open();
       },
-      handleSubmit: (event?: React.FormEvent<HTMLFormElement>) => {
+      handleSubmit: (event?: React.SyntheticEvent<HTMLFormElement>) => {
         event?.preventDefault();
         if (!params.isReady) return;
         beginSubmit(params.validate);
