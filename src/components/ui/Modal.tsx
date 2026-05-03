@@ -274,12 +274,12 @@ export const Modal: React.FC<ModalProps> = ({
       }
     }
 
-    if (typeof globalThis.window !== 'undefined') {
+    if (globalThis.window !== undefined) {
       globalThis.addEventListener('keydown', handleEsc, true);
     }
 
     return () => {
-      if (typeof globalThis.window !== 'undefined') {
+      if (globalThis.window !== undefined) {
         globalThis.removeEventListener('keydown', handleEsc, true);
       }
       if (typeof document !== 'undefined') {
