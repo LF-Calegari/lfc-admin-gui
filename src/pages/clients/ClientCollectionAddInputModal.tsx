@@ -44,7 +44,7 @@ interface ClientCollectionAddInputModalProps {
   /** Callback chamado a cada keystroke do input. */
   onChange: (value: string) => void;
   /** Callback chamado ao submeter o `<form>` (Enter ou clique em "Adicionar"). */
-  onSubmit: (event?: React.FormEvent<HTMLFormElement>) => void;
+  onSubmit: (event?: React.SyntheticEvent<HTMLFormElement>) => void;
   /**
    * Prefixo de `data-testid` (ex.: `client-extra-emails`,
    * `client-mobile-phones`). Estável para asserts.

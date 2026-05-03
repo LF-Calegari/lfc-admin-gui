@@ -270,11 +270,14 @@ export const ResetUserPasswordConfirm: React.FC<
    * limpa erros + devolve a senha pronta para envio. Devolve `null`
    * quando há erro client-side (já tendo populado `fieldError`).
    *
-   * Tipado como `() => unknown | null` para casar com o contrato do
-   * `useEditEntitySubmit` (que aceita `unknown` no payload). O hook
-   * filtra `null` antes de chamar `mutationFn`, então o cast é seguro.
+   * Tipado como `() => object | null` para casar com o contrato do
+   * `useEditEntitySubmit` (que aceita qualquer payload-shape). O hook
+   * filtra `null` antes de chamar `mutationFn`. Embaçamos a senha em
+   * `{ password }` para que o tipo de retorno seja um objeto (em vez
+   * de string crua) — `mutationFn` desestrutura e envia para o
+   * backend.
    */
-  const prepareSubmit = useCallback((): string | null => {
+  const prepareSubmit = useCallback((): { password: string } | null => {
     if (isSubmitting || !user) return null;
     const error = validateResetPassword(password);
     if (error) {
@@ -285,7 +288,7 @@ export const ResetUserPasswordConfirm: React.FC<
     setFieldError(undefined);
     setSubmitError(null);
     setIsSubmitting(true);
-    return password;
+    return { password };
   }, [isSubmitting, password, user]);
 
   /**
@@ -353,7 +356,8 @@ export const ResetUserPasswordConfirm: React.FC<
       if (!user) {
         return Promise.reject(new Error('User unavailable.'));
       }
-      return resetUserPassword(user.id, payload as string, undefined, client);
+      const { password: nextPassword } = payload as { password: string };
+      return resetUserPassword(user.id, nextPassword, undefined, client);
     },
     [client, user],
   );

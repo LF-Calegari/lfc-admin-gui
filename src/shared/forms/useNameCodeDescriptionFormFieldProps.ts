@@ -1,4 +1,4 @@
-import { useMemo, type FormEvent } from 'react';
+import { useMemo, type SyntheticEvent } from 'react';
 
 import type {
   NameCodeDescriptionFieldErrors,
@@ -66,7 +66,7 @@ export interface NameCodeDescriptionFormFieldProps {
   onChangeName: (value: string) => void;
   onChangeCode: (value: string) => void;
   onChangeDescription: (value: string) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onSubmit: (event: SyntheticEvent<HTMLFormElement>) => void;
   onCancel: () => void;
   isSubmitting: boolean;
 }
@@ -96,7 +96,7 @@ export interface NameCodeDescriptionFormFieldProps {
  */
 export function useNameCodeDescriptionFormFieldProps(
   form: NameCodeDescriptionFormFieldsSlice,
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void,
+  onSubmit: (event: SyntheticEvent<HTMLFormElement>) => void,
   onCancel: () => void,
 ): NameCodeDescriptionFormFieldProps {
   const {

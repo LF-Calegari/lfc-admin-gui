@@ -440,7 +440,7 @@ export const LoginPage: React.FC = () => {
     return errors;
   };
 
-  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
+  const handleSubmit = async (event: React.SyntheticEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
     if (isSubmitting) return;
 

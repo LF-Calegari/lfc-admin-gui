@@ -144,6 +144,24 @@ export function digitsOnly(value: string): string {
 }
 
 /**
+ * Code point ASCII do caractere '0' — usado pelos cálculos de DV
+ * abaixo para converter dígito ASCII em valor numérico (ex.: '7' →
+ * 7). Como os inputs são sempre strings já filtradas por
+ * `digitsOnly` (apenas '0'..'9' BMP), `codePointAt(i)` é seguro e
+ * equivalente a `charCodeAt(i)` para esse alfabeto.
+ *
+ * Usar `codePointAt` (no lugar de `charCodeAt`) atende `S7758` do
+ * Sonar: a regra prefere `codePointAt` mesmo quando não há surrogate
+ * pair envolvido por consistência com strings Unicode.
+ */
+const ASCII_ZERO = '0'.codePointAt(0) ?? 48;
+
+/** Devolve o valor numérico (0..9) do dígito ASCII na posição `index`. */
+function digitValueAt(input: string, index: number): number {
+  return (input.codePointAt(index) ?? ASCII_ZERO) - ASCII_ZERO;
+}
+
+/**
  * Calcula o dígito verificador de uma string numérica usando peso
  * inicial `startWeight` decrescente (algoritmo do CPF).
  *
@@ -155,7 +173,7 @@ export function digitsOnly(value: string): string {
 function checkDigitForWeightSequence(input: string, startWeight: number): number {
   let sum = 0;
   for (let i = 0; i < input.length; i++) {
-    sum += (input.charCodeAt(i) - '0'.charCodeAt(0)) * (startWeight - i);
+    sum += digitValueAt(input, i) * (startWeight - i);
   }
   const mod = sum % 11;
   return mod < 2 ? 0 : 11 - mod;
@@ -171,7 +189,7 @@ function checkDigitForWeightSequence(input: string, startWeight: number): number
 function checkDigitForWeights(input: string, weights: ReadonlyArray<number>): number {
   let sum = 0;
   for (let i = 0; i < input.length; i++) {
-    sum += (input.charCodeAt(i) - '0'.charCodeAt(0)) * weights[i];
+    sum += digitValueAt(input, i) * weights[i];
   }
   const mod = sum % 11;
   return mod < 2 ? 0 : 11 - mod;
@@ -198,7 +216,7 @@ export function isValidCpf(digits: string): boolean {
   }
   const d1 = checkDigitForWeightSequence(digits.slice(0, 9), 10);
   const d2 = checkDigitForWeightSequence(digits.slice(0, 9) + d1, 11);
-  return digits.charCodeAt(9) - '0'.charCodeAt(0) === d1 && digits.charCodeAt(10) - '0'.charCodeAt(0) === d2;
+  return digitValueAt(digits, 9) === d1 && digitValueAt(digits, 10) === d2;
 }
 
 /** Pesos do 1º DV do CNPJ (espelha `w1` no backend). */
@@ -221,7 +239,7 @@ export function isValidCnpj(digits: string): boolean {
   }
   const d1 = checkDigitForWeights(digits.slice(0, 12), CNPJ_WEIGHTS_1);
   const d2 = checkDigitForWeights(digits.slice(0, 12) + d1, CNPJ_WEIGHTS_2);
-  return digits.charCodeAt(12) - '0'.charCodeAt(0) === d1 && digits.charCodeAt(13) - '0'.charCodeAt(0) === d2;
+  return digitValueAt(digits, 12) === d1 && digitValueAt(digits, 13) === d2;
 }
 
 /* ─── Validação client-side ──────────────────────────────── */

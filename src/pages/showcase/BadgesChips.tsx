@@ -39,17 +39,20 @@ const FILTERS: ReadonlyArray<FilterOption> = [
 
 const REMOVABLE_INITIAL = ['frontend', 'auth', 'admin'] as const;
 
+function filterRemoved(prev: ReadonlyArray<string>, target: string): string[] {
+  return prev.filter(x => x !== target);
+}
+
 export const BadgesChips: React.FC = () => {
   const [selected, setSelected] = useState<string>('active');
   const [removable, setRemovable] = useState<ReadonlyArray<string>>(REMOVABLE_INITIAL);
 
-  // Extraído do JSX para evitar 4+ níveis de nested functions na linha
-  // do `Chip`: a closure original `removable.map(item => (<Chip onRemove={() => setRemovable(prev => prev.filter(x => x !== item))} />))`
-  // disparava `sonarjs/S2004` (Refactor this code to not nest functions
-  // more than 4 levels deep). O builder devolve o handler já vinculado ao
-  // item — a estrutura no JSX agora tem apenas 2 níveis aparentes.
+  // Extraído como função nomeada (`filterRemoved`) acima do componente para
+  // achatar a estrutura: a closure original
+  // `removable.map(item => (<Chip onRemove={() => setRemovable(prev => prev.filter(x => x !== item))} />))`
+  // tinha 4+ níveis de aninhamento e disparava `sonarjs/S2004`.
   const buildRemoveHandler = (item: string) => () => {
-    setRemovable(prev => prev.filter(x => x !== item));
+    setRemovable(prev => filterRemoved(prev, item));
   };
 
   return (

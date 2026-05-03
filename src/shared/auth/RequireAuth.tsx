@@ -17,7 +17,7 @@ interface RequireAuthProps {
  * 1. **Sessão otimista pode renderizar** — o `AuthProvider` (Issue #54)
  *    hidrata com `isAuthenticated: true` e `isLoading: true` quando há
  *    sessão local persistida; o catálogo é hidratado em paralelo. Em
- *    produção a splash do Provider cobre todo esse intervalo, mas em
+ *    produção a splash do Provider cobre o intervalo inteiro, mas em
  *    testes com `disableSplash` o guard precisa permitir o render para
  *    não bloquear a árvore. Logo, se `isAuthenticated` já é `true`,
  *    sempre rende `children` — mesmo que `isLoading` ainda esteja

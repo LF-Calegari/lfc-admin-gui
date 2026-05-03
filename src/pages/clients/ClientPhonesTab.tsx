@@ -349,7 +349,7 @@ export const ClientPhonesTab: React.FC<ClientPhonesTabProps> = ({
   }, [triggerRefetch]);
 
   const phones = useMemo<ReadonlyArray<ClientPhoneDto>>(
-    () => (loadedClient !== null ? selectCollection(loadedClient) : []),
+    () => (loadedClient === null ? [] : selectCollection(loadedClient)),
     [loadedClient, selectCollection],
   );
   const isLimitReached = phones.length >= MAX_CLIENT_PHONES_PER_TYPE;

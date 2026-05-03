@@ -39,7 +39,7 @@ const ROUTE_FORM_FIELDS = [
  *
  * Centralizamos aqui desde o **primeiro PR do recurso** (#63) para
  * evitar a 5ª recorrência de duplicação Sonar (lição PR #128 — quando
- * a issue de edição (#64) chegar, ela vai herdar todo este boilerplate
+ * a issue de edição (#64) chegar, ela vai herdar o boilerplate inteiro
  * sem copiar uma linha sequer). Os handlers seriam idênticos entre os
  * dois modals (~16 linhas × 2 arquivos = 32 linhas duplicadas).
  *

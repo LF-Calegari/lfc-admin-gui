@@ -1,10 +1,11 @@
 import {
   useNameCodeDescriptionForm,
-  useNameCodeDescriptionFormFieldProps,
   type NameCodeDescriptionFormFieldProps,
   type NameCodeDescriptionFormState,
   type UseNameCodeDescriptionFormReturn,
 } from '../../shared/forms';
+
+export { useNameCodeDescriptionFormFieldProps as useTokenTypeFormFieldProps } from '../../shared/forms';
 
 /**
  * Hook compartilhado pelo modal de criação (`NewTokenTypeModal`) e
@@ -61,12 +62,3 @@ export function useTokenTypeForm(
  */
 export type TokenTypeFormFieldProps = NameCodeDescriptionFormFieldProps;
 
-/**
- * Constrói o objeto de props para `<TokenTypeFormBody>` a partir de
- * uma instância de `useTokenTypeForm` + handlers do modal pai.
- * Delegação direta para `useNameCodeDescriptionFormFieldProps` —
- * mantém o nome de domínio (`useTokenTypeFormFieldProps`) por
- * simetria com `useRoleFormFieldProps` (call-sites importam por
- * recurso).
- */
-export const useTokenTypeFormFieldProps = useNameCodeDescriptionFormFieldProps;

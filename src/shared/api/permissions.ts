@@ -396,7 +396,8 @@ export async function listEffectiveUserPermissions(
     search.set('systemId', systemId.trim());
   }
   const qs = search.toString();
-  const path = `/users/${userId}/effective-permissions${qs ? `?${qs}` : ''}`;
+  const querySuffix = qs ? `?${qs}` : '';
+  const path = `/users/${userId}/effective-permissions${querySuffix}`;
   const data = await client.get<unknown>(path, options);
   if (!Array.isArray(data) || !data.every(isEffectivePermissionDto)) {
     throw makeParseError();

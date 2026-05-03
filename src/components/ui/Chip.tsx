@@ -33,7 +33,7 @@ interface BaseChipProps {
    * Torna o chip semanticamente removível.
    */
   onRemove?: () => void;
-  /** Callback de clique no chip todo. Quando definido, o chip vira interativo. */
+  /** Callback de clique no chip inteiro. Quando definido, o chip vira interativo. */
   onClick?: () => void;
   /** Permite desabilitar o chip quando interativo. */
   disabled?: boolean;

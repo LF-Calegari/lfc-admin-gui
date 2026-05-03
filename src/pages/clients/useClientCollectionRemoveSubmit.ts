@@ -84,7 +84,7 @@ export interface UseClientCollectionRemoveSubmitResult<TAction> {
    * **Por que esse padrão?** O `removeClientExtraEmail` tem um caso
    * extra `username` (400 com mensagem orientadora — toast vermelho)
    * que não existe em `removeClientMobilePhone`/`removeClientLandlinePhone`.
-   * Em vez de duplicar todo o handler para gerenciar essa única
+   * Em vez de duplicar o handler inteiro para gerenciar essa única
    * variante, o caller passa `customAction` que intercepta o caso
    * específico.
    */
@@ -139,7 +139,7 @@ export function useClientCollectionRemoveSubmit<TAction>({
         // antes do fluxo padrão. Quando `customAction` consome a
         // ação (retorna `true`), encerramos sem delegar ao
         // `applyRemoveCollectionAction`.
-        if (customAction !== undefined && customAction(action)) {
+        if (customAction?.(action) === true) {
           return;
         }
         // Cast seguro — `customAction` intercepta variantes próprias

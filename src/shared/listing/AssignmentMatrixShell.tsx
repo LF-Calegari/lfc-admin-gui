@@ -115,7 +115,7 @@ export interface AssignmentMatrixShellProps<TGroup> {
  * etc) e o render-prop correspondente.
  */
 export function AssignmentMatrixShell<TGroup>(
-  props: AssignmentMatrixShellProps<TGroup>,
+  props: Readonly<AssignmentMatrixShellProps<TGroup>>,
 ): React.ReactElement {
   const {
     eyebrow,

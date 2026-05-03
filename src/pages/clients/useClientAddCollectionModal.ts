@@ -57,7 +57,7 @@ export interface UseClientAddCollectionModalResult {
     validate: (trimmed: string) => string | null;
   }) => {
     handleOpen: () => void;
-    handleSubmit: (event?: React.FormEvent<HTMLFormElement>) => void;
+    handleSubmit: (event?: React.SyntheticEvent<HTMLFormElement>) => void;
   };
 }
 
@@ -76,7 +76,7 @@ export interface UseClientAddCollectionModalResult {
  *
  * **Padrão "begin submit":** o caller chama `beginSubmit(validate)` no
  * handler de submit; o hook valida via callback e seta
- * `isSubmitting=true` apenas se passou. Todo o branching de
+ * `isSubmitting=true` apenas se passou. O branching inteiro de
  * "validar → setar erro inline OU `isSubmitting`" acontece dentro do
  * `setState` (atômico) — o caller não precisa coordenar dois
  * `setState`s.
@@ -150,7 +150,7 @@ export function useClientAddCollectionModal(): UseClientAddCollectionModalResult
         if (params.isLimitReached) return;
         open();
       },
-      handleSubmit: (event?: React.FormEvent<HTMLFormElement>) => {
+      handleSubmit: (event?: React.SyntheticEvent<HTMLFormElement>) => {
         event?.preventDefault();
         if (!params.isReady) return;
         beginSubmit(params.validate);

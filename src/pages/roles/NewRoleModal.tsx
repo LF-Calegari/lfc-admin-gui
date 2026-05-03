@@ -145,7 +145,7 @@ export const NewRoleModal: React.FC<NewRoleModalProps> = ({
 
   /**
    * Wrapper de `prepareSubmit` que injeta o `systemId` (vem da URL
-   * via prop) — preserva a assinatura `() => unknown | null` exigida
+   * via prop) — preserva a assinatura `() => object | null` exigida
    * por `useCreateEntitySubmit.callbacks.prepareSubmit`. Idêntico em
    * espírito ao wrapper do `EditRoleModal` (que faz o mesmo + gate
    * de `role !== null`).

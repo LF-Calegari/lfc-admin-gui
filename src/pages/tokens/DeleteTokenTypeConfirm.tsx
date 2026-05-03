@@ -92,7 +92,7 @@ interface DeleteTokenTypeConfirmProps {
  *   do modal nas suítes de teste sem colidir com o
  *   `delete-system`/`delete-client`.
  *
- * O `MutationConfirmModal` cuida de todo o ciclo (confirmação,
+ * O `MutationConfirmModal` cuida do ciclo inteiro (confirmação,
  * submissão, mapeamento de erros 404/401/403/network, refetch após
  * sucesso ou 404) — espelha o pattern já validado em sistemas, rotas e
  * clientes.

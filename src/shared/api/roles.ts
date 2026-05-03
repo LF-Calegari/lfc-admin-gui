@@ -39,21 +39,22 @@ function makeParseError(): ApiError {
  *
  * O backend hoje expõe `/roles` como recurso **global** (não vinculado
  * a um sistema) e devolve `RoleResponse(Id, Name, Code, CreatedAt,
- * UpdatedAt, DeletedAt)`. Os campos abaixo marcados como TODO ainda
- * não são devolvidos pelo backend:
+ * UpdatedAt, DeletedAt)`. Os campos abaixo, marcados como pendentes
+ * no backend, ainda não são devolvidos:
  *
- * - `description: string | null` — TODO no backend (`AppRole.Description`
- *   ainda não existe no model). Mantido como opcional/`null` no DTO
- *   para que a UI saiba renderizar "—" como placeholder hoje e exiba
- *   a descrição automaticamente quando o backend evoluir.
- * - `permissionsCount: number` / `usersCount: number` — TODO no backend
- *   (controller não inclui contagens no projection). Mantidos como
- *   opcionais para suportar o futuro `RoleResponse` enriquecido sem
- *   precisar de PR destrutivo nesta camada.
- * - `systemId` — TODO no backend (roles são globais hoje). A UI lê
- *   `:systemId` da URL para preservar a IA da EPIC #47 (listagem por
- *   sistema), mas o filtro real só passa a fazer sentido quando o
- *   model for estendido com `SystemId`.
+ * - `description: string | null` — pendente no backend
+ *   (`AppRole.Description` ainda não existe no model). Mantido como
+ *   opcional/`null` no DTO para que a UI saiba renderizar "—" como
+ *   placeholder hoje e exiba a descrição automaticamente quando o
+ *   backend evoluir.
+ * - `permissionsCount: number` / `usersCount: number` — pendentes
+ *   no backend (controller não inclui contagens no projection).
+ *   Mantidos como opcionais para suportar o futuro `RoleResponse`
+ *   enriquecido sem precisar de PR destrutivo nesta camada.
+ * - `systemId` — pendente no backend (roles são globais hoje). A UI
+ *   lê `:systemId` da URL para preservar a IA da EPIC #47 (listagem
+ *   por sistema), mas o filtro real só passa a fazer sentido quando
+ *   o model for estendido com `SystemId`.
  *
  * As datas são serializadas pelo backend em ISO 8601 (UTC) — mantemos
  * como `string` porque a UI consome via `Intl.DateTimeFormat`/
@@ -79,20 +80,21 @@ export interface RoleDto {
   code: string;
   /**
    * Descrição livre da role. Ainda **não enviada** pelo backend
-   * `lfc-authenticator` (`AppRole.Description` é TODO). A UI exibe
-   * "—" como placeholder enquanto o campo for `null`/`undefined`.
+   * `lfc-authenticator` (`AppRole.Description` continua pendente).
+   * A UI exibe "—" como placeholder enquanto o campo for
+   * `null`/`undefined`.
    */
   description: string | null;
   /**
    * Contagem de permissões vinculadas à role. Ainda **não enviada**
-   * pelo backend (TODO). A UI exibe "—" enquanto o valor for
+   * pelo backend (pendente). A UI exibe "—" enquanto o valor for
    * `null`/`undefined` — quando o backend devolver, a UI mostra
    * automaticamente.
    */
   permissionsCount: number | null;
   /**
    * Contagem de usuários que possuem essa role. Mesmo status de
-   * `permissionsCount` — TODO no backend; a UI exibe "—" hoje.
+   * `permissionsCount` — pendente no backend; a UI exibe "—" hoje.
    */
   usersCount: number | null;
   createdAt: string;
@@ -179,7 +181,8 @@ export const DEFAULT_ROLES_INCLUDE_DELETED = false;
  * usuário, matriz de checkboxes agrupada por sistema). Espelha
  * `MAX_PERMISSIONS_PAGE_SIZE` em `permissions.ts`. Quando o catálogo
  * crescer além de 100, a issue pede revisitar (paginação real ou
- * agrupar/colapsar por sistema com fetch lazy — mesmo TODO da #70).
+ * agrupar/colapsar por sistema com fetch lazy — mesma pendência
+ * registrada na Issue #70).
  */
 export const MAX_ROLES_PAGE_SIZE = 100;
 

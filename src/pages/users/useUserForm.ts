@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useMemo, useState, type SyntheticEvent } from 'react';
 
 import { useFieldChangeHandlers } from '../../shared/forms';
 
@@ -46,7 +46,7 @@ const USER_FORM_TEXT_FIELDS = [
  *
  * Centralizamos aqui desde o **primeiro PR do recurso** (#78) para
  * evitar a 6ª recorrência de duplicação Sonar (lição PR #128 — quando
- * a issue de edição chegar, ela vai herdar todo este boilerplate sem
+ * a issue de edição chegar, ela vai herdar o boilerplate inteiro sem
  * copiar uma linha sequer). Os handlers seriam idênticos entre os
  * dois modals (~24 linhas × 2 arquivos = 48 linhas duplicadas).
  *
@@ -222,7 +222,7 @@ export interface UserFormFieldProps {
   onChangeIdentity: (value: string) => void;
   onChangeClientId: (value: string) => void;
   onChangeActive: (value: boolean) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onSubmit: (event: SyntheticEvent<HTMLFormElement>) => void;
   onCancel: () => void;
   isSubmitting: boolean;
 }
@@ -241,7 +241,7 @@ export interface UserFormFieldProps {
  */
 export function useUserFormFieldProps(
   userForm: UseUserFormReturn,
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void,
+  onSubmit: (event: SyntheticEvent<HTMLFormElement>) => void,
   onCancel: () => void,
 ): UserFormFieldProps {
   const {
