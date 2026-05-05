@@ -87,14 +87,19 @@ export function makePagedPermissions(
   };
 }
 
+/** Corpo típico do `GET /roles/{roleId}/permissions` no authenticator. */
+export type StubRolePermissionsAssigned =
+  | ReadonlyArray<string>
+  | ReadonlyArray<{ permissionId: string }>;
+
 interface SetupOptions {
   /** Catálogo devolvido pelo `listPermissions(systemId)`. */
   catalog?: PagedResponse<PermissionDto>;
   /**
-   * Ids das permissões já vinculadas à role. Se omitido, default é
-   * `[]` (role nova sem permissões).
+   * Resposta simulada do `GET /roles/{roleId}/permissions`: ids em
+   * string[] ou linhas `{ permissionId }` (Issue #190).
    */
-  assigned?: ReadonlyArray<string>;
+  assigned?: StubRolePermissionsAssigned;
 }
 
 /**

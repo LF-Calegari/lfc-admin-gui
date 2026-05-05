@@ -597,6 +597,22 @@ describe("listRolePermissions", () => {
     expect(result).toEqual([PERM_ID, "outra-perm"]);
   });
 
+  it("aceita objetos enxutos { permissionId } devolvidos pelo GET (Issue #190)", async () => {
+    const client = createStub();
+    client.get.mockResolvedValueOnce([
+      { permissionId: PERM_ID },
+      { permissionId: "outra-perm" },
+    ]);
+
+    const result = await listRolePermissions(
+      ROLE_ID,
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(result).toEqual([PERM_ID, "outra-perm"]);
+  });
+
   it("aceita array vazio", async () => {
     const client = createStub();
     client.get.mockResolvedValueOnce([]);

@@ -503,9 +503,9 @@ export function isRolePermissionLinkDto(
  * Devolve **apenas os ids** das permissões ativas vinculadas — a UI
  * da Issue #69 cruza com o catálogo (`listPermissions(systemId)`)
  * para construir a matriz de checkboxes. Backend devolve um array
- * cru de `permissionId` (ou de objetos `{ permissionId }`); aceitamos
- * ambos os formatos para tolerar evoluções pequenas no contrato (já
- * vimos esse padrão de evolução em `tokenTypes.ts`).
+ * cru de `permissionId`, objetos `{ permissionId }` enxutos ou
+ * `RolePermissionLinkDto` completo; aceitamos os três formatos para
+ * tolerar evoluções pequenas no contrato (Issue #190 / QA do GET).
  *
  * Lança `ApiError` em qualquer falha (404 quando a role não existe,
  * parse quando o shape diverge). Cancelamento via `signal` em
@@ -529,13 +529,22 @@ export async function listRolePermissions(
 /**
  * Normaliza a resposta do backend para um array imutável de
  * `permissionId`. Aceita tanto o formato cru `string[]` (mais
- * comum em endpoints "leves" no `lfc-authenticator`) quanto o
- * formato `RolePermissionLinkDto[]` (mais simétrico com `assign`/
- * `remove`); a UI só precisa do conjunto de ids para o checkbox.
+ * comum em endpoints "leves" no `lfc-authenticator`) quanto linhas
+ * `{ permissionId }` enxutas ou `RolePermissionLinkDto[]` completo; a
+ * UI só precisa do conjunto de ids para o checkbox (Issue #190).
  *
  * Lança `ApiError(parse)` em qualquer outro shape — protege contra
  * divergência silenciosa de versão.
  */
+function isRolePermissionIdRow(
+  value: unknown,
+): value is { permissionId: string } {
+  if (value === null || typeof value !== "object") {
+    return false;
+  }
+  return typeof (value as Record<string, unknown>).permissionId === "string";
+}
+
 function parseRolePermissionIds(data: unknown): ReadonlyArray<string> {
   if (!Array.isArray(data)) {
     throw makeParseError();
@@ -546,8 +555,8 @@ function parseRolePermissionIds(data: unknown): ReadonlyArray<string> {
   if (data.every((item) => typeof item === "string")) {
     return data;
   }
-  if (data.every(isRolePermissionLinkDto)) {
-    return data.map((link) => link.permissionId);
+  if (data.every(isRolePermissionIdRow)) {
+    return data.map((row) => row.permissionId);
   }
   throw makeParseError();
 }
@@ -568,6 +577,9 @@ function parseRolePermissionIds(data: unknown): ReadonlyArray<string> {
  * - 400 → `permissionId` inválido/inexistente (toast + reverter o
  *   checkbox).
  * - 404 → role não encontrada (fechar a tela e voltar).
+ * - 405 → em geral indica **método HTTP incorreto** para o recurso
+ *   (ex.: `GET` sem corpo em vez de `POST` com JSON
+ *   `{"permissionId":"<guid>"}` no path `/roles/{roleId}/permissions`).
  * - 401/403 → cliente HTTP já lidou com `onUnauthorized`/falta de
  *   permissão; UI exibe toast.
  *

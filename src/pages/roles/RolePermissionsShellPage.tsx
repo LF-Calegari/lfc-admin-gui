@@ -144,6 +144,11 @@ function extractErrorMessage(error: unknown, fallback: string): string {
  *    via toast (idempotência cobre divergências raras).
  * 5. Após o salvar, refetch sincroniza o estado com o backend.
  *
+ * **Issue #190 (QA):** cobertura de testes garante o carregamento via
+ * `GET /roles/{roleId}/permissions` em paralelo ao catálogo, erro
+ * quando o GET falha ou o corpo diverge do contrato, e o salvar com
+ * diff (`POST`/`DELETE` nos paths reais do authenticator).
+ *
  * **Visível com** `Roles.Update` (code `AUTH_V1_ROLES_UPDATE`,
  * espelho do gating do botão "Editar" da `RolesPage`). O gating na
  * rota é feito por `RequirePermission`. A página assume que a
@@ -412,7 +417,7 @@ export const RolePermissionsShellPage: React.FC<
       <PageHeader
         eyebrow="03 Roles · Permissões"
         title="Permissões da role"
-        desc="Vincule ou desvincule permissões à role selecionada. Apenas permissões pertencentes ao mesmo sistema da role são listadas — alterações entram em vigor imediatamente após salvar."
+        desc="Vincule ou desvincule permissões à role selecionada. O catálogo lista apenas permissões do mesmo sistema (filtro por systemId). Cada vínculo é uma permissão concreta — combinação de rota e tipo de acesso — e precisa existir antes em Permissões; não basta existir só a rota. As alterações passam a valer após Salvar."
         actions={
           <>
             <Button
