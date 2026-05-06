@@ -30,11 +30,32 @@ const NEVER_RESOLVES = (): Promise<never> =>
   new Promise<never>(() => undefined);
 
 /**
- * Suíte da `RolePermissionsShellPage` (Issue #69).
+ * Catálogo `GET /permissions` em estado feliz + resposta customizada
+ * para `GET /roles/{id}/permissions` (Issue #190 — erros de carga
+ * específicos do endpoint da role).
+ */
+function stubCatalogOkAndRolePermissionsGet(
+  client: ReturnType<typeof createRolePermissionsClientStub>,
+  rolePermissionsResult: Promise<unknown>,
+): void {
+  client.get.mockImplementation((path: string) => {
+    if (path.startsWith("/permissions")) {
+      return Promise.resolve(makePagedPermissions([makePermission()]));
+    }
+    if (path.match(/^\/roles\/[^/]+\/permissions$/)) {
+      return rolePermissionsResult;
+    }
+    return Promise.reject(new Error("unexpected path"));
+  });
+}
+
+/**
+ * Suíte da `RolePermissionsShellPage` (Issue #69, QA #190).
  *
  * Cobre: estados de loading, erro, vazio, render do agrupamento por
  * sistema, badge "Vinculada", diff client-side ao salvar (assign +
- * remove em paralelo), tratamento de :systemId/:roleId inválidos, e
+ * remove em paralelo), tratamento de :systemId/:roleId inválidos,
+ * falha do `GET /roles/{id}/permissions` (carregamento inicial) e
  * tratamento de falha parcial no salvar.
  *
  * Stub do `ApiClient` injetado via prop `client` — espelha o pattern
@@ -121,6 +142,44 @@ describe("RolePermissionsShellPage — loading e erro inicial", () => {
     await waitFor(() => {
       expect(
         screen.getByText("Falha interna no servidor."),
+      ).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("role-permissions-retry")).toBeInTheDocument();
+  });
+
+  it("exibe ErrorRetryBlock quando GET /roles/{id}/permissions falha (catálogo ok)", async () => {
+    const client = createRolePermissionsClientStub();
+    stubCatalogOkAndRolePermissionsGet(
+      client,
+      Promise.reject({
+        kind: "http",
+        status: 404,
+        message: "Role não encontrada ou sem permissões legíveis.",
+      }),
+    );
+
+    renderRolePermissionsPage(client);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Role não encontrada ou sem permissões legíveis."),
+      ).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("role-permissions-retry")).toBeInTheDocument();
+  });
+
+  it("exibe erro quando GET /roles/{id}/permissions retorna shape inválido", async () => {
+    const client = createRolePermissionsClientStub();
+    stubCatalogOkAndRolePermissionsGet(
+      client,
+      Promise.resolve([{ broken: true }]),
+    );
+
+    renderRolePermissionsPage(client);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Resposta inválida do servidor."),
       ).toBeInTheDocument();
     });
     expect(screen.getByTestId("role-permissions-retry")).toBeInTheDocument();
@@ -250,6 +309,25 @@ describe("RolePermissionsShellPage — render do catálogo", () => {
       `role-permissions-checkbox-${ID_PERM_A}`,
     ) as HTMLInputElement;
     expect(checkbox.checked).toBe(true);
+  });
+
+  it("checkbox vem marcado quando GET devolve { permissionId }[] (Issue #190)", async () => {
+    const client = createRolePermissionsClientStub();
+    primeStubResponses(client, {
+      catalog: makePagedPermissions([makePermission({ id: ID_PERM_A })]),
+      assigned: [{ permissionId: ID_PERM_A }],
+    });
+
+    renderRolePermissionsPage(client);
+    await waitForInitialFetch();
+
+    const checkbox = screen.getByTestId(
+      `role-permissions-checkbox-${ID_PERM_A}`,
+    ) as HTMLInputElement;
+    expect(checkbox.checked).toBe(true);
+    expect(
+      screen.getByTestId(`role-permissions-item-${ID_PERM_A}`),
+    ).toHaveTextContent("Vinculada");
   });
 });
 
