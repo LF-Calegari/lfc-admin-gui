@@ -577,6 +577,7 @@ export const RolesPage: React.FC<RolesPageProps> = ({ client }) => {
 
       {canCreateRole && hasValidSystemId && (
         <NewRoleModal
+          variant="scoped"
           open={isCreateModalOpen}
           systemId={systemId}
           onClose={handleCloseCreateModal}

@@ -1,4 +1,4 @@
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, Plus } from 'lucide-react';
 import React, { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -36,6 +36,7 @@ import {
   useListingLiveMessage,
 } from '../../shared/listing';
 
+import { NewRoleModal } from './NewRoleModal';
 import {
   renderRoleDescription as renderDescription,
   renderRoleCount as renderCount,
@@ -44,11 +45,13 @@ import {
 import type { TableColumn } from '../../components/ui';
 import type {
   ApiClient,
+  CreateRolePayload,
   PagedResponse,
   RoleDto,
   SafeRequestOptions,
   SystemDto,
 } from '../../shared/api';
+import type { CreateEntitySubmitSuccessContext } from '../../shared/forms';
 
 /**
  * Atraso entre a última tecla e o disparo da request de busca. 300ms é
@@ -67,6 +70,12 @@ const SEARCH_DEBOUNCE_MS = 300;
  * estratégia de `TYPE_FILTER_ALL` em `ClientsListShellPage`.
  */
 const SYSTEM_FILTER_ALL = 'ALL' as const;
+
+/**
+ * Botão "Nova role" na listagem global (Issues #67/#193). Espelha
+ * `AUTH_V1_ROLES_CREATE` da `RolesPage` (`Roles.Create`).
+ */
+const ROLES_CREATE_PERMISSION = 'AUTH_V1_ROLES_CREATE';
 
 /**
  * Mensagem genérica de fallback quando o fetch da lista de roles falha
@@ -112,8 +121,8 @@ function buildSystemLookup(
  * - Filtro extra é `systemId` (dropdown carregado de `listSystems`),
  *   não `type`.
  * - Cada linha "drilla" para `/systems/:systemId/roles` (escopo do
- *   CRUD) — não há criação/edição inline; isso fica deferido para a
- *   página por-sistema (`RolesPage`).
+ *   CRUD completo). A criação também está disponível aqui com seleção
+ *   de sistema (Issue #193); edição/exclusão permanecem na `RolesPage`.
  * - Coluna "Sistema" denormaliza o `row.systemId` para o nome do
  *   sistema dono.
  *
@@ -124,11 +133,8 @@ export const RolesGlobalListShellPage: React.FC<
   RolesGlobalListShellPageProps
 > = ({ client }) => {
   const navigate = useNavigate();
-  // `useAuth` é mantido aqui para que evoluções futuras (botão "Nova
-  // role" gateado por `Roles.Create` ou ações inline gateadas por
-  // `Roles.Update`) reutilizem o gating sem refatoração — o gating
-  // de leitura já vive em `<RequirePermission>` no router.
-  useAuth();
+  const { hasPermission } = useAuth();
+  const canCreateRole = hasPermission(ROLES_CREATE_PERMISSION);
 
   // Termo digitado pelo usuário em tempo real (input controlado).
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -143,6 +149,16 @@ export const RolesGlobalListShellPage: React.FC<
     DEFAULT_ROLES_INCLUDE_DELETED,
   );
   const [page, setPage] = useState<number>(DEFAULT_ROLES_PAGE);
+
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState<boolean>(false);
+
+  const handleOpenCreateModal = useCallback(() => {
+    setIsCreateModalOpen(true);
+  }, []);
+
+  const handleCloseCreateModal = useCallback(() => {
+    setIsCreateModalOpen(false);
+  }, []);
 
   /**
    * Reseta a página para 1 sempre que muda um filtro/busca — evita o
@@ -380,6 +396,44 @@ export const RolesGlobalListShellPage: React.FC<
   );
 
   /**
+   * Refetch após criar role + alinha o filtro de sistema ao sistema
+   * escolhido (Issue #193 — nice-to-have de UX documentado na PR).
+   */
+  const handleRoleCreated = useCallback(
+    (ctx?: CreateEntitySubmitSuccessContext) => {
+      handleRefetch();
+      const payload = ctx?.createdPayload as CreateRolePayload | undefined;
+      if (
+        payload &&
+        typeof payload.systemId === 'string' &&
+        payload.systemId.length > 0
+      ) {
+        setSystemFilter(payload.systemId);
+      }
+    },
+    [handleRefetch],
+  );
+
+  /**
+   * CTA "Nova role" — memoização espelha `RolesPage` para limitar
+   * superfície duplicada no JSX da listagem (lição PR #127/#135).
+   */
+  const createRoleButton = useMemo<React.ReactNode>(() => {
+    if (!canCreateRole) return null;
+    return (
+      <Button
+        variant="primary"
+        size="md"
+        icon={<Plus size={14} strokeWidth={1.75} />}
+        onClick={handleOpenCreateModal}
+        data-testid="roles-global-create-open"
+      >
+        Nova role
+      </Button>
+    );
+  }, [canCreateRole, handleOpenCreateModal]);
+
+  /**
    * ARIA-live: anuncia o estado da listagem quando muda. Em loading
    * subsequente, anunciamos "Atualizando..."; em sucesso, anunciamos
    * o total. Em erro, o `<Alert role="alert">` já cobre.
@@ -509,6 +563,7 @@ export const RolesGlobalListShellPage: React.FC<
         includeDeletedHelperText="Inclui roles com remoção lógica."
         includeDeletedTestId="roles-global-include-deleted"
         extraFilter={systemFilterSelect}
+        actions={createRoleButton}
       />
 
       <LiveRegion message={liveMessage} testId="roles-global-live" />
@@ -529,6 +584,17 @@ export const RolesGlobalListShellPage: React.FC<
         onPrev={handlePrevPage}
         onNext={handleNextPage}
       />
+
+      {canCreateRole && (
+        <NewRoleModal
+          variant="global"
+          open={isCreateModalOpen}
+          systems={systemsList ?? []}
+          onClose={handleCloseCreateModal}
+          onCreated={handleRoleCreated}
+          client={client}
+        />
+      )}
     </>
   );
 };
