@@ -80,6 +80,19 @@ export {
 } from './AssignmentMatrixStyles';
 export { ErrorRetryBlock } from './ErrorRetryBlock';
 export {
+  groupByEntityField,
+  ORPHAN_DISPLAY_CODE,
+  type EntityFieldAccessors,
+  type EntityGroup,
+  type GroupByEntityFieldOptions,
+} from './groupByEntityField';
+export {
+  groupByRoute,
+  type GroupByRouteOptions,
+  type RouteGroup,
+  type RouteGroupItem,
+} from './groupByRoute';
+export {
   groupBySystem,
   type GroupBySystemOptions,
   type SystemGroup,
