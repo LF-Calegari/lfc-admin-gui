@@ -1,8 +1,8 @@
 import React, { useCallback, useMemo, useState } from 'react';
 
 import { Modal, Select, useToast } from '../../components/ui';
-import { useSingleFetchWithAbort } from '../../hooks/useSingleFetchWithAbort';
-import { createRoute, listSystems } from '../../shared/api';
+import { useModalListSystemsFetch } from '../../hooks/useModalListSystemsFetch';
+import { createRoute } from '../../shared/api';
 import { useCreateEntitySubmit } from '../../shared/forms';
 
 import { RouteFormBody } from './RouteFormFields';
@@ -14,13 +14,7 @@ import {
 import { useRouteForm } from './useRouteForm';
 import { useRouteTokenTypes } from './useRouteTokenTypes';
 
-import type {
-  ApiClient,
-  CreateRoutePayload,
-  PagedResponse,
-  SafeRequestOptions,
-  SystemDto,
-} from '../../shared/api';
+import type { ApiClient, CreateRoutePayload, SystemDto } from '../../shared/api';
 
 /**
  * Copy injetada em `classifyApiSubmitError` para o caminho de
@@ -179,30 +173,20 @@ export const NewRouteModal: React.FC<NewRouteModalProps> = ({
   const [systemIdError, setSystemIdError] = useState<string | null>(null);
 
   /**
-   * Carrega o catálogo de sistemas apenas quando o modal está aberto e
-   * em modo global. `useSingleFetchWithAbort` cuida do AbortController
-   * e do retry bumper. A request reage à abertura do modal — fechar +
-   * reabrir cancela a request anterior.
-   *
-   * Skipamos a request quando: (a) o modal está fechado, ou (b) o
-   * caller passou `systemId` (modo per-system, dropdown não é
-   * renderizado e ninguém precisa do catálogo).
+   * Catálogo de sistemas — modo global apenas (`useModalListSystemsFetch`,
+   * Issue #201 extrai o pair fetch/hook compartilhado com `NewPermissionModal`).
    */
-  const systemsFetcher = useCallback(
-    (options: SafeRequestOptions): Promise<PagedResponse<SystemDto>> =>
-      listSystems({ pageSize: SYSTEMS_LOOKUP_PAGE_SIZE }, options, client),
-    [client],
-  );
-
   const {
     data: systemsResponse,
     isInitialLoading: loadingSystems,
     errorMessage: systemsErrorMessage,
-  } = useSingleFetchWithAbort<PagedResponse<SystemDto>>({
-    fetcher: systemsFetcher,
+  } = useModalListSystemsFetch({
+    open,
+    skip: !showSystemSelect,
+    pageSize: SYSTEMS_LOOKUP_PAGE_SIZE,
+    client,
     fallbackErrorMessage:
       'Não foi possível carregar a lista de sistemas. Feche o modal e tente novamente.',
-    skip: !open || !showSystemSelect,
   });
 
   const systemOptions = useMemo<ReadonlyArray<SystemDto>>(() => {

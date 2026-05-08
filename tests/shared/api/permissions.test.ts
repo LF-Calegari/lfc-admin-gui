@@ -8,9 +8,12 @@ import type {
 
 import {
   assignPermissionToUser,
+  createPermission,
   isPagedPermissionsResponse,
   isPermissionDto,
+  isPermissionTypeDto,
   listEffectiveUserPermissions,
+  listPermissionTypes,
   listPermissions,
   removePermissionFromUser,
 } from '@/shared/api';
@@ -36,6 +39,7 @@ import {
  *   `EffectivePermissionResponse` com `sources`).
  * - `assignPermissionToUser` (POST `/users/{id}/permissions`).
  * - `removePermissionFromUser` (DELETE `/users/{id}/permissions/{permissionId}`).
+ * - `listPermissionTypes` / `createPermission` (Issue #201 — POST `/permissions`).
  */
 
 const USER_ID = '11111111-1111-1111-1111-111111111111';
@@ -416,6 +420,119 @@ describe('assignPermissionToUser', () => {
     await expect(
       assignPermissionToUser(USER_ID, PERM_ID, undefined, client as unknown as ApiClient),
     ).rejects.toEqual(apiError);
+  });
+});
+
+describe('isPermissionTypeDto', () => {
+  it('aceita payload válido', () => {
+    expect(
+      isPermissionTypeDto({
+        id: PERM_ID,
+        name: 'Ler',
+        code: 'read',
+        description: null,
+        createdAt: '2026-01-01T12:00:00Z',
+        updatedAt: '2026-01-01T12:00:00Z',
+        deletedAt: null,
+      }),
+    ).toBe(true);
+  });
+
+  it('rejeita payload incompleto', () => {
+    expect(isPermissionTypeDto({ id: PERM_ID })).toBe(false);
+  });
+});
+
+describe('listPermissionTypes', () => {
+  it('emite GET /permissions/types e remove tipos soft-deletados', async () => {
+    const client = createStub();
+    client.get.mockResolvedValueOnce([
+      {
+        id: PERM_ID,
+        name: 'Ler',
+        code: 'read',
+        description: null,
+        createdAt: '2026-01-01T12:00:00Z',
+        updatedAt: '2026-01-01T12:00:00Z',
+        deletedAt: null,
+      },
+      {
+        id: SYS_ID,
+        name: 'Velho',
+        code: 'old',
+        description: null,
+        createdAt: '2026-01-01T12:00:00Z',
+        updatedAt: '2026-01-01T12:00:00Z',
+        deletedAt: '2026-02-01T12:00:00Z',
+      },
+    ]);
+
+    const rows = await listPermissionTypes(undefined, client as unknown as ApiClient);
+    expect(client.get).toHaveBeenCalledWith('/permissions/types', undefined);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].id).toBe(PERM_ID);
+  });
+
+  it('lança parse quando o payload não é array válido', async () => {
+    const client = createStub();
+    client.get.mockResolvedValueOnce({});
+    await expect(
+      listPermissionTypes(undefined, client as unknown as ApiClient),
+    ).rejects.toMatchObject({ kind: 'parse' });
+  });
+});
+
+describe('createPermission', () => {
+  it('POST /permissions sem description — só routeId e permissionTypeId', async () => {
+    const client = createStub();
+    const dto = makePermissionDto();
+    client.post.mockResolvedValueOnce(dto);
+
+    const result = await createPermission(
+      { routeId: 'route-a', permissionTypeId: 'type-b' },
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.post).toHaveBeenCalledWith(
+      '/permissions',
+      { routeId: 'route-a', permissionTypeId: 'type-b' },
+      undefined,
+    );
+    expect(result.id).toBe(PERM_ID);
+  });
+
+  it('POST /permissions inclui description quando preenchida', async () => {
+    const client = createStub();
+    client.post.mockResolvedValueOnce(makePermissionDto());
+
+    await createPermission(
+      {
+        routeId: 'route-a',
+        permissionTypeId: 'type-b',
+        description: '  Nota  ',
+      },
+      undefined,
+      client as unknown as ApiClient,
+    );
+
+    expect(client.post.mock.calls[0][1]).toEqual({
+      routeId: 'route-a',
+      permissionTypeId: 'type-b',
+      description: 'Nota',
+    });
+  });
+
+  it('lança parse quando o body não é PermissionDto', async () => {
+    const client = createStub();
+    client.post.mockResolvedValueOnce({ broken: true });
+    await expect(
+      createPermission(
+        { routeId: 'r', permissionTypeId: 't' },
+        undefined,
+        client as unknown as ApiClient,
+      ),
+    ).rejects.toMatchObject({ kind: 'parse' });
   });
 });
 

@@ -1,3 +1,5 @@
+import { isNameCodeDescriptionDto } from './nameCodeDescriptionDto';
+
 import { apiClient } from './index';
 
 import type { PagedResponse } from './systems';
@@ -261,6 +263,81 @@ export async function listPermissions(
   const path = `/permissions${buildPermissionsQueryString(params)}`;
   const data = await client.get<unknown>(path, options);
   if (!isPagedPermissionsResponse(data)) {
+    throw makeParseError();
+  }
+  return data;
+}
+
+/**
+ * Espelho do `PermissionTypeResponse` do `lfc-authenticator`
+ * (`PermissionTypesController.PermissionTypeResponse`).
+ */
+export interface PermissionTypeDto {
+  id: string;
+  name: string;
+  code: string;
+  description: string | null;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+export function isPermissionTypeDto(value: unknown): value is PermissionTypeDto {
+  // Mesmo shape que `NameCodeDescriptionDto` (`PermissionTypeResponse`).
+  return isNameCodeDescriptionDto(value);
+}
+
+function isPermissionTypeDtoArray(value: unknown): value is ReadonlyArray<PermissionTypeDto> {
+  return Array.isArray(value) && value.every(isPermissionTypeDto);
+}
+
+/**
+ * Lista tipos de permissão ativos via `GET /permissions/types`
+ * (`PermissionTypesController.GetAll`). Ordenação definida pelo backend
+ * (`CreatedAt`). Usado pelo fluxo de criação de permissão na UI para
+ * popular o `<Select>` com UUIDs reais — espelha o contrato do POST
+ * (`PermissionTypeId` obrigatório).
+ */
+export async function listPermissionTypes(
+  options?: SafeRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<ReadonlyArray<PermissionTypeDto>> {
+  const data = await client.get<unknown>('/permissions/types', options);
+  if (!isPermissionTypeDtoArray(data)) {
+    throw makeParseError();
+  }
+  return data.filter((t) => t.deletedAt === null || t.deletedAt === undefined);
+}
+
+/**
+ * Payload de `POST /permissions` (`PermissionsController.CreatePermissionRequest`).
+ * `description` omitida ou vazia é tratada como `null` no servidor.
+ */
+export interface CreatePermissionPayload {
+  routeId: string;
+  permissionTypeId: string;
+  /** Opcional — máx. 500 caracteres no backend. */
+  description?: string;
+}
+
+/**
+ * Cria uma permissão via `POST /permissions` (`PermissionsController.Create`).
+ * Devolve o `PermissionDto` enriquecido do `201 Created`.
+ */
+export async function createPermission(
+  payload: CreatePermissionPayload,
+  options?: BodyRequestOptions,
+  client: ApiClient = apiClient,
+): Promise<PermissionDto> {
+  const body: Record<string, unknown> = {
+    routeId: payload.routeId.trim(),
+    permissionTypeId: payload.permissionTypeId.trim(),
+  };
+  if (payload.description !== undefined && payload.description.trim().length > 0) {
+    body.description = payload.description.trim();
+  }
+  const data = await client.post<unknown>('/permissions', body, options);
+  if (!isPermissionDto(data)) {
     throw makeParseError();
   }
   return data;
