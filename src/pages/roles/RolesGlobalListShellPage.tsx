@@ -409,9 +409,10 @@ export const RolesGlobalListShellPage: React.FC<
         payload.systemId.length > 0
       ) {
         setSystemFilter(payload.systemId);
+        setPage(DEFAULT_ROLES_PAGE);
       }
     },
-    [handleRefetch],
+    [handleRefetch, setPage],
   );
 
   /**
