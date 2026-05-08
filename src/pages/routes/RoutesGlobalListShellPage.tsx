@@ -1,10 +1,9 @@
-import { Plus } from 'lucide-react';
 import React, { useCallback, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import styled from 'styled-components';
 
 import { PageHeader } from '../../components/layout/PageHeader';
-import { Button, Select, Table } from '../../components/ui';
+import { Select, Table } from '../../components/ui';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import { useToggleModalState } from '../../hooks/useListModalState';
 import { usePaginatedFetch } from '../../hooks/usePaginatedFetch';
@@ -29,6 +28,7 @@ import {
   Mono,
   StatusBadge,
   TableForDesktop,
+  ToolbarPrimaryCreateButton,
   useListingLiveMessage,
 } from '../../shared/listing';
 
@@ -582,15 +582,11 @@ export const RoutesGlobalListShellPage: React.FC<RoutesGlobalListShellPageProps>
         extraFilter={systemFilterSelect}
         actions={
           canCreateRoute && (
-            <Button
-              variant="primary"
-              size="md"
-              icon={<Plus size={14} strokeWidth={1.75} />}
+            <ToolbarPrimaryCreateButton
+              testId="routes-global-create-open"
+              label="Nova rota"
               onClick={createModal.open}
-              data-testid="routes-global-create-open"
-            >
-              Nova rota
-            </Button>
+            />
           )
         }
       />

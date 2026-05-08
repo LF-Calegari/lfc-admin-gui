@@ -6,6 +6,8 @@ import type {
   ApiClient,
   PagedResponse,
   PermissionDto,
+  PermissionTypeDto,
+  RouteDto,
   SystemDto,
 } from '@/shared/api';
 
@@ -184,6 +186,89 @@ export function makePagedSystemsResponse(
 }
 
 /**
+ * Envelope paginado para `GET /systems/routes` — usado pelo modal
+ * "Nova permissão" (Issue #201).
+ */
+export function makePagedRoutesResponse(
+  data: ReadonlyArray<RouteDto>,
+  overrides: Partial<PagedResponse<RouteDto>> = {},
+): PagedResponse<RouteDto> {
+  return makePagedResponse(data, overrides);
+}
+
+/**
+ * `RouteDto` mínimo para testes do fluxo de criação — evita acoplar a
+ * suíte de permissões ao módulo `routesTestHelpers.tsx`.
+ */
+export function makeRouteDto(overrides: Partial<RouteDto> = {}): RouteDto {
+  return {
+    id: ID_ROUTE_USERS_LIST,
+    systemId: ID_SYSTEM_AUTH,
+    name: 'GET /api/v1/users',
+    code: 'AUTH_V1_USERS_LIST',
+    description: null,
+    systemTokenTypeId: 'aaaaaaaa-9999-9999-9999-999999999999',
+    systemTokenTypeCode: 'default',
+    systemTokenTypeName: 'Acesso padrão',
+    createdAt: '2026-01-01T12:00:00Z',
+    updatedAt: '2026-01-01T12:00:00Z',
+    deletedAt: null,
+    ...overrides,
+  };
+}
+
+export function makePermissionType(
+  overrides: Partial<PermissionTypeDto> = {},
+): PermissionTypeDto {
+  return {
+    id: ID_TYPE_READ,
+    name: 'Ler',
+    code: 'read',
+    description: null,
+    createdAt: '2026-01-01T12:00:00Z',
+    updatedAt: '2026-01-01T12:00:00Z',
+    deletedAt: null,
+    ...overrides,
+  };
+}
+
+export interface PermissionsListGetMockConfig {
+  client: ApiClientStub;
+  systemsResponse: PagedResponse<SystemDto>;
+  permissionsQueue: ReadonlyArray<PagedResponse<PermissionDto>>;
+  /** Resposta para `GET /systems/routes` — default página vazia. */
+  routesPaged?: PagedResponse<RouteDto>;
+  /** Resposta para `GET /permissions/types` — default array vazio. */
+  permissionTypes?: ReadonlyArray<PermissionTypeDto>;
+}
+
+/**
+ * Router completo para `client.get` na `PermissionsListShellPage` e no
+ * modal de criação (Issue #201 — endpoints extras sem quebrar a fila
+ * legada de `seedDualGetMock`).
+ */
+export function seedPermissionsListGetMock(config: PermissionsListGetMockConfig): void {
+  const queue: PagedResponse<PermissionDto>[] = [...config.permissionsQueue];
+  const emptyRoutes = makePagedRoutesResponse([]);
+  config.client.get.mockImplementation((path: string): Promise<unknown> => {
+    if (path.startsWith('/systems/routes')) {
+      return Promise.resolve(config.routesPaged ?? emptyRoutes);
+    }
+    if (path.startsWith('/permissions/types')) {
+      return Promise.resolve(config.permissionTypes ?? []);
+    }
+    if (path.startsWith('/systems')) {
+      return Promise.resolve(config.systemsResponse);
+    }
+    const next = queue.shift();
+    if (next === undefined) {
+      return Promise.resolve(makePagedPermissionsResponse([]));
+    }
+    return Promise.resolve(next);
+  });
+}
+
+/**
  * Configura `client.get` como um router que despacha para 2 endpoints:
  *
  * - `path` começando com `/systems` (incluindo `/systems?pageSize=100`)
@@ -205,21 +290,10 @@ export function seedDualGetMock(
   systemsResponse: PagedResponse<SystemDto>,
   ...permissionsResponses: ReadonlyArray<PagedResponse<PermissionDto>>
 ): void {
-  const queue: PagedResponse<PermissionDto>[] = [...permissionsResponses];
-  client.get.mockImplementation((path: string): Promise<unknown> => {
-    if (path.startsWith('/systems')) {
-      return Promise.resolve(systemsResponse);
-    }
-    const next = queue.shift();
-    if (next === undefined) {
-      // Fallback: devolve uma página vazia em vez de `undefined` — o
-      // type guard `isPagedPermissionsResponse` rejeita undefined e
-      // a UI exibiria erro genérico que mascararia a real falha do
-      // teste. Devolver `[]` torna o "fim de fila" legível no UI
-      // (empty state) e ainda assim falha asserts sobre rows.
-      return Promise.resolve(makePagedPermissionsResponse([]));
-    }
-    return Promise.resolve(next);
+  seedPermissionsListGetMock({
+    client,
+    systemsResponse,
+    permissionsQueue: permissionsResponses,
   });
 }
 
@@ -269,7 +343,11 @@ export function lastPermissionsGetPath(client: ApiClientStub): string {
   const calls = client.get.mock.calls;
   for (let i = calls.length - 1; i >= 0; i -= 1) {
     const path = calls[i][0];
-    if (typeof path === 'string' && path.startsWith('/permissions')) {
+    if (
+      typeof path === 'string' &&
+      path.startsWith('/permissions') &&
+      !path.startsWith('/permissions/types')
+    ) {
       return path;
     }
   }
@@ -284,6 +362,9 @@ export function lastPermissionsGetPath(client: ApiClientStub): string {
  */
 export function countPermissionsGetCalls(client: ApiClientStub): number {
   return client.get.mock.calls.filter(
-    (call) => typeof call[0] === 'string' && call[0].startsWith('/permissions'),
+    (call) =>
+      typeof call[0] === 'string' &&
+      call[0].startsWith('/permissions') &&
+      !call[0].startsWith('/permissions/types'),
   ).length;
 }

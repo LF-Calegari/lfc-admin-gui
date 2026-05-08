@@ -101,6 +101,10 @@ export {
 export { InitialLoadingSpinner } from './InitialLoadingSpinner';
 export { ListingResultArea } from './ListingResultArea';
 export { ListingToolbar } from './ListingToolbar';
+export {
+  ToolbarPrimaryCreateButton,
+  type ToolbarPrimaryCreateButtonProps,
+} from './ToolbarPrimaryCreateButton';
 export { LiveRegion } from './LiveRegion';
 export { PaginationFooter } from './PaginationFooter';
 export { RefetchOverlay } from './RefetchOverlay';
