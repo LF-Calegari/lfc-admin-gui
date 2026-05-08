@@ -87,7 +87,7 @@ export type NewRoleModalProps = {
  * Espelha o desenho de `NewSystemModal`/`NewRouteModal`/`NewUserModal`
  * com três diferenças funcionais relevantes:
  *
- * 1. `systemId` cheja como prop na variante `scoped` (URL da
+ * 1. `systemId` chega como prop na variante `scoped` (URL da
  *    `RolesPage`) ou via estado local + catálogo na variante `global`.
  *    O backend `RolesController.Create` exige `SystemId`.
  * 2. 409 mapeia para mensagem inline custom no campo `code`
