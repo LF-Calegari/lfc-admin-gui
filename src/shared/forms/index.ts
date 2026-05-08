@@ -67,6 +67,7 @@ export {
   type CreateEntitySubmitCallbacks,
   type CreateEntitySubmitCopy,
   type CreateEntitySubmitDispatchers,
+  type CreateEntitySubmitSuccessContext,
   type UseCreateEntitySubmitArgs,
 } from "./useCreateEntitySubmit";
 export {

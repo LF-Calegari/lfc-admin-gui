@@ -315,6 +315,22 @@ export async function waitForRolesGlobalInitialList(
 }
 
 /**
+ * Renderiza `/roles`, espera a listagem global e abre o modal **Nova
+ * role** (Issue #193). Configure `client.get` antes — tipicamente com
+ * `primeRolesGlobalStubResponses`.
+ */
+export async function openGlobalCreateRoleModal(
+  client: ApiClientStub,
+): Promise<void> {
+  renderRolesGlobalListPage(client);
+  await waitForRolesGlobalInitialList(client);
+  fireEvent.click(screen.getByTestId("roles-global-create-open"));
+  await waitFor(() => {
+    expect(screen.getByTestId("new-role-form")).toBeInTheDocument();
+  });
+}
+
+/**
  * Helper para extrair o `path` passado a `client.get` na chamada
  * mais recente. Usado em asserts que verificam o endpoint
  * consumido. Espelha `lastGetPath` em `routesTestHelpers.tsx`.
