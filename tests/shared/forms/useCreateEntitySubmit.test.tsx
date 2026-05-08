@@ -125,6 +125,7 @@ describe('useCreateEntitySubmit — caminho feliz', () => {
     expect(spies.onCreated).toHaveBeenCalledTimes(1);
     expect(spies.onCreated).toHaveBeenCalledWith({
       createdPayload: { payload: 'ok' },
+      mutationResult: { id: 'ok' },
     });
     expect(spies.onClose).toHaveBeenCalledTimes(1);
     expect(spies.setIsSubmitting).toHaveBeenCalledWith(false);

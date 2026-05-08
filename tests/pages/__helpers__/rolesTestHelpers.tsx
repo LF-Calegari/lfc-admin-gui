@@ -215,6 +215,10 @@ export function renderRolesPage(
             path="/systems/:systemId/roles"
             element={<RolesPage client={client} />}
           />
+          <Route
+            path="/systems/:systemId/roles/:roleId/permissoes"
+            element={<div data-testid="roles-page-after-create-permissions" />}
+          />
         </Routes>
       </MemoryRouter>
     </ToastProvider>,
@@ -251,6 +255,10 @@ export function renderRolesGlobalListPage(client: ApiClientStub): void {
             element={<RolesGlobalListShellPage client={client} />}
           />
           <Route path="/systems/:systemId/roles" element={<div>drill</div>} />
+          <Route
+            path="/systems/:systemId/roles/:roleId/permissoes"
+            element={<div data-testid="roles-global-after-create-permissions" />}
+          />
         </Routes>
       </MemoryRouter>
     </ToastProvider>,

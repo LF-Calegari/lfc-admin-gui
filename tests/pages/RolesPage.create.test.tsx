@@ -229,11 +229,14 @@ describe("RolesPage — criação (Issue #67)", () => {
       // Toast verde "Role criada.".
       expect(await screen.findByText("Role criada.")).toBeInTheDocument();
 
-      // Refetch da lista — `client.get` chamado uma 2ª vez (inicial
-      // + refetch).
-      await waitFor(() => {
-        expect(client.get).toHaveBeenCalledTimes(2);
-      });
+      // Épico #196 / Issue #197 — navegação direta para permissões da role nova.
+      expect(
+        await screen.findByTestId("roles-page-after-create-permissions"),
+      ).toBeInTheDocument();
+
+      // O refetch após criar pode ser abortado ao desmontar a página pela
+      // navegação — não exigimos contagem fixa de `GET`.
+      expect(client.get).toHaveBeenCalled();
     });
 
     it("envia body sem o campo description quando o usuário deixa vazio", async () => {
