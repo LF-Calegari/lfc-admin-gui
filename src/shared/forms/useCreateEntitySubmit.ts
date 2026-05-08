@@ -97,6 +97,12 @@ export interface CreateEntitySubmitCopy {
 export interface CreateEntitySubmitSuccessContext {
   /** Payload enviado ao `mutationFn` (mesmo objeto devolvido por `prepareSubmit`). */
   createdPayload: unknown;
+  /**
+   * Retorno da `mutationFn` em sucesso (ex.: `RoleDto` do `createRole`).
+   * Opcional para não quebrar call sites que só precisam do payload —
+   * Issue #197 (épico #196) usa para navegar à tela de permissões.
+   */
+  mutationResult?: unknown;
 }
 
 /**
@@ -228,14 +234,14 @@ export function useCreateEntitySubmit<TField extends string>({
       if (payload === null) return;
 
       try {
-        await mutationFn(payload);
+        const mutationResult = await mutationFn(payload);
         // Mensagem de sucesso fixa (não citamos o nome — o usuário
         // acabou de digitar e a lista será atualizada).
         showToast(successMessage, { variant: 'success' });
         // Ordem importa: reset local + refetch antes de fechar para o
         // pai não ter que coordenar dois ticks separados.
         resetForm();
-        onCreated({ createdPayload: payload });
+        onCreated({ createdPayload: payload, mutationResult });
         onClose();
       } catch (error: unknown) {
         // `classifyApiSubmitError` decide o `kind`; `applyCreateSubmitAction`

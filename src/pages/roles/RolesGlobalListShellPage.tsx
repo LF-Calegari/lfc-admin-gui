@@ -12,6 +12,7 @@ import {
   DEFAULT_ROLES_INCLUDE_DELETED,
   DEFAULT_ROLES_PAGE,
   DEFAULT_ROLES_PAGE_SIZE,
+  isRoleDto,
   listRoles,
   listSystems,
   MAX_ROLES_PAGE_SIZE,
@@ -411,8 +412,18 @@ export const RolesGlobalListShellPage: React.FC<
         setSystemFilter(payload.systemId);
         setPage(DEFAULT_ROLES_PAGE);
       }
+      const created = ctx?.mutationResult;
+      const ownerSystemId = payload?.systemId?.trim();
+      if (
+        ownerSystemId &&
+        isRoleDto(created) &&
+        typeof created.id === 'string' &&
+        created.id.trim().length > 0
+      ) {
+        navigate(`/systems/${ownerSystemId}/roles/${created.id}/permissoes`);
+      }
     },
-    [handleRefetch, setPage],
+    [handleRefetch, navigate, setPage],
   );
 
   /**

@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 
+import { makePermission } from "./__helpers__/rolePermissionsTestHelpers";
+
 import {
   buildInitialRolePermissionIds,
   computeRolePermissionDiff,
+  groupPermissionsByRoute,
   rolePermissionDiffHasChanges,
 } from "@/pages/roles/rolePermissionsHelpers";
 
@@ -135,5 +138,64 @@ describe("rolePermissionDiffHasChanges", () => {
     expect(
       rolePermissionDiffHasChanges({ toAdd: [PERM_A], toRemove: [PERM_B] }),
     ).toBe(true);
+  });
+});
+
+describe("groupPermissionsByRoute", () => {
+  it("agrupa permissões da mesma rota e ordena tipos por código", () => {
+    const p1 = makePermission({
+      id: PERM_B,
+      routeId: "route-z",
+      routeCode: "AUTH_Z",
+      routeName: "Zeta",
+      permissionTypeCode: "Write",
+    });
+    const p2 = makePermission({
+      id: PERM_A,
+      routeId: "route-z",
+      routeCode: "AUTH_Z",
+      routeName: "Zeta",
+      permissionTypeCode: "Read",
+    });
+    const groups = groupPermissionsByRoute([p1, p2]);
+    expect(groups).toHaveLength(1);
+    const [first] = groups;
+    expect(first?.permissions.map((p) => p.id)).toEqual([PERM_A, PERM_B]);
+  });
+
+  it("separa rotas distintas e ordena subgrupos por routeCode", () => {
+    const pa = makePermission({
+      id: PERM_A,
+      routeId: "route-b",
+      routeCode: "AUTH_B",
+      routeName: "B",
+    });
+    const pb = makePermission({
+      id: PERM_B,
+      routeId: "route-a",
+      routeCode: "AUTH_A",
+      routeName: "A",
+    });
+    const groups = groupPermissionsByRoute([pa, pb]);
+    expect(groups.map((g) => g.routeCode)).toEqual(["AUTH_A", "AUTH_B"]);
+  });
+
+  it("usa bucket por routeCode quando routeId vem vazio", () => {
+    const p1 = makePermission({
+      id: PERM_A,
+      routeId: "   ",
+      routeCode: "AUTH_EMPTY_RID",
+      routeName: "X",
+    });
+    const p2 = makePermission({
+      id: PERM_B,
+      routeId: "",
+      routeCode: "AUTH_EMPTY_RID",
+      routeName: "X",
+    });
+    const groups = groupPermissionsByRoute([p1, p2]);
+    expect(groups).toHaveLength(1);
+    const [first] = groups;
+    expect(first?.permissions).toHaveLength(2);
   });
 });

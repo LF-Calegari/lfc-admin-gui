@@ -14,6 +14,8 @@
  * desde o primeiro consumer adicional.
  */
 
+import type { PermissionDto } from "../../shared/api";
+
 /**
  * Re-exports dos tipos compartilhados — evita que `RolePermissionsShellPage`
  * tenha que importar diretamente de `pages/users/userPermissionsHelpers`,
@@ -74,6 +76,63 @@ export interface RolePermissionAssignmentFailure {
  */
 function compareStrings(a: string, b: string): number {
   return a.localeCompare(b, "pt-BR", { sensitivity: "base" });
+}
+
+function comparePermissionsByType(a: PermissionDto, b: PermissionDto): number {
+  const byType = compareStrings(a.permissionTypeCode, b.permissionTypeCode);
+  if (byType !== 0) return byType;
+  return compareStrings(a.id, b.id);
+}
+
+/**
+ * Subgrupo visual: permissões da mesma rota (épico #196 / Issue #198).
+ */
+export interface PermissionRouteSubgroup {
+  routeId: string;
+  routeCode: string;
+  routeName: string;
+  permissions: ReadonlyArray<PermissionDto>;
+}
+
+/**
+ * Agrupa por `routeId` (fallback estável por `routeCode` quando o id
+ * vem vazio), ordena rotas por `routeCode` e permissões por tipo.
+ */
+export function groupPermissionsByRoute(
+  permissions: ReadonlyArray<PermissionDto>,
+): ReadonlyArray<PermissionRouteSubgroup> {
+  const map = new Map<string, PermissionDto[]>();
+  for (const p of permissions) {
+    const rid = p.routeId.trim();
+    const key = rid.length > 0 ? rid : `code:${p.routeCode}`;
+    const bucket = map.get(key);
+    if (bucket) {
+      bucket.push(p);
+    } else {
+      map.set(key, [p]);
+    }
+  }
+
+  const result: PermissionRouteSubgroup[] = [];
+  for (const items of map.values()) {
+    const sortedItems = [...items].sort(comparePermissionsByType);
+    const head = sortedItems[0];
+    if (!head) continue;
+    const ridHead = head.routeId.trim();
+    const routeCode =
+      head.routeCode.trim().length > 0 ? head.routeCode.trim() : "—";
+    const routeName =
+      head.routeName.trim().length > 0 ? head.routeName.trim() : routeCode;
+    result.push({
+      routeId: ridHead.length > 0 ? ridHead : routeCode,
+      routeCode,
+      routeName,
+      permissions: sortedItems,
+    });
+  }
+
+  result.sort((a, b) => compareStrings(a.routeCode, b.routeCode));
+  return result;
 }
 
 /**

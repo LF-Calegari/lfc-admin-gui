@@ -56,11 +56,13 @@ import {
 import {
   buildInitialRolePermissionIds,
   computeRolePermissionDiff,
+  groupPermissionsByRoute,
   groupPermissionsBySystem,
   rolePermissionDiffHasChanges,
 } from "./rolePermissionsHelpers";
 
 import type {
+  PermissionRouteSubgroup,
   PermissionSystemGroup,
   RolePermissionAssignmentFailure,
 } from "./rolePermissionsHelpers";
@@ -134,8 +136,9 @@ function extractErrorMessage(error: unknown, fallback: string): string {
  *    `GET /roles/{roleId}/permissions` (estado atual da role).
  * 2. Inicializa o set `selectedAssigned` com as permissões já
  *    vinculadas à role.
- * 3. UI exibe lista agrupada por sistema (apenas o sistema da role,
- *    em geral); cada permissão tem um checkbox controlado e badge
+ * 3. UI exibe lista agrupada por sistema e, dentro de cada sistema,
+ *    por rota (épico #196 / Issue #198); cada permissão tem um checkbox
+ *    controlado e badge
  *    "Vinculada" para o estado original e badge "Adição/Remoção
  *    pendente" para mudanças não salvas.
  * 4. Salvar calcula o diff client-side e dispara
@@ -417,7 +420,7 @@ export const RolePermissionsShellPage: React.FC<
       <PageHeader
         eyebrow="03 Roles · Permissões"
         title="Permissões da role"
-        desc="Vincule ou desvincule permissões à role selecionada. O catálogo lista apenas permissões do mesmo sistema (filtro por systemId). Cada vínculo é uma permissão concreta — combinação de rota e tipo de acesso — e precisa existir antes em Permissões; não basta existir só a rota. As alterações passam a valer após Salvar."
+        desc="Vincule ou desvincule permissões à role selecionada. O catálogo lista apenas permissões do mesmo sistema (filtro por systemId), agrupadas por rota. Cada vínculo é uma permissão concreta — combinação de rota e tipo de acesso — e precisa existir antes em Permissões; não basta existir só a rota. As alterações passam a valer após Salvar."
         actions={
           <>
             <Button
@@ -536,69 +539,137 @@ const PermissionGroup: React.FC<PermissionGroupProps> = ({
   originalAssigned,
   isSaving,
   onToggle,
-}) => (
-  <AssignmentGroupCard
-    data-testid={`role-permissions-group-${group.systemCode}`}
-  >
-    <AssignmentGroupHeaderRow
-      systemCode={group.systemCode}
-      systemName={group.systemName}
-      count={group.permissions.length}
-      countAriaLabel={`${group.permissions.length} permissões neste sistema`}
-    />
-    <AssignmentItemList>
-      {group.permissions.map((perm) => {
-        const isSelected = selectedAssigned.has(perm.id);
-        const wasOriginallyAssigned = originalAssigned.has(perm.id);
-        const isPending = isSelected !== wasOriginallyAssigned;
-        return (
-          <AssignmentItemRow
-            key={perm.id}
-            data-testid={`role-permissions-item-${perm.id}`}
-            data-pending={isPending || undefined}
-          >
-            <Checkbox
-              checked={isSelected}
-              disabled={isSaving}
-              onChange={(checked) => onToggle(perm.id, checked)}
-              aria-label={`${perm.routeName || perm.routeCode} · ${
-                perm.permissionTypeName || perm.permissionTypeCode
-              }`}
-              data-testid={`role-permissions-checkbox-${perm.id}`}
-            />
-            <AssignmentItemDetails>
-              <AssignmentItemTitleRow>
-                <AssignmentItemPrimaryText>
-                  {perm.routeName || perm.routeCode}
-                </AssignmentItemPrimaryText>
-                <AssignmentItemCodeChip>
-                  <Mono>{perm.permissionTypeCode}</Mono>
-                </AssignmentItemCodeChip>
-              </AssignmentItemTitleRow>
-              <AssignmentItemMetaRow>
-                <Mono>{perm.routeCode || "—"}</Mono>
-                {perm.description && (
-                  <AssignmentItemDescription>
-                    {perm.description}
-                  </AssignmentItemDescription>
-                )}
-              </AssignmentItemMetaRow>
-              <AssignmentItemBadges>
-                {wasOriginallyAssigned && (
-                  <Badge variant="success" dot>
-                    Vinculada
-                  </Badge>
-                )}
-                {isPending && (
-                  <Badge variant="warning">
-                    {isSelected ? "Adição pendente" : "Remoção pendente"}
-                  </Badge>
-                )}
-              </AssignmentItemBadges>
-            </AssignmentItemDetails>
-          </AssignmentItemRow>
-        );
-      })}
-    </AssignmentItemList>
-  </AssignmentGroupCard>
-);
+}) => {
+  const routeSubgroups = useMemo(
+    () => groupPermissionsByRoute(group.permissions),
+    [group.permissions],
+  );
+
+  return (
+    <AssignmentGroupCard
+      data-testid={`role-permissions-group-${group.systemCode}`}
+    >
+      <AssignmentGroupHeaderRow
+        systemCode={group.systemCode}
+        systemName={group.systemName}
+        count={group.permissions.length}
+        countAriaLabel={`${group.permissions.length} permissões neste sistema`}
+      />
+      {routeSubgroups.map((sub, idx) => (
+        <RoutePermissionSubgroup
+          key={`${sub.routeId}-${sub.routeCode}`}
+          subgroup={sub}
+          subgroupIndex={idx}
+          systemCode={group.systemCode}
+          selectedAssigned={selectedAssigned}
+          originalAssigned={originalAssigned}
+          isSaving={isSaving}
+          onToggle={onToggle}
+        />
+      ))}
+    </AssignmentGroupCard>
+  );
+};
+
+interface RoutePermissionSubgroupProps {
+  subgroup: PermissionRouteSubgroup;
+  subgroupIndex: number;
+  systemCode: string;
+  selectedAssigned: ReadonlySet<string>;
+  originalAssigned: ReadonlySet<string>;
+  isSaving: boolean;
+  onToggle: (permissionId: string, checked: boolean) => void;
+}
+
+const RoutePermissionSubgroup: React.FC<RoutePermissionSubgroupProps> = ({
+  subgroup,
+  subgroupIndex,
+  systemCode,
+  selectedAssigned,
+  originalAssigned,
+  isSaving,
+  onToggle,
+}) => {
+  const headingId = `role-permissions-route-${systemCode}-${subgroup.routeId}`;
+  return (
+    <section
+      role="group"
+      aria-labelledby={headingId}
+      data-testid={`role-permissions-route-${subgroup.routeId}`}
+      style={{
+        borderTop:
+          subgroupIndex > 0
+            ? "var(--border-thin) solid var(--border-subtle)"
+            : undefined,
+        paddingTop: subgroupIndex > 0 ? "var(--space-4)" : "var(--space-3)",
+      }}
+    >
+      <div
+        id={headingId}
+        style={{
+          fontSize: "var(--text-sm)",
+          fontWeight: "var(--weight-semibold)",
+          color: "var(--fg2)",
+          padding: "0 var(--space-4) var(--space-3)",
+        }}
+      >
+        <span>{subgroup.routeName}</span>{" "}
+        <Mono>{subgroup.routeCode}</Mono>
+      </div>
+      <AssignmentItemList>
+        {subgroup.permissions.map((perm) => {
+          const isSelected = selectedAssigned.has(perm.id);
+          const wasOriginallyAssigned = originalAssigned.has(perm.id);
+          const isPending = isSelected !== wasOriginallyAssigned;
+          return (
+            <AssignmentItemRow
+              key={perm.id}
+              data-testid={`role-permissions-item-${perm.id}`}
+              data-pending={isPending || undefined}
+            >
+              <Checkbox
+                checked={isSelected}
+                disabled={isSaving}
+                onChange={(checked) => onToggle(perm.id, checked)}
+                aria-label={`${perm.routeName || perm.routeCode} · ${
+                  perm.permissionTypeName || perm.permissionTypeCode
+                }`}
+                data-testid={`role-permissions-checkbox-${perm.id}`}
+              />
+              <AssignmentItemDetails>
+                <AssignmentItemTitleRow>
+                  <AssignmentItemPrimaryText>
+                    {perm.routeName || perm.routeCode}
+                  </AssignmentItemPrimaryText>
+                  <AssignmentItemCodeChip>
+                    <Mono>{perm.permissionTypeCode}</Mono>
+                  </AssignmentItemCodeChip>
+                </AssignmentItemTitleRow>
+                <AssignmentItemMetaRow>
+                  <Mono>{perm.routeCode || "—"}</Mono>
+                  {perm.description && (
+                    <AssignmentItemDescription>
+                      {perm.description}
+                    </AssignmentItemDescription>
+                  )}
+                </AssignmentItemMetaRow>
+                <AssignmentItemBadges>
+                  {wasOriginallyAssigned && (
+                    <Badge variant="success" dot>
+                      Vinculada
+                    </Badge>
+                  )}
+                  {isPending && (
+                    <Badge variant="warning">
+                      {isSelected ? "Adição pendente" : "Remoção pendente"}
+                    </Badge>
+                  )}
+                </AssignmentItemBadges>
+              </AssignmentItemDetails>
+            </AssignmentItemRow>
+          );
+        })}
+      </AssignmentItemList>
+    </section>
+  );
+};

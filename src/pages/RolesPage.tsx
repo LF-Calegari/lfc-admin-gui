@@ -11,6 +11,7 @@ import {
   DEFAULT_ROLES_INCLUDE_DELETED,
   DEFAULT_ROLES_PAGE,
   DEFAULT_ROLES_PAGE_SIZE,
+  isRoleDto,
   listRoles,
 } from "../shared/api";
 import { useAuth } from "../shared/auth";
@@ -46,6 +47,7 @@ import {
 
 import type { TableColumn } from "../components/ui";
 import type { ApiClient, RoleDto, SafeRequestOptions } from "../shared/api";
+import type { CreateEntitySubmitSuccessContext } from "../shared/forms";
 
 /**
  * Atraso entre a última tecla e o disparo da request de busca. 300 ms é
@@ -230,6 +232,27 @@ export const RolesPage: React.FC<RolesPageProps> = ({ client }) => {
       "Falha ao carregar a lista de roles. Tente novamente.",
     skip: !hasValidSystemId,
   });
+
+  /**
+   * Refetch + navegação para permissões da role recém-criada (épico
+   * #196 / Issue #197). `mutationResult` vem do `createRole` via
+   * `useCreateEntitySubmit`.
+   */
+  const handleRoleCreated = useCallback(
+    (ctx?: CreateEntitySubmitSuccessContext) => {
+      handleRefetch();
+      const created = ctx?.mutationResult;
+      if (
+        hasValidSystemId &&
+        isRoleDto(created) &&
+        typeof created.id === "string" &&
+        created.id.trim().length > 0
+      ) {
+        navigate(`/systems/${systemId}/roles/${created.id}/permissoes`);
+      }
+    },
+    [handleRefetch, hasValidSystemId, navigate, systemId],
+  );
 
   const {
     totalPages,
@@ -581,7 +604,7 @@ export const RolesPage: React.FC<RolesPageProps> = ({ client }) => {
           open={isCreateModalOpen}
           systemId={systemId}
           onClose={handleCloseCreateModal}
-          onCreated={handleRefetch}
+          onCreated={handleRoleCreated}
           client={client}
         />
       )}
