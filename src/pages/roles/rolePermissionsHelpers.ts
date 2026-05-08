@@ -14,6 +14,11 @@
  * desde o primeiro consumer adicional.
  */
 
+import { groupByRoute } from "../../shared/listing";
+
+import type { PermissionDto } from "../../shared/api";
+import type { RouteGroup } from "../../shared/listing";
+
 /**
  * Re-exports dos tipos compartilhados — evita que `RolePermissionsShellPage`
  * tenha que importar diretamente de `pages/users/userPermissionsHelpers`,
@@ -74,6 +79,77 @@ export interface RolePermissionAssignmentFailure {
  */
 function compareStrings(a: string, b: string): number {
   return a.localeCompare(b, "pt-BR", { sensitivity: "base" });
+}
+
+/**
+ * Compara duas permissões dentro do mesmo subgrupo de rota: primeiro
+ * por `permissionTypeCode` (Read/Create/Update/Delete em ordem natural),
+ * depois por `id` em desempate. Mantido fora do agrupador para preservar
+ * a complexidade cognitiva baixa (regra Sonar).
+ */
+function comparePermissionsByType(a: PermissionDto, b: PermissionDto): number {
+  const byType = compareStrings(a.permissionTypeCode, b.permissionTypeCode);
+  if (byType !== 0) return byType;
+  return compareStrings(a.id, b.id);
+}
+
+/**
+ * Subgrupo visual: permissões da mesma rota (épico #196 / Issue #198).
+ *
+ * O shape preserva o vocabulário do recurso (`permissions` em vez de
+ * `items`) para manter os call-sites legíveis. Internamente é um
+ * adapter sobre `RouteGroup<PermissionDto>` devolvido pelo helper
+ * genérico `groupByRoute` (`src/shared/listing/`).
+ */
+export interface PermissionRouteSubgroup {
+  routeId: string;
+  routeCode: string;
+  routeName: string;
+  permissions: ReadonlyArray<PermissionDto>;
+}
+
+/**
+ * Adapter `RouteGroup<PermissionDto>` → `PermissionRouteSubgroup`. Só
+ * renomeia `items` → `permissions` para preservar a leitura natural
+ * nos call-sites do recurso.
+ */
+function toRouteSubgroup(
+  group: RouteGroup<PermissionDto>,
+): PermissionRouteSubgroup {
+  return {
+    routeId: group.routeId,
+    routeCode: group.routeCode,
+    routeName: group.routeName,
+    permissions: group.items,
+  };
+}
+
+/**
+ * Agrupa um catálogo de permissões por rota. Itens cujo `routeCode` é
+ * vazio (LEFT JOIN do backend não encontrou a rota — soft-delete em
+ * cascata) ficam num grupo virtual com `routeCode` "—" para que a UI
+ * ainda mostre o item em vez de descartá-lo silenciosamente.
+ *
+ * Resultado é ordenado:
+ *
+ * 1. Grupos por `routeCode` (estabilidade visual; órfãos vão pro fim).
+ * 2. Permissões dentro de cada grupo por `permissionTypeCode` então
+ *    `id` em desempate.
+ *
+ * Implementação delega ao helper genérico `groupByRoute` em
+ * `src/shared/listing/groupByRoute.ts` — mesmo corpo do algoritmo que
+ * `groupBySystem` consome (`groupByEntityField`), parametrizado apenas
+ * pela tripla de campos `route*`. Centralizar lá previne a recorrência
+ * de New Code Duplication no Sonar (lições PR #134/#135).
+ */
+export function groupPermissionsByRoute(
+  permissions: ReadonlyArray<PermissionDto>,
+): ReadonlyArray<PermissionRouteSubgroup> {
+  const groups = groupByRoute(permissions, {
+    compareItems: comparePermissionsByType,
+    orphanFallbackName: "Sem rota",
+  });
+  return groups.map(toRouteSubgroup);
 }
 
 /**

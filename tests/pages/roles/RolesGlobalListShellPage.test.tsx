@@ -701,9 +701,11 @@ describe('RolesGlobalListShellPage — Issue #193 criar role global', () => {
     });
     expect(await screen.findByText('Role criada.')).toBeInTheDocument();
 
-    expect(screen.getByTestId('roles-global-system-filter')).toHaveValue(
-      ID_SYS_OUTRO,
-    );
+    // Épico #196 / Issue #197 — navegação para permissões da role nova.
+    // O filtro global deixa de estar visível neste fluxo (nova rota).
+    expect(
+      await screen.findByTestId('roles-global-after-create-permissions'),
+    ).toBeInTheDocument();
   });
 
   it('submeter sem selecionar sistema mostra erro e não dispara POST', async () => {

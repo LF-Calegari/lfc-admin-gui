@@ -252,6 +252,37 @@ describe("RolePermissionsShellPage — render do catálogo", () => {
     ).toHaveTextContent("Listar usuários");
   });
 
+  it("renderiza subgrupos por rota quando o catálogo tem mais de uma rota (épico #196)", async () => {
+    const client = createRolePermissionsClientStub();
+    primeStubResponses(client, {
+      catalog: makePagedPermissions([
+        makePermission({
+          id: ID_PERM_A,
+          routeId: "route-a",
+          routeCode: "AUTH_A",
+          routeName: "Rota A",
+        }),
+        makePermission({
+          id: ID_PERM_B,
+          routeId: "route-b",
+          routeCode: "AUTH_B",
+          routeName: "Rota B",
+        }),
+      ]),
+      assigned: [],
+    });
+
+    renderRolePermissionsPage(client);
+    await waitForInitialFetch();
+
+    expect(
+      screen.getByTestId("role-permissions-route-route-a"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("role-permissions-route-route-b"),
+    ).toBeInTheDocument();
+  });
+
   it("exibe estado vazio quando o catálogo é vazio", async () => {
     const client = createRolePermissionsClientStub();
     primeStubResponses(client, {
