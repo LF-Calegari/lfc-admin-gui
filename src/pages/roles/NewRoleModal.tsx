@@ -1,8 +1,11 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 
-import { Modal, useToast } from "../../components/ui";
+import { Modal, Select, useToast } from "../../components/ui";
 import { createRole } from "../../shared/api";
-import { useCreateEntitySubmit } from "../../shared/forms";
+import {
+  useCreateEntitySubmit,
+  type CreateEntitySubmitSuccessContext,
+} from "../../shared/forms";
 
 import { RoleFormBody } from "./RoleFormFields";
 import {
@@ -12,7 +15,11 @@ import {
 } from "./rolesFormShared";
 import { useRoleForm, useRoleFormFieldProps } from "./useRoleForm";
 
-import type { ApiClient, CreateRolePayload } from "../../shared/api";
+import type {
+  ApiClient,
+  CreateRolePayload,
+  SystemDto,
+} from "../../shared/api";
 
 /**
  * Copy injetada em `classifyApiSubmitError` para o caminho de criação
@@ -36,71 +43,75 @@ const SUBMIT_ERROR_COPY: RoleSubmitErrorCopy = {
 const CONFLICT_INLINE_MESSAGE =
   "Já existe uma role com este código neste sistema.";
 
-interface NewRoleModalProps {
+const EMPTY_SYSTEMS: ReadonlyArray<SystemDto> = [];
+
+export type NewRoleModalProps = {
   /** Estado de visibilidade controlado pelo pai. */
   open: boolean;
-  /**
-   * UUID do sistema dono da role — vem da URL
-   * `/systems/:systemId/roles`. Repassado ao `prepareSubmit(systemId)`
-   * para construir o body do POST (`CreateRoleRequest.SystemId` é
-   * `[Required]` no backend após o enriquecimento do contrato em
-   * `lfc-authenticator#163`/`#164`; tentar omitir devolve 400). A UI
-   * **nunca** expõe o campo no form e sempre repassa o valor lido da
-   * URL — espelha o desenho do `EditRoleModal` e do `NewRouteModal`.
-   */
-  systemId: string;
   /** Fecha o modal sem persistir. Chamada também após sucesso. */
   onClose: () => void;
-  /** Callback disparado após criação bem-sucedida (para refetch da lista). */
-  onCreated: () => void;
+  /**
+   * Callback após criação bem-sucedida (refetch no pai). Recebe o
+   * payload enviado ao POST quando útil (Issue #193 — filtro na lista
+   * global).
+   */
+  onCreated: (context?: CreateEntitySubmitSuccessContext) => void;
   /**
    * Cliente HTTP injetável para isolar testes — em produção, omitido,
    * `createRole` cai no singleton `apiClient`.
    */
   client?: ApiClient;
-}
+} & (
+  | {
+      /**
+       * `systemId` fixo vindo da URL `/systems/:systemId/roles`
+       * (`RolesPage`).
+       */
+      variant: "scoped";
+      systemId: string;
+    }
+  | {
+      /**
+       * Catálogo carregado pelo pai (`listSystems`) — operador escolhe
+       * o sistema dono antes de nome/código (Issue #193).
+       */
+      variant: "global";
+      systems: ReadonlyArray<SystemDto>;
+    }
+);
 
 /**
  * Modal de criação de role (Issue #67 — fluxo "criar role" da EPIC
- * #47).
+ * #47; Issue #193 — variante global com `<Select>` de sistema).
  *
  * Espelha o desenho de `NewSystemModal`/`NewRouteModal`/`NewUserModal`
  * com três diferenças funcionais relevantes:
  *
- * 1. `systemId` chega como prop (lido da URL pela `RolesPage`) e é
- *    injetado no payload via `prepareSubmit(systemId)` — o backend
- *    `RolesController.Create` exige `SystemId` após o enriquecimento
- *    do contrato em `lfc-authenticator#163`/`#164`.
+ * 1. `systemId` chega como prop na variante `scoped` (URL da
+ *    `RolesPage`) ou via estado local + catálogo na variante `global`.
+ *    O backend `RolesController.Create` exige `SystemId`.
  * 2. 409 mapeia para mensagem inline custom no campo `code`
- *    citando "neste sistema" (unicidade `(SystemId, Code)` no
- *    backend; a copy do controller é "Já existe outro role com este
- *    Code neste sistema." mas a UI usa pt-BR consistente).
+ *    citando "neste sistema".
  * 3. Sucesso dispara toast verde "Role criada." e `onCreated` antes
- *    de `onClose` — pai responsável pelo refetch.
- *
- * Toda a lógica de validação client-side, parsing de
- * `ValidationProblemDetails`, classificação de erros e dispatch de
- * efeitos colaterais vem de helpers compartilhados:
- *
- * - `useRoleForm` — estado/handlers do form + `prepareSubmit`/
- *   `applyBadRequest`. Decora `useNameCodeDescriptionForm` injetando
- *   `systemId` no payload.
- * - `useCreateEntitySubmit` — orquestra `try/catch/finally` +
- *   `classifyApiSubmitError` + `applyCreateSubmitAction` (lição PR
- *   #135 — call-site também duplica entre modals de criação).
- * - `useRoleFormFieldProps` — consolida props sequenciais para
- *   `<RoleFormBody>`, evitando bloco repetido de ~10 linhas com
- *   `EditRoleModal` (lição PR #134/#135).
- * - `RoleFormBody` — wrapper fino do `NameCodeDescriptionFormBody`
- *   compartilhado entre roles e sistemas.
+ *    de `onClose` — pai responsável pelo refetch (com contexto do
+ *    payload quando o hook repassa).
  */
-export const NewRoleModal: React.FC<NewRoleModalProps> = ({
-  open,
-  systemId,
-  onClose,
-  onCreated,
-  client,
-}) => {
+export const NewRoleModal: React.FC<NewRoleModalProps> = (props) => {
+  const { open, variant, onClose, onCreated, client } = props;
+  const scopedSystemId = variant === "scoped" ? props.systemId : "";
+  const systems = variant === "global" ? props.systems : EMPTY_SYSTEMS;
+
+  const [selectedSystemId, setSelectedSystemId] = useState<string>("");
+  const [systemPickerError, setSystemPickerError] = useState<string | null>(
+    null,
+  );
+
+  useEffect(() => {
+    if (!open || variant !== "global") return;
+    setSystemPickerError(null);
+    setSelectedSystemId("");
+  }, [open, variant]);
+
   const { show } = useToast();
   const roleForm = useRoleForm(INITIAL_ROLE_FORM_STATE);
   const {
@@ -113,54 +124,60 @@ export const NewRoleModal: React.FC<NewRoleModalProps> = ({
     applyBadRequest,
   } = roleForm;
 
-  /**
-   * Reseta tudo ao fechar — handler único para Esc, backdrop, X e
-   * botão Cancelar; previne resíduo entre aberturas. Cancelar
-   * durante submissão é bloqueado para evitar request órfã (sem
-   * `AbortController` nessa primeira iteração — backend é rápido e
-   * o usuário não consegue disparar duas vezes graças ao `disabled`
-   * no botão).
-   */
   const handleClose = useCallback(() => {
     if (isSubmitting) return;
     setFormState(INITIAL_ROLE_FORM_STATE);
     setFieldErrors({});
     setSubmitError(null);
+    if (variant === "global") {
+      setSystemPickerError(null);
+      setSelectedSystemId("");
+    }
     onClose();
-  }, [isSubmitting, onClose, setFormState, setFieldErrors, setSubmitError]);
+  }, [
+    isSubmitting,
+    onClose,
+    setFieldErrors,
+    setFormState,
+    setSubmitError,
+    variant,
+  ]);
 
-  /**
-   * Reset disparado pelo helper `useCreateEntitySubmit` no caminho
-   * feliz (antes de `onCreated`/`onClose`). Mantemos uma referência
-   * dedicada (em vez de reusar `handleClose`) porque `handleClose` é
-   * gateado por `isSubmitting` — o submit feliz roda exatamente
-   * quando `isSubmitting === true`, então o gate inverteria o
-   * comportamento esperado. Espelha o padrão de `NewUserModal`.
-   */
   const resetForm = useCallback(() => {
     setFormState(INITIAL_ROLE_FORM_STATE);
     setFieldErrors({});
     setSubmitError(null);
-  }, [setFormState, setFieldErrors, setSubmitError]);
+    if (variant === "global") {
+      setSystemPickerError(null);
+      setSelectedSystemId("");
+    }
+  }, [setFieldErrors, setFormState, setSubmitError, variant]);
 
-  /**
-   * Wrapper de `prepareSubmit` que injeta o `systemId` (vem da URL
-   * via prop) — preserva a assinatura `() => object | null` exigida
-   * por `useCreateEntitySubmit.callbacks.prepareSubmit`. Idêntico em
-   * espírito ao wrapper do `EditRoleModal` (que faz o mesmo + gate
-   * de `role !== null`).
-   */
-  const prepareSubmitWithSystemId = useCallback(
-    (): CreateRolePayload | null => prepareSubmit(systemId),
-    [prepareSubmit, systemId],
-  );
+  const prepareSubmitWithSystemId = useCallback((): CreateRolePayload | null => {
+    const ownerId =
+      variant === "scoped" ? scopedSystemId : selectedSystemId.trim();
+    if (variant === "global") {
+      if (systems.length === 0) {
+        setSystemPickerError(
+          "Nenhum sistema disponível. Cadastre um sistema antes.",
+        );
+        return null;
+      }
+      if (!ownerId) {
+        setSystemPickerError("Selecione um sistema.");
+        return null;
+      }
+      setSystemPickerError(null);
+    }
+    return prepareSubmit(ownerId);
+  }, [
+    prepareSubmit,
+    scopedSystemId,
+    selectedSystemId,
+    systems.length,
+    variant,
+  ]);
 
-  /**
-   * `mutationFn` injetada no helper genérico. Tipa o payload via cast
-   * para `CreateRolePayload` porque o helper aceita `unknown` (o cast
-   * é seguro — `prepareSubmit` só devolve `CreateRolePayload | null`,
-   * e o helper já filtrou `null` antes de chamar `mutationFn`).
-   */
   const mutationFn = useCallback(
     (payload: unknown) =>
       createRole(payload as CreateRolePayload, undefined, client),
@@ -190,22 +207,50 @@ export const NewRoleModal: React.FC<NewRoleModalProps> = ({
     conflictField: "code",
   });
 
-  // Props compartilhadas com `EditRoleModal` consolidadas num único
-  // hook (`useRoleFormFieldProps`) para evitar New Code Duplication
-  // ≥10 linhas com o caminho de edição — JSCPD/Sonar tokenizam
-  // blocos de props sequenciais como duplicação. Lição PR #134/#135
-  // reforçada.
   const fieldProps = useRoleFormFieldProps(roleForm, handleSubmit, handleClose);
+
+  const modalDescription =
+    variant === "scoped"
+      ? "Cadastre uma role vinculada ao sistema selecionado."
+      : "Escolha o sistema dono da role e preencha nome, código e descrição.";
 
   return (
     <Modal
       open={open}
       onClose={handleClose}
       title="Nova role"
-      description="Cadastre uma role vinculada ao sistema selecionado."
+      description={modalDescription}
       closeOnEsc={!isSubmitting}
       closeOnBackdrop={!isSubmitting}
     >
+      {variant === "global" && (
+        <Select
+          label="Sistema"
+          size="md"
+          value={selectedSystemId}
+          onChange={(value) => {
+            setSelectedSystemId(value);
+            setSystemPickerError(null);
+          }}
+          disabled={isSubmitting || systems.length === 0}
+          error={systemPickerError ?? undefined}
+          data-testid="new-role-system"
+          aria-label="Sistema dono da role"
+        >
+          {systems.length === 0 ? (
+            <option value="">Nenhum sistema cadastrado</option>
+          ) : (
+            <>
+              <option value="">Selecione um sistema</option>
+              {systems.map((sys) => (
+                <option key={sys.id} value={sys.id}>
+                  {sys.name}
+                </option>
+              ))}
+            </>
+          )}
+        </Select>
+      )}
       <RoleFormBody
         {...fieldProps}
         idPrefix="new-role"

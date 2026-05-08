@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildAuthMock } from '../__helpers__/mockUseAuth';
 import {
   createRolesClientStub,
+  fillNewRoleForm,
   ID_ROLE_ADMIN,
   ID_ROLE_ROOT,
   ID_ROLE_VIEWER,
@@ -15,8 +16,10 @@ import {
   makePagedSystemsResponseForRoles,
   makeRole,
   makeSystemDtoForRoles,
+  openGlobalCreateRoleModal,
   primeRolesGlobalStubResponses,
   renderRolesGlobalListPage,
+  submitNewRoleForm,
   waitForRolesGlobalInitialList,
 } from '../__helpers__/rolesTestHelpers';
 /* eslint-enable import/order */
@@ -38,14 +41,15 @@ import type { ApiError, RoleDto, SystemDto } from '@/shared/api';
  *   (catálogo do dropdown). O helper `primeRolesGlobalStubResponses`
  *   resolve ambas via `mockImplementation` por path.
  * - Filtro extra é dropdown de sistema (UUID), não Select de tipo.
- * - Não há criação/edição/desativação inline (deferido — a issue
- *   especifica que os fluxos de mutação ficam na `RolesPage`
- *   per-system).
+ * - Criação de role na própria página global com seleção de sistema
+ *   (Issue #193); edição permanece no drill-down por sistema.
  * - Cada linha "drilla" para `/systems/:systemId/roles` via
  *   `useNavigate` ao clicar em "Abrir".
  */
 
-vi.mock('@/shared/auth', () => buildAuthMock(() => ['AUTH_V1_ROLES_LIST']));
+let permissionsMock: ReadonlyArray<string> = ['AUTH_V1_ROLES_LIST'];
+
+vi.mock('@/shared/auth', () => buildAuthMock(() => permissionsMock));
 
 const SEARCH_DEBOUNCE_MS = 300;
 const ID_SYS_OUTRO = '22222222-2222-2222-2222-222222222222';
@@ -81,6 +85,7 @@ const SYSTEMS_SAMPLE: ReadonlyArray<SystemDto> = [
 ];
 
 beforeEach(() => {
+  permissionsMock = ['AUTH_V1_ROLES_LIST'];
   vi.useFakeTimers({ shouldAdvanceTime: true });
 });
 
@@ -617,5 +622,131 @@ describe('RolesGlobalListShellPage — cancelamento de request', () => {
     // Anti-warning: também consume `lastGetPath` para evitar import
     // não usado; afirma que pelo menos uma chamada teve path string.
     expect(typeof lastGetPath(client)).toBe('string');
+  });
+});
+
+describe('RolesGlobalListShellPage — Issue #193 criar role global', () => {
+  const ROLES_CREATE_PERMISSION = 'AUTH_V1_ROLES_CREATE';
+
+  it('não exibe o botão Nova role sem AUTH_V1_ROLES_CREATE', async () => {
+    permissionsMock = ['AUTH_V1_ROLES_LIST'];
+    const client = createRolesClientStub();
+    primeRolesGlobalStubResponses(client, {
+      roles: makePagedRolesResponse(ROLES_SAMPLE),
+      systems: makePagedSystemsResponseForRoles(SYSTEMS_SAMPLE),
+    });
+
+    renderRolesGlobalListPage(client);
+    await waitForRolesGlobalInitialList(client);
+
+    expect(
+      screen.queryByTestId('roles-global-create-open'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('exibe Nova role quando o usuário possui AUTH_V1_ROLES_CREATE', async () => {
+    permissionsMock = ['AUTH_V1_ROLES_LIST', ROLES_CREATE_PERMISSION];
+    const client = createRolesClientStub();
+    primeRolesGlobalStubResponses(client, {
+      roles: makePagedRolesResponse(ROLES_SAMPLE),
+      systems: makePagedSystemsResponseForRoles(SYSTEMS_SAMPLE),
+    });
+
+    renderRolesGlobalListPage(client);
+    await waitForRolesGlobalInitialList(client);
+
+    const btn = screen.getByTestId('roles-global-create-open');
+    expect(btn).toHaveTextContent(/Nova role/i);
+  });
+
+  it('POST /roles usa systemId do sistema selecionado no modal', async () => {
+    permissionsMock = ['AUTH_V1_ROLES_LIST', ROLES_CREATE_PERMISSION];
+    const created = makeRole({
+      id: 'dddddddd-dddd-dddd-dddd-dddddddddddd',
+      systemId: ID_SYS_OUTRO,
+      name: 'Operador Kurtto',
+      code: 'kurtto_op',
+    });
+    const client = createRolesClientStub();
+    primeRolesGlobalStubResponses(client, {
+      roles: makePagedRolesResponse(ROLES_SAMPLE),
+      systems: makePagedSystemsResponseForRoles(SYSTEMS_SAMPLE),
+    });
+    client.post.mockResolvedValueOnce(created);
+
+    await openGlobalCreateRoleModal(client);
+
+    fireEvent.change(screen.getByTestId('new-role-system'), {
+      target: { value: ID_SYS_OUTRO },
+    });
+
+    fillNewRoleForm({
+      name: 'Operador Kurtto',
+      code: 'kurtto_op',
+    });
+    await submitNewRoleForm(client);
+
+    expect(client.post).toHaveBeenCalledWith(
+      '/roles',
+      {
+        systemId: ID_SYS_OUTRO,
+        name: 'Operador Kurtto',
+        code: 'kurtto_op',
+      },
+      undefined,
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+    expect(await screen.findByText('Role criada.')).toBeInTheDocument();
+
+    expect(screen.getByTestId('roles-global-system-filter')).toHaveValue(
+      ID_SYS_OUTRO,
+    );
+  });
+
+  it('submeter sem selecionar sistema mostra erro e não dispara POST', async () => {
+    permissionsMock = ['AUTH_V1_ROLES_LIST', ROLES_CREATE_PERMISSION];
+    const client = createRolesClientStub();
+    primeRolesGlobalStubResponses(client, {
+      roles: makePagedRolesResponse(ROLES_SAMPLE),
+      systems: makePagedSystemsResponseForRoles(SYSTEMS_SAMPLE),
+    });
+
+    await openGlobalCreateRoleModal(client);
+
+    fillNewRoleForm({ name: 'Só nome', code: 'codigo' });
+    fireEvent.submit(screen.getByTestId('new-role-form'));
+
+    expect(screen.getByText('Selecione um sistema.')).toBeInTheDocument();
+    expect(client.post).not.toHaveBeenCalled();
+  });
+
+  it('exibe toast quando POST falha após tentativa de criar', async () => {
+    permissionsMock = ['AUTH_V1_ROLES_LIST', ROLES_CREATE_PERMISSION];
+    const client = createRolesClientStub();
+    primeRolesGlobalStubResponses(client, {
+      roles: makePagedRolesResponse(ROLES_SAMPLE),
+      systems: makePagedSystemsResponseForRoles(SYSTEMS_SAMPLE),
+    });
+    client.post.mockRejectedValueOnce({
+      kind: 'http',
+      status: 401,
+      message: 'Sessão expirada. Faça login novamente.',
+    });
+
+    await openGlobalCreateRoleModal(client);
+
+    fireEvent.change(screen.getByTestId('new-role-system'), {
+      target: { value: ID_SYS_AUTH },
+    });
+    fillNewRoleForm({ name: 'Algum Nome', code: 'algum_code' });
+    await submitNewRoleForm(client);
+
+    expect(
+      await screen.findByText(/Sessão expirada/i),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 });

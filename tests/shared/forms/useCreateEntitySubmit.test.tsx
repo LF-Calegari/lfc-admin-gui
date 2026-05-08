@@ -123,6 +123,9 @@ describe('useCreateEntitySubmit — caminho feliz', () => {
     });
     expect(spies.resetForm).toHaveBeenCalledTimes(1);
     expect(spies.onCreated).toHaveBeenCalledTimes(1);
+    expect(spies.onCreated).toHaveBeenCalledWith({
+      createdPayload: { payload: 'ok' },
+    });
     expect(spies.onClose).toHaveBeenCalledTimes(1);
     expect(spies.setIsSubmitting).toHaveBeenCalledWith(false);
   });

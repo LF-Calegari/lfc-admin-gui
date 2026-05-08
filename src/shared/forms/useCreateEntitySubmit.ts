@@ -90,6 +90,16 @@ export interface CreateEntitySubmitCopy {
 }
 
 /**
+ * Contexto opcional repassado a `onCreated` após mutação bem-sucedida —
+ * permite ao pai sincronizar filtros (ex.: listagem global de roles —
+ * Issue #193) sem acoplamento forte ao formato interno do form.
+ */
+export interface CreateEntitySubmitSuccessContext {
+  /** Payload enviado ao `mutationFn` (mesmo objeto devolvido por `prepareSubmit`). */
+  createdPayload: unknown;
+}
+
+/**
  * Callbacks de coordenação com o pai e dependências do efeito. Os
  * callbacks devem ser estáveis (memoizados pelo caller) — o hook
  * inclui todos no `useCallback` deps array.
@@ -113,8 +123,8 @@ export interface CreateEntitySubmitCallbacks {
    * `(payload) => createUser(payload, undefined, client)`.
    */
   mutationFn: (payload: unknown) => Promise<unknown>;
-  /** Refetch da lista no pai — disparado após sucesso. */
-  onCreated: () => void;
+  /** Refetch da lista no pai — disparado após sucesso. Recebe o payload criado quando útil ao pai. */
+  onCreated: (context?: CreateEntitySubmitSuccessContext) => void;
   /** Fecha o modal — disparado após sucesso. */
   onClose: () => void;
 }
@@ -225,7 +235,7 @@ export function useCreateEntitySubmit<TField extends string>({
         // Ordem importa: reset local + refetch antes de fechar para o
         // pai não ter que coordenar dois ticks separados.
         resetForm();
-        onCreated();
+        onCreated({ createdPayload: payload });
         onClose();
       } catch (error: unknown) {
         // `classifyApiSubmitError` decide o `kind`; `applyCreateSubmitAction`
