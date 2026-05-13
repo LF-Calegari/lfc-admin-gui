@@ -1,3 +1,4 @@
+import { extractErrorMessage, isApiError } from '../../shared/api';
 import { computeIdSetDiff, idSetDiffHasChanges } from '../../shared/forms';
 import { groupBySystem } from '../../shared/listing';
 
@@ -249,4 +250,62 @@ export function computeAssignmentDiff(
  */
 export function diffHasChanges(diff: PermissionAssignmentDiff): boolean {
   return idSetDiffHasChanges(diff);
+}
+
+/**
+ * Mensagem de carregamento inicial do painel de permissões diretas
+ * (catálogo + efetivas). Prioriza `message` do backend e enriquece
+ * 400/403/404 para operadores (Issue #203).
+ */
+export function formatUserPermissionsPanelLoadError(
+  error: unknown,
+  fallback: string,
+): string {
+  if (isApiError(error) && error.kind === 'http') {
+    if (error.status === 404) {
+      return (
+        error.message ||
+        'Usuário não encontrado ou sem permissão para consultar as permissões efetivas.'
+      );
+    }
+    if (error.status === 403) {
+      return (
+        error.message ||
+        'Você não tem permissão para carregar o catálogo ou as permissões deste usuário.'
+      );
+    }
+    if (error.status === 400) {
+      return error.message || 'Requisição inválida ao carregar permissões.';
+    }
+  }
+  return extractErrorMessage(error, fallback);
+}
+
+/**
+ * Mensagem por falha em `assignPermissionToUser` /
+ * `removePermissionFromUser` — 400/403/404 com copy orientativa
+ * (Issue #203).
+ */
+export function formatUserPermissionMutationError(
+  error: unknown,
+  fallback: string,
+): string {
+  if (isApiError(error) && error.kind === 'http') {
+    if (error.status === 403) {
+      return (
+        error.message ||
+        'Permissão negada: sua conta não pode atribuir ou remover esta permissão direta.'
+      );
+    }
+    if (error.status === 404) {
+      return (
+        error.message ||
+        'Usuário, permissão ou vínculo não encontrado. Recarregue a página para sincronizar.'
+      );
+    }
+    if (error.status === 400) {
+      return error.message || 'Dados inválidos ao alterar o vínculo de permissão.';
+    }
+  }
+  return extractErrorMessage(error, fallback);
 }
