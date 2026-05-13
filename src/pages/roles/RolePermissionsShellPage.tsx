@@ -1,4 +1,4 @@
-import { ArrowLeft, Info, Save } from "lucide-react";
+import { ArrowLeft, Info } from "lucide-react";
 import React, {
   useCallback,
   useEffect,
@@ -12,9 +12,7 @@ import { PageHeader } from "../../components/layout/PageHeader";
 import {
   Alert,
   Badge,
-  Button,
   Checkbox,
-  Spinner,
   useToast,
 } from "../../components/ui";
 import {
@@ -26,6 +24,7 @@ import {
   removePermissionFromRole,
 } from "../../shared/api";
 import {
+  AssignmentDiffToolbar,
   AssignmentEmptyHint,
   AssignmentEmptyShell,
   AssignmentEmptyTitle,
@@ -33,21 +32,15 @@ import {
   AssignmentGroupHeaderRow,
   AssignmentGroupList,
   AssignmentItemBadges,
-  AssignmentItemCodeChip,
-  AssignmentItemDescription,
   AssignmentItemDetails,
   AssignmentItemList,
-  AssignmentItemMetaRow,
-  AssignmentItemPrimaryText,
   AssignmentItemRow,
-  AssignmentItemTitleRow,
   AssignmentLegendBar,
   AssignmentLegendCopy,
   AssignmentLegendItem,
-  AssignmentLoadingCopy,
-  AssignmentLoadingShell,
-  AssignmentSaveCounter,
+  AssignmentPermissionPanelLoading,
   BackLink,
+  CatalogPermissionDetailHeader,
   ErrorRetryBlock,
   InvalidIdNotice,
   Mono,
@@ -422,37 +415,15 @@ export const RolePermissionsShellPage: React.FC<
         title="Permissões da role"
         desc="Vincule ou desvincule permissões à role selecionada. O catálogo lista apenas permissões do mesmo sistema (filtro por systemId), agrupadas por rota. Cada vínculo é uma permissão concreta — combinação de rota e tipo de acesso — e precisa existir antes em Permissões; não basta existir só a rota. As alterações passam a valer após Salvar."
         actions={
-          <>
-            <Button
-              variant="secondary"
-              size="md"
-              onClick={handleResetChanges}
-              disabled={!hasUnsavedChanges || state.isSaving}
-              data-testid="role-permissions-reset"
-            >
-              Descartar alterações
-            </Button>
-            <Button
-              variant="primary"
-              size="md"
-              icon={<Save size={14} aria-hidden="true" />}
-              loading={state.isSaving}
-              disabled={!hasUnsavedChanges}
-              onClick={handleSave}
-              data-testid="role-permissions-save"
-            >
-              Salvar alterações
-              {hasUnsavedChanges && (
-                <AssignmentSaveCounter
-                  aria-label={`${
-                    diff.toAdd.length + diff.toRemove.length
-                  } alterações pendentes`}
-                >
-                  {diff.toAdd.length + diff.toRemove.length}
-                </AssignmentSaveCounter>
-              )}
-            </Button>
-          </>
+          <AssignmentDiffToolbar
+            resetTestId="role-permissions-reset"
+            saveTestId="role-permissions-save"
+            hasUnsavedChanges={hasUnsavedChanges}
+            isSaving={state.isSaving}
+            pendingCount={diff.toAdd.length + diff.toRemove.length}
+            onReset={handleResetChanges}
+            onSave={handleSave}
+          />
         }
       />
 
@@ -477,13 +448,7 @@ export const RolePermissionsShellPage: React.FC<
       </AssignmentLegendBar>
 
       {state.isInitialLoading && (
-        <AssignmentLoadingShell
-          data-testid="role-permissions-loading"
-          aria-live="polite"
-        >
-          <Spinner size="md" tone="accent" />
-          <AssignmentLoadingCopy>Carregando permissões…</AssignmentLoadingCopy>
-        </AssignmentLoadingShell>
+        <AssignmentPermissionPanelLoading testId="role-permissions-loading" />
       )}
 
       {!state.isInitialLoading && state.errorMessage && (
@@ -637,22 +602,7 @@ const RoutePermissionSubgroup: React.FC<RoutePermissionSubgroupProps> = ({
                 data-testid={`role-permissions-checkbox-${perm.id}`}
               />
               <AssignmentItemDetails>
-                <AssignmentItemTitleRow>
-                  <AssignmentItemPrimaryText>
-                    {perm.routeName || perm.routeCode}
-                  </AssignmentItemPrimaryText>
-                  <AssignmentItemCodeChip>
-                    <Mono>{perm.permissionTypeCode}</Mono>
-                  </AssignmentItemCodeChip>
-                </AssignmentItemTitleRow>
-                <AssignmentItemMetaRow>
-                  <Mono>{perm.routeCode || "—"}</Mono>
-                  {perm.description && (
-                    <AssignmentItemDescription>
-                      {perm.description}
-                    </AssignmentItemDescription>
-                  )}
-                </AssignmentItemMetaRow>
+                <CatalogPermissionDetailHeader perm={perm} />
                 <AssignmentItemBadges>
                   {wasOriginallyAssigned && (
                     <Badge variant="success" dot>

@@ -49,9 +49,20 @@ export {
   type AssignmentGroupHeaderRowProps,
 } from './AssignmentGroupHeaderRow';
 export {
+  CatalogPermissionDetailHeader,
+} from './CatalogPermissionDetailHeader';
+export {
+  AssignmentDiffToolbar,
+  type AssignmentDiffToolbarProps,
+} from './AssignmentDiffToolbar';
+export {
   AssignmentMatrixShell,
   type AssignmentMatrixShellProps,
 } from './AssignmentMatrixShell';
+export {
+  AssignmentPermissionPanelLoading,
+  type AssignmentPermissionPanelLoadingProps,
+} from './AssignmentPermissionPanelLoading';
 export {
   EmptyHint as AssignmentEmptyHint,
   EmptyShell as AssignmentEmptyShell,

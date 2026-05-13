@@ -10,6 +10,8 @@ import {
   buildRoleMembershipsByPermission,
   computeAssignmentDiff,
   diffHasChanges,
+  formatUserPermissionMutationError,
+  formatUserPermissionsPanelLoadError,
   groupPermissionsBySystem,
 } from '@/pages/users/userPermissionsHelpers';
 
@@ -223,5 +225,52 @@ describe('computeAssignmentDiff', () => {
     const diff = computeAssignmentDiff(new Set(original), new Set(selected));
     expect(diff.toAdd).toEqual(toAdd);
     expect(diff.toRemove).toEqual(toRemove);
+  });
+});
+
+describe('formatUserPermissionsPanelLoadError (Issue #203)', () => {
+  it('prioriza message do backend em 404', () => {
+    expect(
+      formatUserPermissionsPanelLoadError(
+        { kind: 'http', status: 404, message: 'Usuário inexistente.' },
+        'fallback',
+      ),
+    ).toBe('Usuário inexistente.');
+  });
+
+  it('usa copy padrão em 404 sem message', () => {
+    expect(
+      formatUserPermissionsPanelLoadError({ kind: 'http', status: 404, message: '' }, 'f'),
+    ).toMatch(/consultar as permissões efetivas/);
+  });
+
+  it.each([
+    { status: 403 as const, needle: /carregar o catálogo/ },
+    { status: 400 as const, needle: /inválida ao carregar/ },
+  ])('status $status', ({ status, needle }) => {
+    expect(formatUserPermissionsPanelLoadError({ kind: 'http', status, message: '' }, 'f')).toMatch(
+      needle,
+    );
+  });
+});
+
+describe('formatUserPermissionMutationError (Issue #203)', () => {
+  it('prioriza message do backend em 403', () => {
+    expect(
+      formatUserPermissionMutationError(
+        { kind: 'http', status: 403, message: 'Policy negada.' },
+        'f',
+      ),
+    ).toBe('Policy negada.');
+  });
+
+  it.each([
+    { status: 403 as const, needle: /Permissão negada/ },
+    { status: 404 as const, needle: /Recarregue a página/ },
+    { status: 400 as const, needle: /inválidos ao alterar/ },
+  ])('status $status — fallback orientativo', ({ status, needle }) => {
+    expect(formatUserPermissionMutationError({ kind: 'http', status, message: '' }, 'f')).toMatch(
+      needle,
+    );
   });
 });
