@@ -49,9 +49,20 @@ export {
   type AssignmentGroupHeaderRowProps,
 } from './AssignmentGroupHeaderRow';
 export {
+  CatalogPermissionDetailHeader,
+} from './CatalogPermissionDetailHeader';
+export {
+  AssignmentDiffToolbar,
+  type AssignmentDiffToolbarProps,
+} from './AssignmentDiffToolbar';
+export {
   AssignmentMatrixShell,
   type AssignmentMatrixShellProps,
 } from './AssignmentMatrixShell';
+export {
+  AssignmentPermissionPanelLoading,
+  type AssignmentPermissionPanelLoadingProps,
+} from './AssignmentPermissionPanelLoading';
 export {
   EmptyHint as AssignmentEmptyHint,
   EmptyShell as AssignmentEmptyShell,
@@ -101,6 +112,10 @@ export {
 export { InitialLoadingSpinner } from './InitialLoadingSpinner';
 export { ListingResultArea } from './ListingResultArea';
 export { ListingToolbar } from './ListingToolbar';
+export {
+  ToolbarPrimaryCreateButton,
+  type ToolbarPrimaryCreateButtonProps,
+} from './ToolbarPrimaryCreateButton';
 export { LiveRegion } from './LiveRegion';
 export { PaginationFooter } from './PaginationFooter';
 export { RefetchOverlay } from './RefetchOverlay';

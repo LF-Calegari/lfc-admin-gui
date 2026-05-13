@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { PageHeader } from '../../components/layout/PageHeader';
 import { Button, Select, Table } from '../../components/ui';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
+import { useToggleModalState } from '../../hooks/useListModalState';
 import { usePaginatedFetch } from '../../hooks/usePaginatedFetch';
 import { usePaginationControls } from '../../hooks/usePaginationControls';
 import {
@@ -13,6 +14,7 @@ import {
   listPermissions,
   listSystems,
 } from '../../shared/api';
+import { useAuth } from '../../shared/auth';
 import {
   CardCode,
   CardDescription,
@@ -34,8 +36,11 @@ import {
   Placeholder,
   StatusBadge,
   TableForDesktop,
+  ToolbarPrimaryCreateButton,
   useListingLiveMessage,
 } from '../../shared/listing';
+
+import { NewPermissionModal } from './NewPermissionModal';
 
 import type { TableColumn } from '../../components/ui';
 import type {
@@ -103,6 +108,13 @@ const PERMISSION_TYPE_LABELS: Record<PermissionTypeCode, string> = {
  */
 const SYSTEMS_FILTER_PAGE_SIZE = 100;
 
+/**
+ * Code exigido pelo `lfc-authenticator` para `POST /permissions`
+ * (`PermissionPolicies.PermissionsCreate`) — espelha
+ * `AUTH_V1_PERMISSIONS_CREATE` do `AuthenticatorRoutesSeeder`.
+ */
+const PERMISSIONS_CREATE_PERMISSION_CODE = 'AUTH_V1_PERMISSIONS_CREATE';
+
 interface PermissionsListShellPageProps {
   /**
    * Cliente HTTP injetável para isolar testes. Em produção, omitido —
@@ -153,6 +165,10 @@ function renderTextOrPlaceholder(value: string): React.ReactNode {
 export const PermissionsListShellPage: React.FC<PermissionsListShellPageProps> = ({
   client,
 }) => {
+  const { hasPermission } = useAuth();
+  const canCreatePermission = hasPermission(PERMISSIONS_CREATE_PERMISSION_CODE);
+  const createModal = useToggleModalState();
+
   // Termo digitado pelo usuário em tempo real (input controlado).
   const [searchTerm, setSearchTerm] = useState<string>('');
   const debouncedSearch = useDebouncedValue(searchTerm, SEARCH_DEBOUNCE_MS);
@@ -627,11 +643,29 @@ export const PermissionsListShellPage: React.FC<PermissionsListShellPageProps> =
         includeDeletedHelperText="Inclui permissões com remoção lógica."
         includeDeletedTestId="permissions-include-deleted"
         extraFilter={filtersNode}
+        actions={
+          canCreatePermission && (
+            <ToolbarPrimaryCreateButton
+              testId="permissions-create-open"
+              label="Nova permissão"
+              onClick={createModal.open}
+            />
+          )
+        }
       />
 
       <LiveRegion message={liveMessage} testId="permissions-live" />
 
       <ListingResultArea {...listingResultProps} />
+
+      {canCreatePermission && (
+        <NewPermissionModal
+          open={createModal.isOpen}
+          onClose={createModal.close}
+          onCreated={handleRefetch}
+          client={client}
+        />
+      )}
     </>
   );
 };

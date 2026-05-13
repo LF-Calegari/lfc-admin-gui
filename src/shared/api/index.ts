@@ -213,20 +213,25 @@ export type {
 } from './users';
 export {
   assignPermissionToUser,
+  createPermission,
   DEFAULT_PERMISSIONS_INCLUDE_DELETED,
   DEFAULT_PERMISSIONS_PAGE,
   DEFAULT_PERMISSIONS_PAGE_SIZE,
   isPagedPermissionsResponse,
   isPermissionDto,
+  isPermissionTypeDto,
   listEffectiveUserPermissions,
+  listPermissionTypes,
   listPermissions,
   MAX_PERMISSIONS_PAGE_SIZE,
   removePermissionFromUser,
 } from './permissions';
 export type {
+  CreatePermissionPayload,
   EffectivePermissionDto,
   EffectivePermissionSource,
   ListPermissionsParams,
   PermissionDto,
+  PermissionTypeDto,
   UserPermissionLinkDto,
 } from './permissions';
