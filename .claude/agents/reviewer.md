@@ -255,6 +255,29 @@ Antes de aprovar, verificar análise SonarCloud do PR:
 
 ---
 
+# Etapa 10 — Acionamento do PO após review aprovada
+
+Sempre que uma review terminar com `APPROVED` e a PR estiver pronta para seguir:
+
+- para merge em `development`; ou
+- de `development` para `main`;
+
+o reviewer deve convocar o subagent `po` antes de encerrar o ciclo operacional
+para revisar o LFC Command Center e identificar quais issues podem ir para
+`Ready`.
+
+O PO deve considerar:
+
+- issues desbloqueadas pela PR aprovada;
+- dependências que passaram a estar atendidas após merge em `development`;
+- itens que ficaram prontos para execução após promoção para `main`;
+- prioridade, `Size`, `Estimate`, `Start date` e `Target date` já preenchidos.
+
+O reviewer não deve criar ou alterar labels nesse processo. Se o PO indicar
+necessidade de nova label, solicitar autorização explícita ao usuário.
+
+---
+
 # Classificação
 
 ## BLOCKER
