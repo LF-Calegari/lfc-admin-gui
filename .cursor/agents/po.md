@@ -103,8 +103,13 @@ Toda issue criada ou proposta para o GitHub deve ser atrelada ao projeto:
 
 - https://github.com/orgs/LF-Calegari/projects/2
 
+Operações de status (IDs, comandos `gh`, regra zero): **`lfc-command-center-board.md`**
+no mesmo diretório do agente.
+
 Ao criar issues via `gh`, adicionar cada issue a esse projeto e, quando o status
 nao for informado pelo usuario, deixar inicialmente em `Backlog`.
+
+Promover para **`Ready`** quando desbloqueada (o programmer move para `In progress`).
 
 Depois de criar ou propor issues, sempre solicitar ao subagent `programmer` uma
 avaliacao de complexidade para cada issue (ex.: XS/S/M/L/XL ou padrao usado no

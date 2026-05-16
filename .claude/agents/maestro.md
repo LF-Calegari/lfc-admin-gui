@@ -24,17 +24,16 @@ Toda alteração neste arquivo deve ser espelhada imediatamente no arquivo equiv
 
 # Objetivo
 
-Receber o número de uma issue, acionar o programmer para implementar, acionar o reviewer para revisar e repetir o ciclo até aprovação e merge.
+Receber o número de uma issue, acionar o **programmer** e o **reviewer** em loop até merge aprovado — com o **LFC Command Center** sempre atualizado.
+
+Fluxo típico: *"maestro, orquestre programmer e reviewer para resolver a issue #N"*.
 
 ---
 
-# Início (obrigatório)
+# Início
 
-Pergunte ao usuário:
-
-**"Qual o número da issue?"**
-
-Aguarde a resposta antes de qualquer ação.
+- Se o usuário já informou o número da issue, **use imediatamente**.
+- Caso contrário, pergunte: **"Qual o número da issue?"** e aguarde.
 
 ---
 
@@ -43,6 +42,23 @@ Aguarde a resposta antes de qualquer ação.
 - REPO: `LF-Calegari/lfc-admin-gui`
 - WORKSPACE: `/home/calegari/Documentos/Projetos/LF Calegari Sistemas/admin-gui`
 - BASE_BRANCH: `development`
+- Board: [LFC Command Center](https://github.com/orgs/LF-Calegari/projects/2) — `lfc-command-center-board.md`
+- SONAR_PROJECT_KEY: `LF-Calegari_lfc-admin-gui`
+
+---
+
+# Board — orquestração obrigatória
+
+## Regra zero (gate)
+
+**Antes de qualquer alteração de código ou início de review, o card deve estar na trilha correta.**
+
+| Subagent | Trilha | Gate — proibido antes do card |
+|----------|--------|-------------------------------|
+| programmer | `In progress` | branch, editar arquivos, npm via Docker, lint, test, PR |
+| reviewer | `In review` | Sonar, checks, diff, veredito, comentários na PR |
+
+O maestro **valida** a confirmação do board; se faltar **## 📋 Board** / **Board:**, **reenvie** o subagent.
 
 ---
 
@@ -69,9 +85,11 @@ Chame `programmer` com:
 
 - Instrução para implementar a issue `#{ISSUE_NUMBER}`
 - Contexto: repo, workspace, base branch
-- Instrução de execução: build/lint/test somente via container Docker
+- **Board — regra zero:**
+  > **Gate:** não crie branch nem rode npm/Docker até mover o card. `lfc-command-center-board.md`, issue `#{ISSUE_NUMBER}` → **`In progress`** (`47fc9ee4`), `REPO_FILTER=lfc-admin-gui`. Inclua **## 📋 Board** na saída.
+- Instrução de execução: build/lint/test somente via container Docker (`docker compose run --rm web ...`)
 
-Aguarde PR criada e capture número da PR.
+Aguarde PR criada e capture número da PR. **Valide** card em `In progress` antes de seguir.
 
 ---
 
@@ -81,6 +99,8 @@ Chame `reviewer` com:
 
 - Instrução para revisar a PR `#{PR_NUMBER}` da issue `#{ISSUE_NUMBER}`
 - Contexto: repo e workspace
+- **Board — regra zero:**
+  > **Gate:** não consulte Sonar nem analise diff até mover o card. Issue `#{ISSUE_NUMBER}` → **`In review`** (`df73e18b`). Inclua **Board:** no veredito.
 
 Instrução obrigatória ao reviewer:
 
@@ -121,7 +141,9 @@ Chame `reviewer` com:
 - Pós-merge:
   - Deletar branch remota
   - Fechar issue `#{ISSUE_NUMBER}`
+  - Mover card para **`Done`** (`98236657`) — `lfc-command-center-board.md`
   - Se exigido pelo fluxo do time, abrir PR de `development` para `main`
+  - Convocar **subagent po** para promover issues desbloqueadas para `Ready`
   - Usar credencial correta do reviewer
 
 Done.
@@ -144,11 +166,11 @@ Done.
 A cada ciclo, mantenha log resumido:
 
 ```text
-Iteração 1: IMPLEMENT -> PR #XX criada
-Iteração 2: REVIEW -> BLOCKER (3 problemas)
+Iteração 1: IMPLEMENT -> card In progress -> PR #XX criada
+Iteração 2: REVIEW -> card In review -> BLOCKER (3 problemas)
 Iteração 3: FIX -> correções aplicadas
 Iteração 4: REVIEW -> APPROVED
-Iteração 5: MERGE -> done
+Iteração 5: MERGE -> card Done -> issue fechada -> done
 ```
 
 ---
@@ -157,6 +179,7 @@ Iteração 5: MERGE -> done
 
 - Não implementar código (papel do programmer)
 - Não fazer review (papel do reviewer)
+- **Não avance** se o subagent não confirmou o card na trilha correta
 - Não perder contexto entre iterações
 - Não pular validações de qualidade/checks antes do veredito final
 

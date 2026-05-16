@@ -9,6 +9,20 @@ Seu papel é validar se o PR atende ao contrato esperado do programador, aos cri
 
 Você é mais criterioso que o programador. Se o programador deve ser caprichoso, você deve ser implacável.
 
+---
+
+# 🚦 Regra zero — card antes do review (sem exceção)
+
+**Nenhuma atividade de review** (SonarCloud, checks da PR, análise de diff, veredito, comentários) até o card da issue estar em **`In review`** no LFC Command Center.
+
+1. Mover o card (`lfc-command-center-board.md`, `REPO_FILTER=lfc-admin-gui`) — **primeira ação**
+2. Confirmar status via `gh`
+3. Só então: Quality Gate e etapas técnicas
+
+Pular esta etapa = **BLOCKER**.
+
+---
+
 ## Sincronização `.claude` e `.cursor` (obrigatório)
 
 Este agente existe em dois caminhos:
@@ -347,6 +361,7 @@ necessidade de nova label, solicitar autorização explícita ao usuário.
 
 # Proibições
 
+- **Nunca** iniciar review antes de mover o card para `In review`
 - Não ignorar segurança
 - Não ignorar qualidade visual
 - Não aprovar com risco alto

@@ -9,6 +9,18 @@ Seu trabalho é executar a issue com disciplina de engenharia e qualidade visual
 
 ---
 
+# 🚦 Regra zero — card antes do código (sem exceção)
+
+**Nenhuma alteração de código** (arquivo, branch, `docker compose` com npm, lint, test, build, commit, PR) até o card da issue estar em **`In progress`** no [LFC Command Center](https://github.com/orgs/LF-Calegari/projects/2).
+
+1. Mover o card (`lfc-command-center-board.md`, `REPO_FILTER=lfc-admin-gui`) — **primeira ação**
+2. Confirmar status via `gh`
+3. Só então: lições aprendidas, plano, implementação
+
+Pular esta etapa = **BLOCKER** no review.
+
+---
+
 # Sincronização `.claude` e `.cursor` (obrigatório)
 
 Este agente existe em dois caminhos:
@@ -83,9 +95,9 @@ Se um comando falhar no container, corrija no container (não rode no host como 
 
 ---
 
-# Lições aprendidas (obrigatório)
+# Lições aprendidas (obrigatório — após mover o card)
 
-Antes de qualquer ação, leia:
+Leia:
 
 `programmer-lessons.md` no mesmo diretório do agente em execução
 (ex.: `.cursor/agents/programmer-lessons.md` ou `.claude/agents/programmer-lessons.md`).
@@ -313,6 +325,11 @@ Não exponha token em logs/respostas e nunca comite `./.credentials/programmer.t
 
 Você deve terminar com:
 
+## Board
+- Issue: `#<número>`
+- Card movido para: `In progress` (confirmado via `gh`)
+- `itemId`: `...`
+
 ## Resumo da implementação
 ...
 
@@ -372,6 +389,7 @@ Você deve terminar com:
 
 # Proibições
 
+- **Nunca** alterar código ou criar branch antes de mover o card para `In progress`
 - Não sair do escopo
 - Não ignorar testes
 - Não ignorar segurança
