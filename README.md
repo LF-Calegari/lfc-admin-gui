@@ -285,6 +285,69 @@ docker compose run --rm web npm test
 
 Os testes E2E usam a **imagem oficial do Playwright** (`docker compose` serviço `e2e`), pois o container `web` (Alpine) não executa o Chromium do Playwright.
 
+#### Pré-requisitos
+
+- Docker e Docker Compose v2
+- Repositório [`lfc-authenticator`](https://github.com/LF-Calegari/lfc-authenticator) (`auth-service`) clonado como **sibling** do `lfc-admin-gui` (padrão: `../auth-service` a partir da raiz deste repo)
+- Arquivo `.env.e2e` na raiz (copie de `.env.e2e.example`)
+
+```bash
+cp .env.e2e.example .env.e2e
+```
+
+Se o `auth-service` estiver em outro caminho, defina `LFC_AUTH_SERVICE_PATH` no `.env.e2e` ou exporte antes do `compose`.
+
+#### Stack E2E completa (GUI + API + PostgreSQL)
+
+O arquivo `docker-compose.e2e.yml` sobe, em uma rede isolada:
+
+| Serviço | Função |
+|---------|--------|
+| `db` | PostgreSQL do authenticator |
+| `migrate` | Aplica migrations EF (one-shot) |
+| `authenticator` | API `lfc-authenticator` (HTTPS na porta 5042 do container) |
+| `web` | Dev server Vite do admin-gui com proxy `/api/v1` → authenticator |
+
+Subir a stack (primeira execução pode levar alguns minutos por `npm ci` e `dotnet ef`):
+
+```bash
+docker compose --env-file .env.e2e -f docker-compose.e2e.yml up --build
+```
+
+Use `--env-file .env.e2e` para interpolar variáveis do compose (`AUTH_HOST_PORT`, `PORT`, etc.). Se a porta `8080` já estiver em uso no host, defina `AUTH_HOST_PORT=8081` no `.env.e2e`.
+
+**Healthchecks:** `db`, `authenticator` e `web` ficam *healthy* quando a API e o Vite respondem. O authenticator expõe `https://localhost:8080` no host (porta configurável via `AUTH_HOST_PORT`).
+
+**Proxy `/api/v1`:** o SPA usa `VITE_AUTH_API_BASE_URL=/api/v1` (URL relativa). O Vite encaminha para `AUTH_API_PROXY_TARGET=https://authenticator:5042` na rede Docker. Validar no host:
+
+```bash
+# API direta (HTTPS, certificado de desenvolvimento)
+curl -sk https://localhost:8080/api/v1/health
+
+# Mesmo endpoint via proxy do Vite
+curl -s http://localhost:3002/api/v1/health
+```
+
+Ambos devem retornar JSON com `"status":"ok"`.
+
+**`VITE_SYSTEM_ID`:** após a primeira subida com migrations, o UUID do sistema `authenticator` é gerado no banco. Obtenha e atualize `.env.e2e`:
+
+```bash
+docker compose --env-file .env.e2e -f docker-compose.e2e.yml exec -T db \
+  psql -U auth -d AuthenticatorDb -tAc \
+  "SELECT \"Id\" FROM \"Systems\" WHERE \"Code\" = 'authenticator' LIMIT 1;"
+```
+
+Reinicie o serviço `web` (`docker compose --env-file .env.e2e -f docker-compose.e2e.yml up -d web`). Personas E2E seedadas ficam na issue **#214**; o usuário root padrão do Development usa `DEFAULT_SYSTEM_USER_PASSWORD` (ver `.env.e2e.example`).
+
+**Testes Playwright na stack** (não sobe outro dev server — usa `PLAYWRIGHT_SKIP_WEBSERVER`):
+
+```bash
+docker compose --env-file .env.e2e -f docker-compose.e2e.yml --profile e2e run --rm e2e
+```
+
+#### Playwright sem stack completa (apenas GUI)
+
 Na **primeira vez fora do Docker** (ou após atualizar `@playwright/test`), instale o Chromium:
 
 ```bash
@@ -293,12 +356,14 @@ npm run e2e:install
 
 Equivalente: `npx playwright install chromium` após `npm ci`.
 
-Variáveis relevantes (ver também `.env.example`):
+Variáveis relevantes (ver também `.env.example` e `.env.e2e.example`):
 
 | Variável | Descrição |
 |----------|-----------|
 | `PLAYWRIGHT_BASE_URL` | URL do SPA sob teste (padrão: `http://127.0.0.1:3002`) |
+| `PLAYWRIGHT_SKIP_WEBSERVER` | `1` na stack E2E — reutiliza o serviço `web` já em execução |
 | `VITE_SYSTEM_ID` / `VITE_AUTH_API_BASE_URL` | Injetadas no `webServer` do Playwright para o Vite subir sem `.env` local |
+| `AUTH_API_PROXY_TARGET` | Alvo do proxy Vite (`/api/v1`); usado na stack E2E, não commitar segredo |
 
 Executar a suíte smoke (sobe o dev server via `playwright.config.ts`):
 
@@ -318,6 +383,7 @@ Estrutura:
 
 - `e2e/` — specs, fixtures (`e2e/fixtures`) e page objects (`e2e/pages`)
 - `playwright.config.ts` — projeto Chromium, `baseURL` via `PLAYWRIGHT_BASE_URL`
+- `docker-compose.e2e.yml` — stack GUI + authenticator + DB para E2E local
 
 ---
 

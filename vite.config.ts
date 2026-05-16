@@ -7,6 +7,16 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const port = Number(env.PORT) || 3002;
+  const proxyTarget = env.AUTH_API_PROXY_TARGET?.trim().replace(/\/$/, '');
+  const apiProxy = proxyTarget
+    ? {
+        '/api/v1': {
+          target: proxyTarget,
+          changeOrigin: true,
+          secure: false,
+        },
+      }
+    : undefined;
 
   return {
     plugins: [react()],
@@ -18,10 +28,12 @@ export default defineConfig(({ mode }) => {
     server: {
       host: true,
       port,
+      proxy: apiProxy,
     },
     preview: {
       host: true,
       port,
+      proxy: apiProxy,
     },
     test: {
       globals: true,

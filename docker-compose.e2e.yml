@@ -1,0 +1,150 @@
+# Stack E2E: admin-gui + lfc-authenticator (auth-service) + PostgreSQL.
+# Uso: cp .env.e2e.example .env.e2e
+#      docker compose --env-file .env.e2e -f docker-compose.e2e.yml up --build
+# Testes: docker compose --env-file .env.e2e -f docker-compose.e2e.yml --profile e2e run --rm e2e
+#
+# Requer o repositório auth-service como sibling (../auth-service) ou LFC_AUTH_SERVICE_PATH.
+
+name: lfc-admin-gui-e2e
+
+services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: auth
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-DevPassword123!}
+      POSTGRES_DB: AuthenticatorDb
+    volumes:
+      - e2e_pg_data:/var/lib/postgresql/data
+    networks:
+      - e2e
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U auth -d AuthenticatorDb']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  migrate:
+    build:
+      context: ${LFC_AUTH_SERVICE_PATH:-../auth-service}
+      dockerfile: Dockerfile
+    environment:
+      ConnectionStrings__DefaultConnection: 'Host=db;Port=5432;Database=AuthenticatorDb;Username=auth;Password=${POSTGRES_PASSWORD:-DevPassword123!}'
+    volumes:
+      - ${LFC_AUTH_SERVICE_PATH:-../auth-service}/AuthService:/app
+    working_dir: /app
+    networks:
+      - e2e
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: 'no'
+    command:
+      [
+        'sh',
+        '-c',
+        'rm -rf obj bin && dotnet restore && dotnet tool restore && dotnet ef database update',
+      ]
+
+  authenticator:
+    build:
+      context: ${LFC_AUTH_SERVICE_PATH:-../auth-service}
+      dockerfile: Dockerfile
+    container_name: lfc-e2e-authenticator
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__DefaultConnection: 'Host=db;Port=5432;Database=AuthenticatorDb;Username=auth;Password=${POSTGRES_PASSWORD:-DevPassword123!}'
+      DEFAULT_SYSTEM_USER_PASSWORD: '${DEFAULT_SYSTEM_USER_PASSWORD:-toor}'
+    ports:
+      - '${AUTH_HOST_PORT:-8080}:5042'
+    volumes:
+      - ${LFC_AUTH_SERVICE_PATH:-../auth-service}/AuthService:/app
+    working_dir: /app
+    networks:
+      - e2e
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    # dotnet run (sem watch) — mais estável que hot-reload na stack E2E.
+    command: sh -c 'dotnet restore && dotnet run --no-launch-profile'
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'curl -fk https://127.0.0.1:5042/api/v1/health | grep -q ok',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env.e2e
+    environment:
+      PORT: ${PORT:-3002}
+      HOST: 0.0.0.0
+      CHOKIDAR_USEPOLLING: 'true'
+      # Browser usa URL relativa; Vite faz proxy para o authenticator na rede interna.
+      VITE_AUTH_API_BASE_URL: /api/v1
+      AUTH_API_PROXY_TARGET: https://authenticator:5042
+      VITE_SYSTEM_ID: ${VITE_SYSTEM_ID:-00000000-0000-0000-0000-000000000000}
+      VITE_APP_NAME: ${VITE_APP_NAME:-Auth Admin E2E}
+    ports:
+      - '${PORT:-3002}:${PORT:-3002}'
+    volumes:
+      - .:/app
+      - e2e_web_node_modules:/app/node_modules
+    networks:
+      - e2e
+    depends_on:
+      authenticator:
+        condition: service_healthy
+    command: sh -c "npm ci --include=dev && npm run dev -- --host 0.0.0.0 --port ${PORT:-3002}"
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:' + (process.env.PORT || 3002)).then((r) => process.exit(r.status < 500 ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
+
+  e2e:
+    image: mcr.microsoft.com/playwright:v1.52.0-noble
+    profiles: [e2e]
+    working_dir: /app
+    volumes:
+      - .:/app
+      - e2e_node_modules:/app/node_modules
+    environment:
+      CI: 'true'
+      PLAYWRIGHT_SKIP_WEBSERVER: '1'
+      PLAYWRIGHT_BASE_URL: http://web:${PORT:-3002}
+      VITE_SYSTEM_ID: ${VITE_SYSTEM_ID:-00000000-0000-0000-0000-000000000000}
+      VITE_AUTH_API_BASE_URL: /api/v1
+    ipc: host
+    init: true
+    networks:
+      - e2e
+    depends_on:
+      web:
+        condition: service_healthy
+    command: sh -c 'npm ci --include=dev && npm run e2e'
+
+volumes:
+  e2e_pg_data:
+  e2e_web_node_modules:
+  e2e_node_modules:
+
+networks:
+  e2e:
+    driver: bridge
