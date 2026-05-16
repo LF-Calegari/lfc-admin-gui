@@ -8,7 +8,7 @@ Use este checklist em **toda PR** que adiciona ou altera testes Playwright no `l
 
 - [ ] Branch no padrão `feature/<issue>/descricao-curta` (ex.: `feature/220/e2e-systems`)
 - [ ] Card da issue filha em **In progress** no [LFC Command Center](https://github.com/orgs/LF-Calegari/projects/2)
-- [ ] Spec executada localmente: `docker compose -f docker-compose.e2e.yml run --rm e2e` (ou comando documentado em #212/#213)
+- [ ] Spec executada localmente: `docker compose --env-file .env.e2e -f docker-compose.e2e.yml --profile e2e run --rm e2e` (ou comando documentado em #212/#213)
 - [ ] Cada `test()` novo referencia `@matrix-id` existente em [traceability-matrix.md](./traceability-matrix.md)
 
 ---
