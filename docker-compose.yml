@@ -1,4 +1,18 @@
 services:
+  # E2E: imagem oficial do Playwright (glibc + browsers). O serviço `web` usa
+  # Alpine e não suporta execução do Chromium do Playwright.
+  e2e:
+    image: mcr.microsoft.com/playwright:v1.52.0-noble
+    working_dir: /app
+    volumes:
+      - .:/app
+      - e2e_node_modules:/app/node_modules
+    environment:
+      CI: "true"
+    ipc: host
+    init: true
+    command: sh -c "npm ci --include=dev && npm run e2e"
+
   web:
     build:
       context: .
@@ -14,3 +28,6 @@ services:
     volumes:
       - .:/app
       - /app/node_modules
+
+volumes:
+  e2e_node_modules:

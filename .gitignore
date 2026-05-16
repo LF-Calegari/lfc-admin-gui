@@ -280,3 +280,9 @@ jscpd-report/
 jscpd-report-base/
 
 .claude/worktrees/*
+
+# Playwright E2E
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/

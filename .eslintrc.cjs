@@ -40,6 +40,13 @@ module.exports = {
         'sonarjs/cognitive-complexity': 'off',
       },
     },
+    {
+      files: ['e2e/**/*.{ts,tsx,js,jsx}'],
+      rules: {
+        'sonarjs/no-duplicate-string': 'off',
+        'sonarjs/cognitive-complexity': 'off',
+      },
+    },
   ],
   rules: {
     'react/react-in-jsx-scope': 'off',
@@ -58,7 +65,10 @@ module.exports = {
     // por isso ignoramos esse padrão para evitar falso-positivo no lint
     // sem precisar adicionar `eslint-import-resolver-typescript` (que tem
     // conflito de peer deps com a versão atual do `@typescript-eslint`).
-    'import/no-unresolved': ['error', { ignore: ['^@/'] }],
+    'import/no-unresolved': [
+      'error',
+      { ignore: ['^@/', '^@playwright/'] },
+    ],
     'import/order': [
       'error',
       {

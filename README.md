@@ -249,7 +249,9 @@ lfc-admin-gui/
 | `start` | Alias para `dev` |
 | `build` | Typecheck e build de produção |
 | `preview` | Sobe o bundle de produção localmente |
-| `test` | Executa testes com Vitest |
+| `test` | Executa testes unitários/de componente com Vitest |
+| `e2e` | Executa testes E2E com Playwright (sobe o dev server automaticamente) |
+| `e2e:ui` | Abre o Playwright UI Mode para depuração interativa dos E2E |
 
 ---
 
@@ -273,13 +275,49 @@ docker compose down
 
 ## Testes automatizados
 
-<!-- TODO: definir estratégia de testes ao longo das primeiras issues. Sugestão de pirâmide:
+### Unitários e componentes (Vitest)
 
-- **Unitários**: Vitest / Jest — utils, hooks, formatadores
-- **Componentes**: React Testing Library — renderização, interação, acessibilidade
-- **E2E**: Playwright ou Cypress — fluxos críticos (login, CRUD de sistemas, atribuição de permissões)
-- **Mocks do auth-service**: MSW (Mock Service Worker) para isolar o SPA em CI
--->
+```bash
+docker compose run --rm web npm test
+```
+
+### E2E (Playwright)
+
+Os testes E2E usam a **imagem oficial do Playwright** (`docker compose` serviço `e2e`), pois o container `web` (Alpine) não executa o Chromium do Playwright.
+
+Na **primeira vez fora do Docker** (ou após atualizar `@playwright/test`), instale o Chromium:
+
+```bash
+npm run e2e:install
+```
+
+Equivalente: `npx playwright install chromium` após `npm ci`.
+
+Variáveis relevantes (ver também `.env.example`):
+
+| Variável | Descrição |
+|----------|-----------|
+| `PLAYWRIGHT_BASE_URL` | URL do SPA sob teste (padrão: `http://127.0.0.1:3002`) |
+| `VITE_SYSTEM_ID` / `VITE_AUTH_API_BASE_URL` | Injetadas no `webServer` do Playwright para o Vite subir sem `.env` local |
+
+Executar a suíte smoke (sobe o dev server via `playwright.config.ts`):
+
+```bash
+docker compose run --rm e2e
+```
+
+Fora do Docker: `npm run e2e`.
+
+Modo UI (depuração interativa; requer display ou X11):
+
+```bash
+docker compose run --rm e2e npm run e2e:ui
+```
+
+Estrutura:
+
+- `e2e/` — specs, fixtures (`e2e/fixtures`) e page objects (`e2e/pages`)
+- `playwright.config.ts` — projeto Chromium, `baseURL` via `PLAYWRIGHT_BASE_URL`
 
 ---
 
