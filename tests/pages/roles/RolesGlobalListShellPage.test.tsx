@@ -53,6 +53,8 @@ vi.mock('@/shared/auth', () => buildAuthMock(() => permissionsMock));
 
 const SEARCH_DEBOUNCE_MS = 300;
 const ID_SYS_OUTRO = '22222222-2222-2222-2222-222222222222';
+/** Sistema kurtto — critério de aceite da Issue #207. */
+const ID_SYS_KURTTO = '33333333-3333-3333-3333-333333333333';
 
 const ROLES_SAMPLE: ReadonlyArray<RoleDto> = [
   makeRole({
@@ -750,5 +752,145 @@ describe('RolesGlobalListShellPage — Issue #193 criar role global', () => {
       await screen.findByText(/Sessão expirada/i),
     ).toBeInTheDocument();
     expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+});
+
+/**
+ * Issue #207 — criação e consulta intuitiva por sistema em `/roles`.
+ */
+describe('RolesGlobalListShellPage — Issue #207', () => {
+  const ROLES_CREATE_PERMISSION = 'AUTH_V1_ROLES_CREATE';
+  const KURTTO_SYSTEMS: ReadonlyArray<SystemDto> = [
+    makeSystemDtoForRoles({ id: ID_SYS_AUTH, name: 'lfc-authenticator' }),
+    makeSystemDtoForRoles({
+      id: ID_SYS_KURTTO,
+      name: 'kurtto',
+      code: 'kurtto',
+    }),
+  ];
+
+  it('vazio com filtro de sistema kurtto: mensagem cita o sistema', async () => {
+    const client = createRolesClientStub();
+    primeRolesGlobalStubResponses(client, {
+      roles: makePagedRolesResponse([]),
+      systems: makePagedSystemsResponseForRoles(KURTTO_SYSTEMS),
+    });
+
+    renderRolesGlobalListPage(client);
+    await waitForRolesGlobalInitialList(client);
+
+    fireEvent.change(screen.getByTestId('roles-global-system-filter'), {
+      target: { value: ID_SYS_KURTTO },
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getAllByText(/Nenhuma role cadastrada para kurtto\./i).length,
+      ).toBeGreaterThan(0);
+    });
+    expect(
+      screen.getAllByText(/Cadastre uma nova role para este sistema/i).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it('criação para kurtto: POST vincula ao sistema e confirma navegação pós-sucesso', async () => {
+    permissionsMock = ['AUTH_V1_ROLES_LIST', ROLES_CREATE_PERMISSION];
+    const created = makeRole({
+      id: 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
+      systemId: ID_SYS_KURTTO,
+      name: 'Operador Kurtto',
+      code: 'kurtto_op',
+    });
+    const client = createRolesClientStub();
+    primeRolesGlobalStubResponses(client, {
+      roles: makePagedRolesResponse(ROLES_SAMPLE),
+      systems: makePagedSystemsResponseForRoles(KURTTO_SYSTEMS),
+    });
+    client.post.mockResolvedValueOnce(created);
+
+    await openGlobalCreateRoleModal(client);
+
+    fireEvent.change(screen.getByTestId('new-role-system'), {
+      target: { value: ID_SYS_KURTTO },
+    });
+    fillNewRoleForm({ name: 'Operador Kurtto', code: 'kurtto_op' });
+    await submitNewRoleForm(client);
+
+    expect(client.post).toHaveBeenCalledWith(
+      '/roles',
+      {
+        systemId: ID_SYS_KURTTO,
+        name: 'Operador Kurtto',
+        code: 'kurtto_op',
+      },
+      undefined,
+    );
+
+    expect(
+      await screen.findByTestId('roles-global-after-create-permissions'),
+    ).toBeInTheDocument();
+  });
+
+  it('400 com errors de validação mapeia mensagens nos campos do form', async () => {
+    permissionsMock = ['AUTH_V1_ROLES_LIST', ROLES_CREATE_PERMISSION];
+    const client = createRolesClientStub();
+    primeRolesGlobalStubResponses(client, {
+      roles: makePagedRolesResponse(ROLES_SAMPLE),
+      systems: makePagedSystemsResponseForRoles(KURTTO_SYSTEMS),
+    });
+    client.post.mockRejectedValueOnce({
+      kind: 'http',
+      status: 400,
+      message: 'Erro de validação.',
+      details: {
+        errors: {
+          Name: ['Name é obrigatório e não pode ser apenas espaços.'],
+          Code: ['Code deve ter no máximo 50 caracteres.'],
+        },
+      },
+    });
+
+    await openGlobalCreateRoleModal(client);
+
+    fireEvent.change(screen.getByTestId('new-role-system'), {
+      target: { value: ID_SYS_KURTTO },
+    });
+    fillNewRoleForm({ name: 'X', code: 'y' });
+    await submitNewRoleForm(client);
+
+    expect(
+      await screen.findByText(
+        'Name é obrigatório e não pode ser apenas espaços.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('403 ao criar exibe toast de autorização sem travar o fluxo', async () => {
+    permissionsMock = ['AUTH_V1_ROLES_LIST', ROLES_CREATE_PERMISSION];
+    const client = createRolesClientStub();
+    primeRolesGlobalStubResponses(client, {
+      roles: makePagedRolesResponse(ROLES_SAMPLE),
+      systems: makePagedSystemsResponseForRoles(KURTTO_SYSTEMS),
+    });
+    client.post.mockRejectedValueOnce({
+      kind: 'http',
+      status: 403,
+      message: 'Você não tem permissão para esta ação.',
+    });
+
+    await openGlobalCreateRoleModal(client);
+
+    fireEvent.change(screen.getByTestId('new-role-system'), {
+      target: { value: ID_SYS_KURTTO },
+    });
+    fillNewRoleForm({ name: 'Role Kurtto', code: 'kurtto_role' });
+    await submitNewRoleForm(client);
+
+    expect(
+      await screen.findByText(/Você não tem permissão para esta ação/i),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByTestId('roles-global-search')).toBeInTheDocument();
   });
 });

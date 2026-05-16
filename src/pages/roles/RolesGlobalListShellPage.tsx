@@ -275,6 +275,21 @@ export const RolesGlobalListShellPage: React.FC<
   const hasActiveSearch = trimmedSearch.length > 0;
 
   /**
+   * Nome do sistema ativo no filtro (Issue #207 — estado vazio
+   * compreensível quando não há roles para o sistema selecionado).
+   * Fallback para prefixo do UUID quando o catálogo ainda não
+   * carregou ou o sistema saiu do top-100 do dropdown.
+   */
+  const activeSystemFilterName = useMemo(() => {
+    if (systemFilter === SYSTEM_FILTER_ALL) return null;
+    const fromLookup = systemLookup.get(systemFilter);
+    if (fromLookup) return fromLookup.name;
+    return systemFilter.length > 0 ? systemFilter.slice(0, 8) : null;
+  }, [systemFilter, systemLookup]);
+
+  const hasActiveSystemFilter = activeSystemFilterName !== null;
+
+  /**
    * `emptyContent` delegado ao hook compartilhado `useListingEmptyContent`
    * para evitar duplicação JSCPD/Sonar com `RolesPage` per-system
    * (lição PR #134/#135 — bloco de 26 linhas com `useMemo` + árvore
@@ -286,9 +301,12 @@ export const RolesGlobalListShellPage: React.FC<
     onClearSearch: handleClearSearch,
     copy: {
       searchPrefix: 'Nenhuma role encontrada para',
-      emptyTitle: 'Nenhuma role cadastrada.',
-      hintWhenIncludeDeletedOff:
-        'Roles removidas podem ser visualizadas ativando "Mostrar inativas".',
+      emptyTitle: hasActiveSystemFilter
+        ? `Nenhuma role cadastrada para ${activeSystemFilterName}.`
+        : 'Nenhuma role cadastrada.',
+      hintWhenIncludeDeletedOff: hasActiveSystemFilter
+        ? 'Cadastre uma nova role para este sistema ou altere o filtro acima.'
+        : 'Roles removidas podem ser visualizadas ativando "Mostrar inativas".',
       clearTestId: 'roles-global-empty-clear',
     },
   });
