@@ -4,6 +4,8 @@ import type { RoleDto, UserRoleSummary } from '@/shared/api';
 
 import {
   buildInitialUserRoleIds,
+  formatUserRoleMutationError,
+  formatUserRolesPanelLoadError,
   groupRolesBySystem,
 } from '@/pages/users/userRolesHelpers';
 
@@ -146,5 +148,39 @@ describe('buildInitialUserRoleIds', () => {
 
   it('undefined (array ausente) devolve set vazio', () => {
     expect(buildInitialUserRoleIds(undefined).size).toBe(0);
+  });
+});
+
+describe('formatUserRolesPanelLoadError (Issue #208)', () => {
+  it.each([
+    { status: 403 as const, needle: /permissão para carregar/ },
+    { status: 404 as const, needle: /não encontrado/ },
+    { status: 400 as const, needle: /inválida ao carregar/ },
+  ])('status $status — fallback orientativo', ({ status, needle }) => {
+    expect(formatUserRolesPanelLoadError({ kind: 'http', status, message: '' }, 'f')).toMatch(
+      needle,
+    );
+  });
+});
+
+describe('formatUserRoleMutationError (Issue #208)', () => {
+  it('prioriza message do backend em 403', () => {
+    expect(
+      formatUserRoleMutationError(
+        { kind: 'http', status: 403, message: 'Policy negada.' },
+        'f',
+      ),
+    ).toBe('Policy negada.');
+  });
+
+  it.each([
+    { status: 403 as const, needle: /Permissão negada/ },
+    { status: 404 as const, needle: /Recarregue a página/ },
+    { status: 400 as const, needle: /já vinculada/ },
+    { status: 409 as const, needle: /já está vinculada/ },
+  ])('status $status — fallback orientativo', ({ status, needle }) => {
+    expect(formatUserRoleMutationError({ kind: 'http', status, message: '' }, 'f')).toMatch(
+      needle,
+    );
   });
 });

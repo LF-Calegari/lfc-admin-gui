@@ -483,4 +483,74 @@ describe('UserRolesShellPage — salvar diff', () => {
       expect(client.get.mock.calls.length).toBeGreaterThan(initialGetCalls);
     });
   });
+
+  it('403 no assign refetch sincroniza estado anterior (checkbox desmarcado)', async () => {
+    const client = createUserRolesClientStub();
+    primeStubResponses(client, {
+      roles: makePagedRoles([makeRole({ id: ID_ROLE_VIEWER, code: 'viewer' })]),
+      user: makeUser({ roles: [] }),
+    });
+    client.post.mockRejectedValue({
+      kind: 'http',
+      status: 403,
+      message: 'Sem permissão para vincular roles.',
+    });
+
+    renderUserRolesPage(client);
+    await waitForInitialFetch();
+
+    fireEvent.click(screen.getByTestId(`user-roles-checkbox-${ID_ROLE_VIEWER}`));
+    fireEvent.click(screen.getByTestId('user-roles-save'));
+
+    await waitFor(() => {
+      expect(client.post).toHaveBeenCalledTimes(1);
+    });
+
+    await waitForInitialFetch();
+    const checkbox = screen.getByTestId(
+      `user-roles-checkbox-${ID_ROLE_VIEWER}`,
+    ) as HTMLInputElement;
+    expect(checkbox.checked).toBe(false);
+    expect(screen.getByTestId('user-roles-save')).toBeDisabled();
+  });
+});
+
+describe('UserRolesShellPage — ARO Issue #208', () => {
+  it('role já vinculada exibe selo Vinculada e checkbox marcado (kurtto)', async () => {
+    const client = createUserRolesClientStub();
+    primeStubResponses(client, {
+      roles: makePagedRoles([
+        makeRole({
+          id: 'r-kurtto-admin',
+          systemId: ID_SYS_KURTTO,
+          code: 'kurtto-admin',
+          name: 'Kurtto Admin',
+        }),
+      ]),
+      systems: makePagedSystems([
+        makeSystem({ id: ID_SYS_KURTTO, code: 'kurtto', name: 'Kurtto' }),
+      ]),
+      user: makeUser({
+        roles: [
+          makeUserRoleSummary({
+            id: 'r-kurtto-admin',
+            code: 'kurtto-admin',
+            name: 'Kurtto Admin',
+            systemId: ID_SYS_KURTTO,
+          }),
+        ],
+      }),
+    });
+
+    renderUserRolesPage(client);
+    await waitForInitialFetch();
+
+    expect(screen.getByTestId('user-roles-group-kurtto')).toBeInTheDocument();
+    const item = screen.getByTestId('user-roles-item-r-kurtto-admin');
+    expect(item).toHaveTextContent('Vinculada');
+    expect(
+      (screen.getByTestId('user-roles-checkbox-r-kurtto-admin') as HTMLInputElement).checked,
+    ).toBe(true);
+    expect(screen.getByTestId('user-roles-save')).toBeDisabled();
+  });
 });

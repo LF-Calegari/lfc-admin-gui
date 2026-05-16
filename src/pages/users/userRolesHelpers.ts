@@ -1,3 +1,4 @@
+import { extractErrorMessage, isApiError } from '../../shared/api';
 import { groupBySystem, type SystemGroup } from '../../shared/listing';
 
 import type { RoleDto, UserRoleSummary } from '../../shared/api';
@@ -154,4 +155,70 @@ export function buildInitialUserRoleIds(
     ids.add(role.id);
   }
   return ids;
+}
+
+/**
+ * Mensagem ao falhar o carregamento inicial (catálogo de roles,
+ * sistemas ou usuário) — Issue #208.
+ */
+export function formatUserRolesPanelLoadError(
+  error: unknown,
+  fallback: string,
+): string {
+  if (isApiError(error) && error.kind === 'http') {
+    if (error.status === 404) {
+      return (
+        error.message ||
+        'Usuário não encontrado ou sem permissão para consultar as roles.'
+      );
+    }
+    if (error.status === 403) {
+      return (
+        error.message ||
+        'Você não tem permissão para carregar o catálogo de roles ou os vínculos deste usuário.'
+      );
+    }
+    if (error.status === 400) {
+      return error.message || 'Requisição inválida ao carregar roles.';
+    }
+  }
+  return extractErrorMessage(error, fallback);
+}
+
+/**
+ * Mensagem por falha em `assignRoleToUser` / `removeRoleFromUser`
+ * (Issue #208 — duplicidade idempotente no backend retorna 200/201;
+ * mensagens orientam 400/403/404).
+ */
+export function formatUserRoleMutationError(
+  error: unknown,
+  fallback: string,
+): string {
+  if (isApiError(error) && error.kind === 'http') {
+    if (error.status === 403) {
+      return (
+        error.message ||
+        'Permissão negada: sua conta não pode atribuir ou remover esta role.'
+      );
+    }
+    if (error.status === 404) {
+      return (
+        error.message ||
+        'Usuário, role ou vínculo não encontrado. Recarregue a página para sincronizar.'
+      );
+    }
+    if (error.status === 400) {
+      return (
+        error.message ||
+        'Não foi possível alterar o vínculo da role (dados inválidos ou role já vinculada).'
+      );
+    }
+    if (error.status === 409) {
+      return (
+        error.message ||
+        'Esta role já está vinculada a este usuário.'
+      );
+    }
+  }
+  return extractErrorMessage(error, fallback);
 }
