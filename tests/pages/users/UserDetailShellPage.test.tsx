@@ -12,7 +12,13 @@ import {
   makePagedPermissions,
   makePermission,
 } from './__helpers__/userPermissionsTestHelpers';
-import { makeUser } from './__helpers__/userRolesTestHelpers';
+import {
+  makePagedRoles,
+  makePagedSystems,
+  makeRole,
+  makeSystem,
+  makeUser,
+} from './__helpers__/userRolesTestHelpers';
 
 import { ToastProvider } from '@/components/ui';
 import { UserDetailShellPage } from '@/pages/users';
@@ -46,6 +52,12 @@ function primeUserDetailHappyPath(
     }
     if (path.includes('/effective-permissions')) {
       return Promise.resolve([makeEffective()]);
+    }
+    if (path.startsWith('/roles')) {
+      return Promise.resolve(makePagedRoles([makeRole()]));
+    }
+    if (path.startsWith('/systems')) {
+      return Promise.resolve(makePagedSystems([makeSystem()]));
     }
     return Promise.reject(new Error(`URL não coberta pelo stub: ${path}`));
   });
@@ -89,12 +101,47 @@ describe('UserDetailShellPage', () => {
     expect(screen.getByTestId('user-detail-link-roles')).toBeInTheDocument();
     expect(screen.getByTestId('user-detail-link-effective')).toBeInTheDocument();
     expect(screen.getByTestId('user-detail-link-permissions-full')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Roles por sistema' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Permissões diretas' })).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('user-roles-loading')).not.toBeInTheDocument();
+    });
+    expect(screen.getByTestId('user-roles-group-authenticator')).toBeInTheDocument();
 
     await waitFor(() => {
       expect(screen.queryByTestId('user-permissions-loading')).not.toBeInTheDocument();
     });
     expect(screen.getByTestId('user-permissions-group-authenticator')).toBeInTheDocument();
+  });
+
+  it('sem AUTH_V1_USERS_ROLES_ASSIGN: oculta painel de roles e exibe aviso', async () => {
+    permissionsMock = [
+      'AUTH_V1_USERS_GET_BY_ID',
+      'AUTH_V1_ROLES_LIST',
+      'AUTH_V1_PERMISSIONS_LIST',
+      'AUTH_V1_USERS_PERMISSIONS_ASSIGN',
+    ];
+
+    const client = createUserPermissionsClientStub();
+    primeUserDetailHappyPath(client);
+
+    render(
+      <ToastProvider>
+        <MemoryRouter initialEntries={[`/usuarios/${ID_USER}`]}>
+          <Routes>
+            <Route path="/usuarios/:id" element={<UserDetailShellPage client={client} />} />
+          </Routes>
+        </MemoryRouter>
+      </ToastProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('user-detail-summary')).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId('user-detail-roles-locked')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Roles por sistema' })).not.toBeInTheDocument();
   });
 
   it('sem AUTH_V1_USERS_PERMISSIONS_ASSIGN: oculta painel e exibe aviso', async () => {

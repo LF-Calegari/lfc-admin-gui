@@ -20,6 +20,7 @@ import {
 } from '../../shared/listing';
 
 import { UserDirectPermissionsPanel } from './UserDirectPermissionsPanel';
+import { UserRolesPanel } from './UserRolesPanel';
 
 import type { ApiClient, UserDto } from '../../shared/api';
 
@@ -150,7 +151,9 @@ export const UserDetailShellPage: React.FC<UserDetailShellPageProps> = ({ client
   const { hasPermission } = useAuth();
   const canManageDirectPermissions =
     hasPermission(PERMISSIONS_LIST) && hasPermission(USERS_PERMISSIONS_ASSIGN);
-  const canOpenRolesPage = hasPermission(ROLES_LIST) && hasPermission(USERS_ROLES_ASSIGN);
+  const canManageRoles =
+    hasPermission(ROLES_LIST) && hasPermission(USERS_ROLES_ASSIGN);
+  const canOpenRolesPage = canManageRoles;
   const canOpenEffectivePage =
     hasPermission(PERMISSIONS_LIST) && hasPermission(USERS_GET_BY_ID);
 
@@ -264,7 +267,7 @@ export const UserDetailShellPage: React.FC<UserDetailShellPageProps> = ({ client
       <PageHeader
         eyebrow="06 Usuários · Detalhe"
         title={userState.user ? userState.user.name : 'Detalhe do usuário'}
-        desc="Dados cadastrais, atalhos para roles e permissões efetivas, e atribuição de permissões diretas (sem alterar roles)."
+        desc="Dados cadastrais, roles por sistema, permissões diretas e atalhos para permissões efetivas."
       />
 
       {userState.isLoading && (
@@ -337,6 +340,29 @@ export const UserDetailShellPage: React.FC<UserDetailShellPageProps> = ({ client
               )}
             </QuickLinks>
           </SummaryCard>
+
+          {canManageRoles ? (
+            <DirectSection aria-labelledby="user-detail-roles-heading">
+              <SectionHeading id="user-detail-roles-heading">
+                Roles por sistema
+              </SectionHeading>
+              <SectionHelp>
+                Vínculos entre este usuário e roles do catálogo, agrupados por sistema.
+                Marque ou desmarque as roles desejadas e use &quot;Salvar alterações&quot; —
+                a role permanece no catálogo ao remover o vínculo. Roles já vinculadas
+                aparecem com o selo &quot;Vinculada&quot;.
+              </SectionHelp>
+              <UserRolesPanel userId={userId} mode="embedded" client={client} />
+            </DirectSection>
+          ) : (
+            <div data-testid="user-detail-roles-locked">
+              <Alert variant="info">
+                Para atribuir ou remover roles aqui, é necessário permissão de listagem do
+                catálogo de roles e de atualização de usuários (mesmo conjunto exigido pela
+                rota &quot;Roles do usuário&quot; em tela cheia).
+              </Alert>
+            </div>
+          )}
 
           {canManageDirectPermissions ? (
             <DirectSection aria-labelledby="user-detail-direct-permissions-heading">
